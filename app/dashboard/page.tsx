@@ -63,6 +63,15 @@ interface Expert {
   response_status: string
 }
 
+type RawProject = Record<string, unknown>
+
+type SubscriptionLike = Subscription & {
+  maxProjects?: number | string
+  maxprojects?: number | string
+  maxExperts?: number | string
+  maxexperts?: number | string
+}
+
 function toFiniteLimit(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
 
@@ -185,7 +194,7 @@ function normalizeExpert(raw: RawExpert): Expert {
   }
 }
 
-function normalizeProject(raw: any): Project {
+function normalizeProject(raw: RawProject): Project {
   const criteriaList = splitCsv(raw?.kriteria ?? raw?.criteria ?? raw?.criteria_csv)
   const alternatifList = splitCsv(raw?.alternatif ?? raw?.alternatives ?? raw?.alternatif_csv)
 
@@ -198,24 +207,24 @@ function normalizeProject(raw: any): Project {
     Number(raw?.subcriteria_count ?? 0) || countSubcriteriaFromMap(subMap)
 
   return {
-    id: String(raw?.id ?? raw?.project_id ?? ''),
-    user_id: String(raw?.user_id ?? raw?.userid ?? ''),
-    user_email: String(raw?.user_email ?? raw?.email ?? ''),
-    nama_proyek: String(raw?.nama_proyek ?? raw?.namaproyek ?? ''),
-    deskripsi: String(raw?.deskripsi ?? ''),
-    metode: String(raw?.metode ?? ''),
+    id: String(raw?.id ?? raw?.project_id ?? '').trim(),
+    user_id: String(raw?.user_id ?? raw?.userid ?? '').trim(),
+    user_email: String(raw?.user_email ?? raw?.email ?? '').trim(),
+    nama_proyek: String(raw?.nama_proyek ?? raw?.namaproyek ?? '').trim(),
+    deskripsi: String(raw?.deskripsi ?? '').trim(),
+    metode: String(raw?.metode ?? '').trim(),
     jumlah_expert: Number(raw?.jumlah_expert ?? raw?.jumlahexpert ?? 0),
     jumlah_expert_responden: 0,
     punya_subkriteria: Boolean(raw?.punya_subkriteria),
-    fasilitator_email: String(raw?.fasilitator_email ?? raw?.fasilitatoremail ?? ''),
-    fasilitator_whatsapp: String(raw?.fasilitator_whatsapp ?? raw?.fasilitatorwhatsapp ?? ''),
+    fasilitator_email: String(raw?.fasilitator_email ?? raw?.fasilitatoremail ?? '').trim(),
+    fasilitator_whatsapp: String(raw?.fasilitator_whatsapp ?? raw?.fasilitatorwhatsapp ?? '').trim(),
     criteria_count: criteriaList.length,
     subcriteria_count: subcriteriaCount,
     alternatif_count: alternatifList.length,
     criteria_preview: criteriaList.slice(0, 4),
     alternatif_preview: alternatifList.slice(0, 4),
-    created_at: String(raw?.created_at ?? ''),
-    updated_at: String(raw?.updated_at ?? raw?.created_at ?? ''),
+    created_at: String(raw?.created_at ?? '').trim(),
+    updated_at: String(raw?.updated_at ?? raw?.created_at ?? '').trim(),
   }
 }
 
@@ -306,17 +315,18 @@ export default function DashboardPage() {
 
   const currentPlan: PlanType = subscription?.plan ?? 'free'
   const planConfig = PLAN_CONFIG[currentPlan]
+  const subscriptionLike = subscription as SubscriptionLike
 
   const maxProjects =
-    toFiniteLimit((subscription as any)?.max_projects) ??
-    toFiniteLimit((subscription as any)?.maxProjects) ??
-    toFiniteLimit((subscription as any)?.maxprojects) ??
+    toFiniteLimit(subscriptionLike?.max_projects) ??
+    toFiniteLimit(subscriptionLike?.maxProjects) ??
+    toFiniteLimit(subscriptionLike?.maxprojects) ??
     planConfig.maxProjects
 
   const maxExperts =
-    toFiniteLimit((subscription as any)?.max_experts) ??
-    toFiniteLimit((subscription as any)?.maxExperts) ??
-    toFiniteLimit((subscription as any)?.maxexperts) ??
+    toFiniteLimit(subscriptionLike?.max_experts) ??
+    toFiniteLimit(subscriptionLike?.maxExperts) ??
+    toFiniteLimit(subscriptionLike?.maxexperts) ??
     planConfig.maxExperts
 
   const totalProjects = projects.length
@@ -577,518 +587,4 @@ export default function DashboardPage() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
-}
-
-const styles: Record<string, CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#f8fafc',
-    fontFamily: 'Segoe UI, system-ui, sans-serif',
-    paddingBottom: 40,
-  },
-  loadingPage: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100vh',
-    fontFamily: 'Segoe UI, system-ui, sans-serif',
-    flexDirection: 'column',
-    gap: 12,
-    color: '#64748b',
-    background: '#f8fafc',
-  },
-  spinner: {
-    width: 40,
-    height: 40,
-    border: '3px solid rgba(37,99,235,0.15)',
-    borderTop: '3px solid #2563eb',
-    borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite',
-  },
-  container: {
-    maxWidth: 1180,
-    margin: '0 auto',
-    padding: '24px 16px',
-  },
-  topbar: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-  },
-  topbarActions: {
-    display: 'flex',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  pageTitle: {
-    margin: 0,
-    fontSize: 26,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  pageSubtitle: {
-    margin: '4px 0 0',
-    fontSize: 14,
-    color: '#64748b',
-  },
-  heroCard: {
-    display: 'grid',
-    gridTemplateColumns: '1.5fr 1fr',
-    gap: 20,
-    background: 'linear-gradient(135deg,#ffffff 0%,#eff6ff 100%)',
-    border: '1px solid #dbeafe',
-    borderRadius: 18,
-    padding: 24,
-    boxShadow: '0 12px 30px rgba(37,99,235,0.08)',
-    marginBottom: 20,
-  },
-  heroLeft: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-  },
-  heroRight: {
-    background: 'rgba(255,255,255,0.8)',
-    border: '1px solid #e2e8f0',
-    borderRadius: 16,
-    padding: 18,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-    justifyContent: 'center',
-  },
-  userBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    width: 'fit-content',
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#1d4ed8',
-    background: '#dbeafe',
-    borderRadius: 999,
-    padding: '6px 10px',
-  },
-  heroTitle: {
-    margin: 0,
-    fontSize: 24,
-    lineHeight: 1.25,
-    color: '#0f172a',
-    fontWeight: 800,
-  },
-  heroDesc: {
-    margin: 0,
-    fontSize: 14,
-    lineHeight: 1.7,
-    color: '#475569',
-    maxWidth: 680,
-  },
-  planPill: {
-    width: 'fit-content',
-    fontSize: 12,
-    fontWeight: 700,
-    padding: '6px 10px',
-    borderRadius: 999,
-  },
-  planPrice: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  planMeta: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: 14,
-    marginBottom: 20,
-  },
-  statCard: {
-    background: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: 14,
-    padding: 18,
-    boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#64748b',
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: 800,
-    color: '#0f172a',
-    lineHeight: 1.1,
-  },
-  statNote: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  sectionHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-    flexWrap: 'wrap',
-  },
-  sectionTitle: {
-    margin: 0,
-    fontSize: 18,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  sectionDesc: {
-    margin: '4px 0 0',
-    fontSize: 13,
-    color: '#64748b',
-  },
-  projectList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 14,
-  },
-  projectCard: {
-    background: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: 16,
-    padding: 18,
-    boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-  },
-  projectCardTop: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-    flexWrap: 'wrap',
-  },
-  projectTitleRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  projectTitle: {
-    margin: 0,
-    fontSize: 18,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  projectId: {
-    fontSize: 11,
-    color: '#94a3b8',
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: 999,
-    padding: '4px 8px',
-  },
-  projectMetaRow: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-    marginTop: 10,
-  },
-  metaChip: {
-    fontSize: 12,
-    color: '#334155',
-    background: '#f1f5f9',
-    border: '1px solid #e2e8f0',
-    borderRadius: 999,
-    padding: '6px 10px',
-  },
-  actionGroup: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  projectDesc: {
-    margin: '14px 0 0',
-    fontSize: 14,
-    lineHeight: 1.7,
-    color: '#475569',
-  },
-  projectStats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: 10,
-    marginTop: 16,
-  },
-  projectStatBox: {
-    background: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: 12,
-    padding: '12px 14px',
-  },
-  projectStatLabel: {
-    fontSize: 11,
-    color: '#64748b',
-    marginBottom: 6,
-  },
-  projectStatValue: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: '#0f172a',
-  },
-  projectStatValueSmall: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: '#0f172a',
-  },
-  previewGrid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 12,
-    marginTop: 16,
-  },
-  previewBox: {
-    background: '#fcfdff',
-    border: '1px solid #e2e8f0',
-    borderRadius: 12,
-    padding: 14,
-  },
-  previewTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#334155',
-    marginBottom: 10,
-  },
-  previewList: {
-    display: 'flex',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  previewChip: {
-    fontSize: 12,
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    borderRadius: 999,
-    padding: '5px 10px',
-    border: '1px solid #bfdbfe',
-  },
-  previewChipAlt: {
-    fontSize: 12,
-    background: '#f0fdf4',
-    color: '#166534',
-    borderRadius: 999,
-    padding: '5px 10px',
-    border: '1px solid #bbf7d0',
-  },
-  previewMuted: {
-    fontSize: 12,
-    color: '#94a3b8',
-  },
-  projectFooter: {
-    marginTop: 16,
-    paddingTop: 14,
-    borderTop: '1px solid #e2e8f0',
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  footerMeta: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  emptyState: {
-    background: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: 18,
-    padding: '48px 24px',
-    textAlign: 'center',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.05)',
-  },
-  emptyIcon: {
-    fontSize: 42,
-    marginBottom: 10,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: 800,
-    color: '#0f172a',
-    margin: '0 0 8px',
-  },
-  emptyDesc: {
-    maxWidth: 560,
-    margin: '0 auto',
-    fontSize: 14,
-    lineHeight: 1.7,
-    color: '#64748b',
-  },
-  errorBox: {
-    background: '#fef2f2',
-    border: '1.5px solid #fecaca',
-    borderRadius: 12,
-    padding: '12px 16px',
-    color: '#dc2626',
-    fontSize: 13,
-    fontWeight: 600,
-    marginBottom: 16,
-  },
-  btnPrimary: {
-    padding: '12px 18px',
-    background: 'linear-gradient(135deg,#1d4ed8,#2563eb)',
-    color: 'white',
-    border: 'none',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontSize: 14,
-    fontWeight: 700,
-    boxShadow: '0 6px 16px rgba(37,99,235,0.28)',
-  },
-  btnPrimarySmall: {
-    padding: '10px 14px',
-    background: 'linear-gradient(135deg,#1d4ed8,#2563eb)',
-    color: 'white',
-    border: 'none',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 700,
-    boxShadow: '0 4px 12px rgba(37,99,235,0.2)',
-  },
-  btnSecondary: {
-    padding: '10px 14px',
-    background: 'white',
-    color: '#1d4ed8',
-    border: '1.5px solid #bfdbfe',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 700,
-  },
-  btnGhost: {
-    padding: '10px 14px',
-    background: 'white',
-    color: '#334155',
-    border: '1px solid #e2e8f0',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 700,
-  },
-  btnDanger: {
-    padding: '10px 14px',
-    background: '#fee2e2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: 10,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 700,
-  },
-}
-
-const modalStyles: Record<string, CSSProperties> = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    background: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 999,
-    padding: 16,
-  },
-  modal: {
-    background: 'white',
-    borderRadius: 16,
-    padding: '28px 32px',
-    maxWidth: 560,
-    width: '100%',
-    boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
-  },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: '#1e293b',
-    margin: 0,
-  },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    fontSize: 18,
-    color: '#94a3b8',
-    padding: 0,
-  },
-  desc: {
-    fontSize: 13,
-    color: '#64748b',
-    marginBottom: 20,
-  },
-  planGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0,1fr))',
-    gap: 12,
-    marginBottom: 16,
-  },
-  planCard: {
-    border: '1.5px solid #e2e8f0',
-    borderRadius: 10,
-    padding: '14px 12px',
-    textAlign: 'center',
-  },
-  planCardActive: {
-    border: '1.5px solid #2563eb',
-    background: '#eff6ff',
-  },
-  planName: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: '#1e293b',
-    marginBottom: 6,
-  },
-  planPrice: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#2563eb',
-    marginBottom: 6,
-  },
-  planDesc: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  planBadge: {
-    marginTop: 8,
-    fontSize: 10,
-    background: '#1d4ed8',
-    color: 'white',
-    borderRadius: 999,
-    padding: '2px 8px',
-    display: 'inline-block',
-  },
-  infoBox: {
-    background: '#fffbeb',
-    border: '1px solid #fcd34d',
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontSize: 12,
-    color: '#92400e',
-    marginBottom: 16,
-  },
-  btnClose: {
-    width: '100%',
-    padding: 11,
-    background: '#f1f5f9',
-    border: 'none',
-    borderRadius: 9,
-    cursor: 'pointer',
-    fontWeight: 600,
-    color: '#374151',
-    fontSize: 14,
-  },
 }
