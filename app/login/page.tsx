@@ -2,18 +2,14 @@
 
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { hashPassword, saveSession } from '@/lib/auth';
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
 
-async function sha256(text: string) {
-  const bytes = new TextEncoder().encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 export default function LoginPage() {
+  const router = useRouter();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -27,7 +23,7 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const passwordHash = await sha256(password);
+      const passwordHash = await hashPassword(password);
 
       const res = await fetch(API_URL, {
         method: 'POST',
@@ -47,10 +43,16 @@ export default function LoginPage() {
         throw new Error(data?.message || 'Login gagal.');
       }
 
-      setMessage(data?.message || 'Login berhasil.');
+      saveSession({
+        id: String(data?.user_id || data?.id || ''),
+        nama: String(data?.nama || ''),
+        email: String(data?.email || email),
+        status_user: String(data?.status_user || ''),
+        institusi: String(data?.institusi || ''),
+      });
 
-      // nanti bisa diganti redirect ke dashboard
-      // window.location.href = '/dashboard';
+      setMessage('Login berhasil.');
+      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat login.');
     } finally {
