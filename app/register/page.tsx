@@ -26,7 +26,7 @@ export default function RegisterPage() {
         body: JSON.stringify({ nama, email, password }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
         throw new Error(data?.message || 'Registrasi gagal.');
@@ -50,25 +50,42 @@ export default function RegisterPage() {
           <span className="eyebrow">Register</span>
           <h1>Buat akun baru</h1>
           <p>
-            Gunakan halaman ini untuk mendaftarkan pengguna baru. Nanti URL backend eksternal bisa
-            Anda ganti sesuai endpoint Google Apps Script, Supabase, atau layanan lain.
+            Daftarkan pengguna baru melalui halaman ini. Nantinya URL backend eksternal
+            bisa Anda ganti sesuai endpoint Google Apps Script, Supabase, atau layanan lain.
           </p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label>
             <span>Nama lengkap</span>
-            <input value={nama} onChange={(e) => setNama(e.target.value)} required />
+            <input
+              value={nama}
+              onChange={(e) => setNama(e.target.value)}
+              placeholder="Masukkan nama lengkap"
+              required
+            />
           </label>
 
           <label>
             <span>Email</span>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nama@email.com"
+              required
+            />
           </label>
 
           <label>
             <span>Password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Masukkan password"
+              required
+            />
           </label>
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>

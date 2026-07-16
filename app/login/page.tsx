@@ -25,7 +25,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
         throw new Error(data?.message || 'Login gagal.');
@@ -46,24 +46,36 @@ export default function LoginPage() {
           <span className="eyebrow">Sign In</span>
           <h1>Masuk ke aplikasi</h1>
           <p>
-            Halaman ini disiapkan untuk autentikasi berbasis backend eksternal. Setelah endpoint
-            login final tersedia, Anda hanya perlu mengganti URL API dan menyesuaikan responsnya.
+            Gunakan akun Anda untuk masuk ke sistem. Setelah backend final tersedia,
+            Anda hanya perlu mengganti endpoint login dan menyesuaikan responsnya.
           </p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label>
             <span>Email</span>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nama@email.com"
+              required
+            />
           </label>
 
           <label>
             <span>Password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Masukkan password"
+              required
+            />
           </label>
 
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            {loading ? 'Memproses...' : 'Sign In'}
+            {loading ? 'Memproses...' : 'Masuk'}
           </button>
 
           {message ? <p className="feedback success">{message}</p> : null}
