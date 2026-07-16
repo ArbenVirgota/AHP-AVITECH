@@ -3,7 +3,15 @@
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 
-const API_URL = 'https://example.com/login';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
+
+async function sha256(text: string) {
+  const bytes = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,19 +27,30 @@ export default function LoginPage() {
     setError('');
 
     try {
+      const passwordHash = await sha256(password);
+
       const res = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({
+          action: 'login_user',
+          email,
+          passwordHash,
+        }),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
+      if (!res.ok || !data?.success) {
         throw new Error(data?.message || 'Login gagal.');
       }
 
-      setMessage(data?.message || 'Login berhasil. Anda bisa arahkan ke dashboard setelah ini.');
+      setMessage(data?.message || 'Login berhasil.');
+
+      // nanti bisa diganti redirect ke dashboard
+      // window.location.href = '/dashboard';
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat login.');
     } finally {
@@ -45,10 +64,7 @@ export default function LoginPage() {
         <div className="auth-intro">
           <span className="eyebrow">Sign In</span>
           <h1>Masuk ke aplikasi</h1>
-          <p>
-            Gunakan akun Anda untuk masuk ke sistem. Setelah backend final tersedia,
-            Anda hanya perlu mengganti endpoint login dan menyesuaikan responsnya.
-          </p>
+          <p>Gunakan email dan password yang sudah terdaftar.</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -58,7 +74,6 @@ export default function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@email.com"
               required
             />
           </label>
@@ -69,7 +84,6 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Masukkan password"
               required
             />
           </label>

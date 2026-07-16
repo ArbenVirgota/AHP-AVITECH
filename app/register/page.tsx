@@ -3,12 +3,21 @@
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
 
-const API_URL = 'https://example.com/register';
+const API_URL = 'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
+
+async function sha256(text: string) {
+  const bytes = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 export default function RegisterPage() {
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [institusi, setInstitusi] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -20,22 +29,33 @@ export default function RegisterPage() {
     setError('');
 
     try {
+      const passwordHash = await sha256(password);
+
       const res = await fetch(API_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nama, email, password }),
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({
+          action: 'registeruser',
+          nama,
+          email,
+          passwordHash,
+          institusi,
+        }),
       });
 
-      const data = await res.json().catch(() => null);
+      const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
+      if (!res.ok || !data?.success) {
         throw new Error(data?.message || 'Registrasi gagal.');
       }
 
-      setMessage(data?.message || 'Registrasi berhasil. Silakan lanjut ke halaman login.');
+      setMessage('Registrasi berhasil. Silakan lanjut ke halaman login.');
       setNama('');
       setEmail('');
       setPassword('');
+      setInstitusi('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat registrasi.');
     } finally {
@@ -49,10 +69,7 @@ export default function RegisterPage() {
         <div className="auth-intro">
           <span className="eyebrow">Register</span>
           <h1>Buat akun baru</h1>
-          <p>
-            Daftarkan pengguna baru melalui halaman ini. Nantinya URL backend eksternal
-            bisa Anda ganti sesuai endpoint Google Apps Script, Supabase, atau layanan lain.
-          </p>
+          <p>Daftarkan pengguna baru untuk mengakses aplikasi.</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
@@ -61,7 +78,6 @@ export default function RegisterPage() {
             <input
               value={nama}
               onChange={(e) => setNama(e.target.value)}
-              placeholder="Masukkan nama lengkap"
               required
             />
           </label>
@@ -72,7 +88,6 @@ export default function RegisterPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@email.com"
               required
             />
           </label>
@@ -83,8 +98,15 @@ export default function RegisterPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Masukkan password"
               required
+            />
+          </label>
+
+          <label>
+            <span>Institusi</span>
+            <input
+              value={institusi}
+              onChange={(e) => setInstitusi(e.target.value)}
             />
           </label>
 
