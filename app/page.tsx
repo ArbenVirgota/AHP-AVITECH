@@ -1,95 +1,75 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
 
-export default function Home() {
+import Link from 'next/link';
+
+const features = [
+  {
+    title: 'Pengambilan data eksternal',
+    desc: 'Aplikasi dapat terhubung ke backend eksternal seperti Google Apps Script, Google Sheets, atau Supabase melalui fetch ke URL publik.',
+  },
+  {
+    title: 'Alur kerja lebih ringan',
+    desc: 'Halaman awal difokuskan untuk pengenalan aplikasi, registrasi, dan login agar lebih sederhana dan mudah dideploy.',
+  },
+  {
+    title: 'Siap untuk hosting statis',
+    desc: 'Struktur halaman dibuat client-side friendly sehingga lebih cocok untuk deployment yang stabil di Hostinger.',
+  },
+];
+
+export default function HomePage() {
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>app/page.tsx</code>.
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
+    <main className="page-shell">
+      <section className="hero-card">
+        <div className="hero-copy">
+          <span className="eyebrow">Aplikasi AHP</span>
+          <h1>Sistem pendukung keputusan yang lebih mudah diakses dan lebih siap dideploy.</h1>
+          <p>
+            Halaman ini menjadi pintu masuk aplikasi Anda: memperkenalkan fungsi utama,
+            mengarahkan pengguna untuk membuat akun, lalu masuk ke sistem dengan alur yang
+            sederhana.
+          </p>
+          <div className="hero-actions">
+            <Link href="/register" className="btn btn-primary">Register</Link>
+            <Link href="/login" className="btn btn-secondary">Sign In</Link>
+          </div>
         </div>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        <div className="hero-panel">
+          <div className="stat-box">
+            <span className="stat-label">Tujuan</span>
+            <strong>Deployment yang lebih stabil</strong>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">Arsitektur</span>
+            <strong>Frontend statis + backend eksternal</strong>
+          </div>
+          <div className="stat-box">
+            <span className="stat-label">Halaman awal</span>
+            <strong>Introduction, Register, Login</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="section-block">
+        <div className="section-head">
+          <span className="eyebrow">Ringkasan</span>
+          <h2>Apa yang dilakukan aplikasi ini?</h2>
+          <p>
+            Aplikasi membantu proses analisis keputusan berbasis AHP dengan pengalaman awal yang
+            lebih jelas untuk pengguna baru maupun pengguna yang sudah memiliki akun.
+          </p>
+        </div>
+
+        <div className="feature-grid">
+          {features.map((feature) => (
+            <article key={feature.title} className="feature-card">
+              <h3>{feature.title}</h3>
+              <p>{feature.desc}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
