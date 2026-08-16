@@ -2,9 +2,9 @@
 
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import type { CSSProperties } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation' // 🟢 Ditambahkan useSearchParams
+import { useRouter, useSearchParams } from 'next/navigation'
 import { clearSession, getSession } from '@/lib/auth'
 import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
@@ -1057,9 +1057,10 @@ function normalizeProject(raw: RawProject): Project {
   }
 }
 
-export default function DashboardPage() {
+// 🟢 Komponen isi utama dashboard
+function DashboardContent() {
   const router = useRouter()
-  const searchParams = useSearchParams() // 🟢 Hook untuk menangkap parameter URL
+  const searchParams = useSearchParams()
 
   const [session, setSession] = useState<UserSession | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
@@ -1114,7 +1115,6 @@ export default function DashboardPage() {
     try {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
 
-      // 🟢 PEMERIKSAAN SINKRONISASI POLA: SUBSCRIPTIONS -> USERS (FALLBACK)
       const [subRes, projRes, consultRes, userRes, statsRes, planRes] = await Promise.all([
         fetch(`${API_URL}?action=getsubscription&user_email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         fetch(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }),
@@ -1151,11 +1151,9 @@ export default function DashboardPage() {
           const subData = subJson.data
           const subPlan = String(subData.plan || '').toLowerCase().trim()
 
-          // Jika di sheet subscriptions ada plan aktif bukan free, gunakan data subscription
           if (['pro', 'plus', 'premium'].includes(subPlan)) {
             currentSub = subData
           } else if (fallbackPlanFromUser !== 'free') {
-            // 🟢 Fallback ke sheet users jika status subscription free/kosong tetapi di users tercatat Pro/Plus/Premium
             currentSub = {
               ...subData,
               plan: fallbackPlanFromUser,
@@ -1167,7 +1165,6 @@ export default function DashboardPage() {
         }
       }
 
-      // Jika belum ada data subscription sama sekali, gunakan fallback user profile
       if (!currentSub && fallbackPlanFromUser !== 'free') {
         currentSub = {
           plan: fallbackPlanFromUser,
@@ -1304,7 +1301,6 @@ export default function DashboardPage() {
     void loadDashboard(s)
   }, [router, loadDashboard])
 
-  // Fungsi Upload Bukti Transfer & Konfirmasi Pembayaran dengan CANVAS COMPRESSION
   const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1560,7 +1556,6 @@ export default function DashboardPage() {
               Kelola hirarki kriteria, distribusikan kuesioner token pakar, dan evaluasi hasil agregat geometric mean dalam satu platform terintegrasi.
             </p>
 
-            {/* 🟢 PANDUAN PENGGUNAAN TERBARU */}
             <div style={S.guideLinkContainer}>
               <button
                 type="button"
@@ -1897,6 +1892,21 @@ export default function DashboardPage() {
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
+  )
+}
+
+// 🟢 Komponen utama yang dibungkus Suspense (Wajib untuk Next.js production build)
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 12, color: '#334155', background: '#f8fafc' }}>
+        <div style={{ width: 36, height: 36, border: '3px solid rgba(37,99,235,0.15)', borderTop: '3px solid #2563eb', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Memuat halaman dashboard...</div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    }>
+      <DashboardContent />
+    </Suspense>
   )
 }
 
