@@ -6,14 +6,6 @@ import React, { FormEvent, useState } from 'react';
 // 🟢 Menggunakan variabel lingkungan terbaru
 const API_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 
-async function sha256(text: string) {
-  const bytes = new TextEncoder().encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 export default function RegisterPage() {
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
@@ -36,8 +28,7 @@ export default function RegisterPage() {
         throw new Error('URL Web App Google Apps Script belum dikonfigurasi di .env.local');
       }
 
-      const passwordHash = await sha256(password);
-
+      // 🟢 Menghilangkan pemanggilan sha256, langsung kirim password plain text ke backend
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -47,7 +38,7 @@ export default function RegisterPage() {
           action: 'registeruser',
           nama: nama.trim(),
           email: email.trim().toLowerCase(),
-          password_hash: passwordHash,
+          password: password.trim(), // Mengirim password plain text
           institusi: institusi.trim(),
           status_user: 'fasilitator', 
           tier: 'free',

@@ -1,3 +1,5 @@
+// app/expert-directory/page.tsx
+
 'use client';
 
 import React, { useEffect, useState, useCallback, useMemo, CSSProperties } from 'react';
@@ -6,12 +8,14 @@ import { getSession } from '@/lib/auth';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 
-// 🟢 BATAS KUOTA PAKAR SESUAI ATURAN PLAN USER
+// 🟢 BATAS KUOTA PAKAR SESUAI ATURAN PLAN USER (KAPITAL)
 const PLAN_LIMITS: Record<string, number> = {
   PUBLIC: 3,       // Pengunjung belum login (GUEST)
   FREE: 5,         // User terdaftar paket Gratis/Free
   BASIC: 10,       // User paket Basic
   PRO: 25,         // User paket Pro
+  PLUS: 40,        // User paket Plus
+  PREMIUM: 999,    // User paket Premium / Unlimited
   ENTERPRISE: 999, // User paket Enterprise / Unlimited
   SUPERADMIN: 999
 };
@@ -232,8 +236,10 @@ export default function ExpertDirectoryPage() {
       const rawPlan = String(session.plan || session.subscription_plan || session.paket || session.role || 'FREE').toUpperCase().trim();
       if (rawPlan.includes('SUPER')) {
         setUserPlan('SUPERADMIN');
-      } else if (rawPlan.includes('ENTERPRISE')) {
-        setUserPlan('ENTERPRISE');
+      } else if (rawPlan.includes('PREMIUM')) {
+        setUserPlan('PREMIUM');
+      } else if (rawPlan.includes('PLUS')) {
+        setUserPlan('PLUS');
       } else if (rawPlan.includes('PRO')) {
         setUserPlan('PRO');
       } else if (rawPlan.includes('BASIC')) {
@@ -243,6 +249,23 @@ export default function ExpertDirectoryPage() {
       }
     } else {
       setUserPlan('PUBLIC');
+    }
+
+    // 🟢 SINKRONISASI PLAN DINAMIS: Ambil status plan terbaru langsung dari database/subscriptions
+    if (activeEmail && GOOGLESCRIPTURL) {
+      fetch(`${GOOGLESCRIPTURL}?action=getsubscription&email=${encodeURIComponent(activeEmail)}`, { cache: 'no-store' })
+        .then(res => res.json())
+        .then(json => {
+          if (json && json.success && json.data && json.data.plan) {
+            const fetchedPlan = String(json.data.plan).toUpperCase().trim();
+            if (fetchedPlan) {
+              setUserPlan(fetchedPlan);
+            }
+          }
+        })
+        .catch(err => {
+          console.warn("Gagal menyinkronkan plan terbaru secara live:", err);
+        });
     }
 
     fetchDirectory();
@@ -270,8 +293,14 @@ export default function ExpertDirectoryPage() {
 
   const processedExperts = useMemo(() => {
     let list = experts.filter(exp => {
+      // 🟢 SINKRONISASI STATUS: Hanya ambil pakar yang berstatus AKTIF atau kosong (dianggap aktif)
+      const statusValue = String(exp.status || 'Aktif').trim().toLowerCase();
+      const isActive = statusValue === 'aktif' || statusValue === 'active' || statusValue === '';
+      
       const isPub = String(exp.is_public || exp.ispublic || 'PUBLIK').toUpperCase();
-      return isPub !== 'FALSE' && isPub !== 'PRIVAT';
+      const isPublicVisible = isPub !== 'FALSE' && isPub !== 'PRIVAT';
+
+      return isActive && isPublicVisible;
     });
 
     if (searchQuery.trim()) {
@@ -287,7 +316,7 @@ export default function ExpertDirectoryPage() {
     list.sort((a, b) => {
       const ratingA = Number(a.average_rating || a.rating || 0);
       const ratingB = Number(b.average_rating || b.rating || 0);
-      return ratingA - ratingB;
+      return ratingB - ratingA; // Urutkan dari rating tertinggi ke terendah
     });
 
     const limit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.PUBLIC;
@@ -346,7 +375,7 @@ export default function ExpertDirectoryPage() {
           height = Math.round((height * maxDim) / width);
           width = maxDim;
         } else if (height > maxDim) {
-          height = Math.round((height * maxDim) / height);
+          width = Math.round((width * maxDim) / height);
           height = maxDim;
         }
 
@@ -395,7 +424,7 @@ export default function ExpertDirectoryPage() {
           height = Math.round((height * maxDim) / width);
           width = maxDim;
         } else if (height > maxDim) {
-          height = Math.round((height * maxDim) / height);
+          width = Math.round((width * maxDim) / height);
           height = maxDim;
         }
 
@@ -590,7 +619,6 @@ export default function ExpertDirectoryPage() {
     }
 
     const expId = exp.expert_id || exp.expertId || exp.id || 'EXP-UNKNOWN';
-    // 🟢 EKSTRAKSI EMAIL PAKAR YANG LEBIH LENGKAP & PRESISI
     const expEmail = getVal(exp, ['expert_email', 'expertemail', 'email', 'expertEmail', 'kontak_expert', 'kontakExpert']);
 
     setConsultTargetExpert(formattedName);
@@ -624,7 +652,6 @@ export default function ExpertDirectoryPage() {
     }
   };
 
-  // 🟢 HANDLER PENGAJUAN KONSULTASI PAKAR DENGAN PAYLOAD KUNCI LENGKAP EMAIL
   const handleConsultSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!consultUserName || !consultUserContact || !consultInstitusi || !consultQuestion) {
@@ -636,7 +663,6 @@ export default function ExpertDirectoryPage() {
       setSubmittingConsult(true);
       const ticketId = `TCK-${Date.now()}`;
 
-      // 🟢 PAYLOAD DILENGKAPI KUNCI EMAIL GANDA UNTUK MENCEGAH FAILURE BACA GOOGLE APPS SCRIPT
       const payload = {
         action: 'submitconsultation', 
         ticket_id: ticketId,
@@ -653,10 +679,10 @@ export default function ExpertDirectoryPage() {
         user_email: consultUserContact.trim().toLowerCase(),
         userEmail: consultUserContact.trim().toLowerCase(),
         kontakUser: consultUserContact.trim().toLowerCase(),
-        asal_institusi: consultInstitusi.trim(),
+        asal_instansi: consultInstitusi.trim(),
         asalInstitusi: consultInstitusi.trim(),
         pertanyaan: consultQuestion.trim(),
-        userPlan: userPlan || 'Free',
+        userPlan: userPlan || 'FREE',
         target_type: 'expert', 
         status: 'Pending'
       };
@@ -769,7 +795,7 @@ export default function ExpertDirectoryPage() {
         {loading ? (
           <div style={STYLES.loader}>Memuat Data Direktori Pakar...</div>
         ) : processedExperts.displayed.length === 0 ? (
-          <div style={STYLES.emptyBox}>Belum ada data pakar yang tersedia.</div>
+          <div style={STYLES.emptyBox}>Belum ada data pakar yang aktif atau tersedia saat ini.</div>
         ) : (
           <>
             <div style={STYLES.grid}>
@@ -850,18 +876,32 @@ export default function ExpertDirectoryPage() {
 
         {/* Modal Apply Expert */}
         {showApplyModal && (
-          <div style={STYLES.modalOverlay}>
-            <div style={STYLES.modalContent}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={STYLES.modalOverlay} onClick={() => setShowApplyModal(false)}>
+            <div style={STYLES.modalContent} onClick={(e) => e.stopPropagation()}>
+              
+              {/* Header Modal (Sticky) */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexShrink: 0 }}>
                 <h3 style={{ margin: 0, fontSize: 17, color: '#0f172a' }}>🌟 Gabung Sebagai Pakar (Expert)</h3>
                 <button onClick={() => setShowApplyModal(false)} style={STYLES.btnCloseModal}>✕</button>
               </div>
 
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12.5, color: '#1e3a8a', lineHeight: 1.5 }}>
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12.5, color: '#1e3a8a', lineHeight: 1.5, flexShrink: 0 }}>
                 Bantu peneliti dan mahasiswa menyempurnakan riset mereka. Sebagai apresiasi, Anda akan mendapatkan <strong>E-Sertifikat Kolaborasi Riset</strong>, <strong>Eksposur Profil Akademik</strong>, dan <strong>Akses Gratis Akun Pro</strong>.
               </div>
 
-              <form onSubmit={handleApplyExpertSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Form Content (Scrollable Area) */}
+              <form 
+                onSubmit={handleApplyExpertSubmit} 
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: 12, 
+                  overflowY: 'auto', 
+                  paddingRight: 4, 
+                  flexGrow: 1, 
+                  marginBottom: 12 
+                }}
+              >
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 10 }}>
                   <div>
                     <label style={STYLES.fieldLabel}>Gelar Depan</label>
@@ -1001,23 +1041,31 @@ export default function ExpertDirectoryPage() {
                     </span>
                   </label>
                 </div>
-
-                <div style={{ display: 'flex', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
-                  <button type="button" onClick={() => setShowApplyModal(false)} style={STYLES.btnCancelModal}>Batal</button>
-                  <button type="submit" disabled={submittingApply || !agreedToTerms} style={{ ...STYLES.btnSubmitModal, opacity: (!agreedToTerms || submittingApply) ? 0.6 : 1, cursor: (!agreedToTerms || submittingApply) ? 'not-allowed' : 'pointer' }}>
-                    {submittingApply ? 'Mengirim Data...' : 'Kirim Pendaftaran'}
-                  </button>
-                </div>
               </form>
+
+              {/* Action Buttons (Sticky Footer) */}
+              <div style={{ display: 'flex', gap: 10, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setShowApplyModal(false)} style={STYLES.btnCancelModal}>Batal</button>
+                <button 
+                  type="button" 
+                  onClick={handleApplyExpertSubmit} 
+                  disabled={submittingApply || !agreedToTerms} 
+                  style={{ ...STYLES.btnSubmitModal, opacity: (!agreedToTerms || submittingApply) ? 0.6 : 1, cursor: (!agreedToTerms || submittingApply) ? 'not-allowed' : 'pointer' }}
+                >
+                  {submittingApply ? 'Mengirim Data...' : 'Kirim Pendaftaran'}
+                </button>
+              </div>
+
             </div>
           </div>
         )}
 
         {/* Modal Form Konsultasi User */}
         {showConsultModal && (
-          <div style={STYLES.modalOverlay}>
-            <div style={STYLES.modalContent}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={STYLES.modalOverlay} onClick={() => setShowConsultModal(false)}>
+            <div style={STYLES.modalContent} onClick={(e) => e.stopPropagation()}>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexShrink: 0 }}>
                 <div>
                   <h3 style={{ margin: 0, fontSize: 17, color: '#0f172a' }}>💬 Ajukan Tiket Konsultasi</h3>
                   <p style={{ margin: '2px 0 0', fontSize: 12.5, color: '#64748b' }}>
@@ -1027,11 +1075,22 @@ export default function ExpertDirectoryPage() {
                 <button onClick={() => setShowConsultModal(false)} style={STYLES.btnCloseModal}>✕</button>
               </div>
 
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12.5, color: '#334155', lineHeight: 1.5 }}>
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12.5, color: '#334155', lineHeight: 1.5, flexShrink: 0 }}>
                 💡 <strong>Informasi Profil:</strong> Nama dan Asal Institusi Anda ditarik otomatis dari data akun yang terdaftar. Silakan lengkapi rincian pertanyaan riset Anda di bawah ini.
               </div>
 
-              <form onSubmit={handleConsultSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <form 
+                onSubmit={handleConsultSubmit} 
+                style={{ 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  gap: 12, 
+                  overflowY: 'auto', 
+                  paddingRight: 4, 
+                  flexGrow: 1, 
+                  marginBottom: 12 
+                }}
+              >
                 <div>
                   <label style={STYLES.fieldLabel}>Nama Lengkap Anda (Dari Tab users)*</label>
                   <input 
@@ -1076,14 +1135,15 @@ export default function ExpertDirectoryPage() {
                     required 
                   />
                 </div>
-
-                <div style={{ display: 'flex', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
-                  <button type="button" onClick={() => setShowConsultModal(false)} style={STYLES.btnCancelModal}>Batal</button>
-                  <button type="submit" disabled={submittingConsult} style={STYLES.btnSubmitModal}>
-                    {submittingConsult ? 'Mengirim...' : 'Kirim Tiket Konsultasi →'}
-                  </button>
-                </div>
               </form>
+
+              <div style={{ display: 'flex', gap: 10, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => setShowConsultModal(false)} style={STYLES.btnCancelModal}>Batal</button>
+                <button type="button" onClick={handleConsultSubmit} disabled={submittingConsult} style={STYLES.btnSubmitModal}>
+                  {submittingConsult ? 'Mengirim...' : 'Kirim Tiket Konsultasi →'}
+                </button>
+              </div>
+
             </div>
           </div>
         )}
@@ -1134,10 +1194,21 @@ const STYLES: Record<string, CSSProperties> = {
   moreHiddenNotice: { background: 'rgba(254, 243, 199, 0.95)', border: '1px solid #fef08a', padding: '12px', borderRadius: 8, textAlign: 'center', fontSize: 12.5, color: '#92400e', marginTop: 12 },
 
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 },
-  modalContent: { background: '#fff', borderRadius: 14, width: '100%', maxWidth: 540, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', maxHeight: '90vh', overflowY: 'auto' },
-  btnCloseModal: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b' },
+  modalContent: { 
+    background: '#fff', 
+    borderRadius: 14, 
+    width: '100%', 
+    maxWidth: 540, 
+    padding: '24px 28px', 
+    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', 
+    maxHeight: '90vh', 
+    display: 'flex', 
+    flexDirection: 'column', 
+    overflow: 'hidden' 
+  },
+  btnCloseModal: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#64748b', padding: 0 },
   fieldLabel: { fontSize: 12, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 },
-  inputModal: { width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: 13.5, outline: 'none', background: '#fff' },
+  inputModal: { width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: 13.5, outline: 'none', background: '#fff', boxSizing: 'border-box' },
   btnCancelModal: { background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' },
   btnSubmitModal: { background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 700, fontSize: 13, cursor: 'pointer', transition: 'all 0.2s' }
 };

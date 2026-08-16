@@ -1,3 +1,5 @@
+// app/api/send-email/route.ts
+
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import dns from 'dns';
@@ -19,13 +21,19 @@ export async function POST(req: Request) {
     const smtpPort = Number(process.env.SMTP_PORT) || 465;
     const smtpUser = process.env.SMTP_USER || 'admin@avitech.cloud';
     // Membersihkan tanda petik pembungkus jika terbaca dari .env.local
-    const smtpPass = (process.env.SMTP_PASS || 'Adminahp@1').replace(/^["']|["']$/g, '');
+    const smtpPass = (process.env.SMTP_PASS || '1r25nPejanggik').replace(/^["']|["']$/g, '');
 
-    // 2. Konfigurasi Transporter SMTP Hostinger
+    // 2. Konfigurasi Transporter SMTP
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
       secure: smtpPort === 465, // true untuk port 465 (SSL), false untuk port 587 (STARTTLS)
+      
+      // 🟢 TAMBAHAN WAJIB UNTUK GMAIL SMTP: Mencegah Error 421 (Rate Limit)
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 50,
+
       auth: {
         user: smtpUser,
         pass: smtpPass,
@@ -57,20 +65,20 @@ export async function POST(req: Request) {
 
     // 4. Proses Pengiriman
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email terkirim via Hostinger:', info.messageId);
+    console.log('Email terkirim:', info.messageId);
 
     return NextResponse.json({
       success: true,
-      message: 'Email berhasil terkirim via Hostinger!',
+      message: 'Email berhasil terkirim!',
       messageId: info.messageId
     });
 
   } catch (error: any) {
-    console.error('Gagal mengirim email via SMTP Hostinger:', error);
+    console.error('Gagal mengirim email:', error);
     return NextResponse.json(
       { 
         success: false, 
-        message: 'Gagal mengirim email via Hostinger: ' + (error.message || error.toString()) 
+        message: 'Gagal mengirim email: ' + (error.message || error.toString()) 
       },
       { status: 500 }
     );

@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation' // 🟢 Ditambahkan useSearchParams
 import { clearSession, getSession } from '@/lib/auth'
 import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
@@ -762,25 +762,47 @@ function ProfileModal({
 
   return (
     <div style={S.overlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
-        <div style={S.header}>
+      <div 
+        style={{ 
+          ...S.modal, 
+          maxWidth: 540, 
+          maxHeight: '90vh', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          padding: '24px 28px'
+        }} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ ...S.header, marginBottom: 12, flexShrink: 0 }}>
           <h2 style={S.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
           <button onClick={onClose} style={S.closeBtn} type="button">
             ✕
           </button>
         </div>
 
-        <p style={S.desc}>
+        <p style={{ ...S.desc, flexShrink: 0, marginBottom: 12 }}>
           Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
         </p>
 
         {errorMsg && (
-          <div style={{ ...S.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626' }}>
+          <div style={{ ...S.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626', flexShrink: 0 }}>
             {errorMsg}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <form 
+          onSubmit={handleSubmit} 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 12, 
+            overflowY: 'auto', 
+            paddingRight: 4,
+            flexGrow: 1,
+            marginBottom: 12
+          }}
+        >
           <div>
             <label style={formStyles.label}>Nama Lengkap &amp; Gelar</label>
             <input
@@ -891,25 +913,26 @@ function ProfileModal({
               )}
             </div>
           </div>
-
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={onClose} style={S.btnClose} type="button">
-              Batal
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              style={{
-                ...S.btnClose,
-                background: '#2563eb',
-                color: 'white',
-                fontWeight: 700,
-              }}
-            >
-              {saving ? 'Menyimpan...' : 'Simpan Profil'}
-            </button>
-          </div>
         </form>
+
+        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <button onClick={onClose} style={S.btnClose} type="button">
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              ...S.btnClose,
+              background: '#2563eb',
+              color: 'white',
+              fontWeight: 700,
+            }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Profil'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1036,6 +1059,7 @@ function normalizeProject(raw: RawProject): Project {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const searchParams = useSearchParams() // 🟢 Hook untuk menangkap parameter URL
 
   const [session, setSession] = useState<UserSession | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
@@ -1064,6 +1088,13 @@ export default function DashboardPage() {
     foto_profil: '',
   })
   const [showProfileModal, setShowProfileModal] = useState(false)
+
+  // 🟢 Otomatis buka modal profil jika ada parameter ?action=profile dari Sidebar
+  useEffect(() => {
+    if (searchParams.get('action') === 'profile') {
+      setShowProfileModal(true)
+    }
+  }, [searchParams])
 
   const isProfileComplete = useMemo(() => {
     return Boolean(

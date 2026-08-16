@@ -95,7 +95,7 @@ export default function SuperAdminControlPage() {
   const [editingUserSub, setEditingUserSub] = useState<UserSubscriptionItem | null>(null);
   const [subForm, setSubForm] = useState({
     user_email: '',
-    plan: 'free',
+    plan: 'FREE',
     status: 'ACTIVE',
     expired_date: '',
     custom_max_projects: '',
@@ -106,12 +106,12 @@ export default function SuperAdminControlPage() {
     notes: ''
   });
 
-  // State Config Plans
+  // State Config Plans (Default Kapital)
   const [plans, setPlans] = useState<PlanSetting[]>([
-    { plan_key: 'free', label: 'FREE', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 5, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: true, allow_alternative_method: false, allow_ai_features: false },
-    { plan_key: 'pro', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
-    { plan_key: 'plus', label: 'PLUS', price: 350000, duration_months: 6, max_projects: 10, max_experts_manual: 15, max_experts_directory: 10, max_consultation_per_expert: 5, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true },
-    { plan_key: 'premium', label: 'PREMIUM', price: 750000, duration_months: 6, max_projects: 999999, max_experts_manual: 999999, max_experts_directory: 999999, max_consultation_per_expert: 15, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true }
+    { plan_key: 'FREE', label: 'FREE', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 5, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: true, allow_alternative_method: false, allow_ai_features: false },
+    { plan_key: 'PRO', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
+    { plan_key: 'PLUS', label: 'PLUS', price: 350000, duration_months: 6, max_projects: 10, max_experts_manual: 15, max_experts_directory: 10, max_consultation_per_expert: 5, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true },
+    { plan_key: 'PREMIUM', label: 'PREMIUM', price: 750000, duration_months: 6, max_projects: 999999, max_experts_manual: 999999, max_experts_directory: 999999, max_consultation_per_expert: 15, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true }
   ]);
 
   // State Modal CRUD Admin
@@ -189,7 +189,12 @@ export default function SuperAdminControlPage() {
       setUserSubscriptions(Array.isArray(userSubsData) ? userSubsData : []);
 
       if (Array.isArray(planSettingsData) && planSettingsData.length > 0) {
-        setPlans(planSettingsData);
+        // Pastikan plan_key selalu uppercase
+        const normalizedPlans = planSettingsData.map((p: any) => ({
+          ...p,
+          plan_key: String(p.plan_key || p.label || 'FREE').toUpperCase()
+        }));
+        setPlans(normalizedPlans);
       }
 
       if (paymentSettings && !Array.isArray(paymentSettings)) {
@@ -461,7 +466,7 @@ export default function SuperAdminControlPage() {
     setEditingUserSub(item);
     setSubForm({
       user_email: String(item.user_email || item.email || item.kontakUser || ''),
-      plan: String(item.plan || 'free').toLowerCase(),
+      plan: String(item.plan || 'FREE').toUpperCase(),
       status: String(item.status || 'ACTIVE').toUpperCase(),
       expired_date: String(item.expired_date || item.expired || '').slice(0, 10),
       custom_max_projects: String(item.max_projects || ''),
@@ -475,20 +480,20 @@ export default function SuperAdminControlPage() {
   };
 
   const handlePlanSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newPlan = e.target.value;
-    const currentPlan = subForm.plan;
+    const newPlan = e.target.value.toUpperCase();
+    const currentPlan = subForm.plan.toUpperCase();
     
     let updatedForm = { ...subForm, plan: newPlan };
     
     if (newPlan !== currentPlan) {
-      const confirmReset = window.confirm(`Anda mengubah paket dari ${currentPlan.toUpperCase()} ke ${newPlan.toUpperCase()}.\n\nApakah Anda ingin mengosongkan nilai Override/Custom agar sistem otomatis mengikuti batas bawaan dan fitur paket baru?`);
+      const confirmReset = window.confirm(`Anda mengubah paket dari ${currentPlan} ke ${newPlan}.\n\nApakah Anda ingin mengosongkan nilai Override/Custom agar sistem otomatis mengikuti batas bawaan dan fitur paket baru?`);
       if (confirmReset) {
         updatedForm.custom_max_projects = '';
         updatedForm.custom_max_experts = '';
         updatedForm.custom_max_experts_directory = '';
         updatedForm.custom_max_consultation_per_expert = '';
         
-        const selectedPlanConfig = plans.find(p => p.plan_key === newPlan);
+        const selectedPlanConfig = plans.find(p => p.plan_key.toUpperCase() === newPlan);
         if (selectedPlanConfig) {
           const features = [];
           if (selectedPlanConfig.allow_subcriteria) features.push('subcriteria');
@@ -513,8 +518,8 @@ export default function SuperAdminControlPage() {
         body: JSON.stringify({
           action: 'updatesubscription',
           user_email: subForm.user_email,
-          plan: subForm.plan,
-          status: subForm.status,
+          plan: subForm.plan.toUpperCase(),
+          status: subForm.status.toUpperCase(),
           expired_date: subForm.expired_date,
           max_projects: subForm.custom_max_projects,
           max_experts: subForm.custom_max_experts,
@@ -841,7 +846,7 @@ export default function SuperAdminControlPage() {
                 <div>
                   <h3 style={STYLES.cardTitle}>📜 Subscriptions &amp; Hak Akses Komersial ({filteredUserSubs.length})</h3>
                   <p style={STYLES.cardDesc}>
-                    Pengaturan paket komersial (Free, Plus, Premium). Data Evaluator Pakar dikelola terpisah pada Dashboard Operasional Admin.
+                    Pengaturan paket komersial (FREE, PLUS, PRO, PREMIUM). Data Evaluator Pakar dikelola terpisah pada Dashboard Operasional Admin[cite: 5].
                   </p>
                 </div>
                 <button onClick={fetchSuperData} disabled={loading} style={{ ...STYLES.btnUpload, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
@@ -879,7 +884,7 @@ export default function SuperAdminControlPage() {
                       filteredUserSubs.map((item, idx) => {
                         const email = item.user_email || item.email || item.kontakUser || item.kontak || '-';
                         const name = item.user_name || item.namaUser || item.nama || item.name || 'User Terdaftar';
-                        const plan = String(item.plan || item.Plan || 'free').toUpperCase();
+                        const plan = String(item.plan || item.Plan || 'FREE').toUpperCase();
                         const status = String(item.status || item.Status || 'ACTIVE').toUpperCase();
                         const exp = item.expired_date || item.expired || '-';
                         
@@ -948,7 +953,7 @@ export default function SuperAdminControlPage() {
               <div style={STYLES.cardTitleRow}>
                 <div>
                   <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Harga & Batasan Paket (Semester Pass)</h3>
-                  <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan.</p>
+                  <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan[cite: 5].</p>
                 </div>
                 <button onClick={handleSavePlans} disabled={saving} style={STYLES.btnAdd}>
                   {saving ? 'Menyimpan...' : '💾 Simpan Pengaturan Paket'}
@@ -1248,7 +1253,7 @@ export default function SuperAdminControlPage() {
         </div>
       )}
 
-      {/* MODAL EDIT PRIVILESE USER (DENGAN OPSI CHECKBOX CUSTOM FEATURES) */}
+      {/* MODAL EDIT PRIVILESE USER (DENGAN PILIHAN PLAN KAPITAL & OPSI CHECKBOX CUSTOM FEATURES) */}
       {isEditSubModalOpen && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalBox, maxWidth: 500 }}>
@@ -1267,14 +1272,14 @@ export default function SuperAdminControlPage() {
                 <div>
                   <label style={STYLES.label}>Pilih Paket (Plan Privilese)</label>
                   <select
-                    value={subForm.plan}
+                    value={subForm.plan.toUpperCase()}
                     onChange={handlePlanSelectionChange}
                     style={{ ...STYLES.input, fontWeight: 700 }}
                   >
-                    <option value="free">FREE</option>
-                    <option value="pro">PRO</option>
-                    <option value="plus">PLUS</option>
-                    <option value="premium">PREMIUM</option>
+                    <option value="FREE">FREE</option>
+                    <option value="PRO">PRO</option>
+                    <option value="PLUS">PLUS</option>
+                    <option value="PREMIUM">PREMIUM</option>
                   </select>
                 </div>
 

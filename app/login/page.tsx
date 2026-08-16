@@ -9,14 +9,6 @@ import { saveSession } from '@/lib/auth';
 
 const API_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 
-async function sha256(text: string) {
-  const bytes = new TextEncoder().encode(text);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 export default function UserLoginPage() {
   const router = useRouter();
 
@@ -40,8 +32,8 @@ export default function UserLoginPage() {
 
       const cleanEmail = email.trim().toLowerCase();
       const cleanPass = password.trim();
-      const passwordHash = await sha256(cleanPass);
 
+      // 🟢 Mengirim password plain text murni tanpa fungsi sha256
       const res = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -50,7 +42,6 @@ export default function UserLoginPage() {
         body: JSON.stringify({
           action: 'login_user',
           email: cleanEmail,
-          password_hash: passwordHash,
           password: cleanPass,
         }),
       });
@@ -128,7 +119,12 @@ export default function UserLoginPage() {
           </div>
 
           <div>
-            <label style={STYLES.label}>Kata Sandi (Password)</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ ...STYLES.label, marginBottom: 0 }}>Kata Sandi (Password)</label>
+              <Link href="/forgot-password" style={STYLES.forgotLink}>
+                Lupa kata sandi?
+              </Link>
+            </div>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -238,6 +234,12 @@ const STYLES: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: '#334155',
     marginBottom: 6
+  },
+  forgotLink: {
+    fontSize: 12,
+    color: '#2563eb',
+    fontWeight: 600,
+    textDecoration: 'none'
   },
   input: {
     width: '100%',

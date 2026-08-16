@@ -215,7 +215,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 🟢 LOGIKA CERDAS GENERATOR TEMPLATE BALASAN (DENGAN STEMPEL RESMI & FORMAT YTH. NAMA DAN GELAR)
   const buildSmartReplyTemplate = (ticket: any) => {
     const existingJawaban = ticket.jawaban_expert || ticket['Isi_Email'] || ticket.isi_email || '';
     if (existingJawaban && existingJawaban !== '-') {
@@ -236,47 +235,14 @@ export default function AdminDashboardPage() {
 
     const isUpgradeIntent = upgradeKeywords.some(keyword => fullText.includes(keyword));
 
-    // 1. JIKA ADA LAMPIRAN (Bukti pembayaran / berkas upgrade):
     if (lampiranUrl && lampiranUrl !== '-') {
-      return `Yth. ${namaUser},
-
-Terima kasih telah melampirkan dokumen / bukti konfirmasi Anda. Lampiran telah berhasil kami periksa dan diverifikasi oleh sistem.
-
-Kami informasikan bahwa paket akun Anda telah berhasil di-upgrade.
-
-Agar seluruh fitur pada paket baru aktif dan sinkron secara optimal, silakan lakukan restart atau relogin (keluar dan masuk kembali) pada aplikasi Anda.
-
-Terima kasih atas kepercayaan Anda menggunakan layanan kami.
-
-Hormat kami,
-Admin Ahp Platform
-
-=========================================
-      ★ OFFICIAL VERIFIED STAMP ★        
-          AHP PLATFORM SYSTEM            
-         STATUS: UPGRADE COMPLETED       
-=========================================`;
+      return `Yth. ${namaUser},\n\nTerima kasih telah melampirkan dokumen / bukti konfirmasi Anda. Lampiran telah berhasil kami periksa dan diverifikasi oleh sistem.\n\nKami informasikan bahwa paket akun Anda telah berhasil di-upgrade.\n\nAgar seluruh fitur pada paket baru aktif dan sinkron secara optimal, silakan lakukan restart atau relogin (keluar dan masuk kembali) pada aplikasi Anda.\n\nTerima kasih atas kepercayaan Anda menggunakan layanan kami.\n\nHormat kami,\nAdmin Ahp Platform\n\n=========================================\n      ★ OFFICIAL VERIFIED STAMP ★        \n          AHP PLATFORM SYSTEM            \n         STATUS: UPGRADE COMPLETED       \n=========================================`;
     }
 
-    // 2. JIKA TERDETEKSI PERMINTAAN UPGRADE (Belum ada lampiran bukti transfer):
     if (isUpgradeIntent) {
-      return `Yth. ${namaUser},
-
-Terima kasih telah mengajukan permohonan layanan dan peningkatan paket akun di platform kami.
-
-Menindaklanjuti permohonan Anda, silakan melakukan proses penyelesaian pembayaran melalui saluran rekening resmi kami berikut:
-
-• Bank Tujuan: Bank Mandiri / BCA / BNI
-• Nomor Rekening: 123-456-7890 (a.n. PT Platform Layanan)
-• Nominal Tagihan: Sesuai dengan paket yang dipilih
-
-Setelah transfer berhasil diselesaikan, mohon lampirkan salinan bukti transaksi pada tiket ini agar hak akses dan aktivasi paket Anda dapat segera kami proses.
-
-Hormat kami,
-Admin Ahp Platform`;
+      return `Yth. ${namaUser},\n\nTerima kasih telah mengajukan permohonan layanan dan peningkatan paket akun di platform kami.\n\nMenindaklanjuti permohonan Anda, silakan melakukan proses penyelesaian pembayaran melalui saluran rekening resmi kami berikut:\n\n• Bank Tujuan: Bank Mandiri / BCA / BNI\n• Nomor Rekening: 123-456-7890 (a.n. PT Platform Layanan)\n• Nominal Tagihan: Sesuai dengan paket yang dipilih\n\nSetelah transfer berhasil diselesaikan, mohon lampirkan salinan bukti transaksi pada tiket ini agar hak akses dan aktivasi paket Anda dapat segera kami proses.\n\nHormat kami,\nAdmin Ahp Platform`;
     }
 
-    // 3. JIKA PERTANYAAN REGULER:
     return '';
   };
 
@@ -367,7 +333,6 @@ Admin Ahp Platform`;
     fetchAllOperasionalData();
   }, [router, fetchAllOperasionalData]);
 
-  // FUNGSI DELETE (HAPUS) - KHUSUS SUPER ADMIN
   const handleDeleteExpert = async (exp: ExpertItem) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
     const expId = String(exp.expert_id || exp.expertId || exp.id || '');
@@ -517,7 +482,6 @@ Admin Ahp Platform`;
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
   };
 
-  // 🟢 HANDLER UPDATE PLAN DENGAN SINKRONISASI OTOMATIS KE SHEET USERS & SUBSCRIPTIONS
   const handleUpdateExpertPlan = async (targetEmail: string, selectedPlan: string) => {
     if (!window.confirm(`Ubah plan untuk pengguna ${targetEmail} menjadi ${selectedPlan.toUpperCase()} dan sinkronkan ke sheet subscriptions?`)) return;
 
@@ -773,7 +737,7 @@ Admin Ahp Platform`;
     });
   }, [usersList, userSearchQuery]);
 
-  // LOGIKA FILTER KONSULTASI PUBLIK (Sesuai Sheet ConsultationRequests)
+  // LOGIKA FILTER KONSULTASI PUBLIK
   const filteredUserConsultations = useMemo(() => {
     const q = consultSearchQuery.toLowerCase();
     return userConsultations.filter((c: any) => {
@@ -847,23 +811,45 @@ Admin Ahp Platform`;
     });
   }, [feedbacks, feedbackSearchQuery]);
 
-  // LOGIKA ANALISIS & TREN KUNJUNGAN
+  // 🟢 LOGIKA ANALISIS & TREN KUNJUNGAN BERDASARKAN ROLE PENGGUNA
   const visitorAnalytics = useMemo(() => {
-    let generalVisitors = 0; let registeredUsers = 0;
+    let generalVisitors = 0; let registeredUsers = 0; let adminVisits = 0; let anomalies = 0;
     const pageCounts: Record<string, number> = {};
-    const dateCounts: Record<string, number> = {};
+    const dateCounts: Record<string, { user: number, guest: number, admin: number, anomaly: number }> = {};
 
     visitorStatsList.forEach((v) => {
       const emailUser = String(v.email || v[1] || 'Visitor Umum').trim();
       const pagePath = String(v.page || v[2] || '/').trim();
+      const explicitRole = String(v.role || v[3] || '').trim().toLowerCase();
       const rawDate = v.timestamp || v[0];
 
-      if (emailUser === 'Visitor Umum' || emailUser === '') generalVisitors += 1; else registeredUsers += 1;
+      // Deteksi Anomali Sederhana (Akses halaman terlarang, akses panel admin tanpa identitas admin)
+      const isSuspiciousPath = pagePath.includes('.env') || pagePath.includes('wp-admin') || pagePath.includes('sql');
+      const isUnauthorizedAdminAccess = pagePath.includes('/admin') && emailUser !== 'Visitor Umum' && !emailUser.toLowerCase().includes('admin');
+      const isExplicitAnomaly = explicitRole === 'hacker' || explicitRole === 'blocked';
+
+      let category: 'user' | 'guest' | 'admin' | 'anomaly' = 'guest';
+
+      if (isSuspiciousPath || isUnauthorizedAdminAccess || isExplicitAnomaly) {
+        category = 'anomaly';
+        anomalies += 1;
+      } else if (emailUser.toLowerCase().includes('admin') || explicitRole.includes('admin')) {
+        category = 'admin';
+        adminVisits += 1;
+      } else if (emailUser !== 'Visitor Umum' && emailUser !== '') {
+        category = 'user';
+        registeredUsers += 1;
+      } else {
+        category = 'guest';
+        generalVisitors += 1;
+      }
+
       pageCounts[pagePath] = (pageCounts[pagePath] || 0) + 1;
 
       if (rawDate) {
         const dateKey = new Date(rawDate).toISOString().split('T')[0];
-        dateCounts[dateKey] = (dateCounts[dateKey] || 0) + 1;
+        if (!dateCounts[dateKey]) dateCounts[dateKey] = { user: 0, guest: 0, admin: 0, anomaly: 0 };
+        dateCounts[dateKey][category] += 1;
       }
     });
 
@@ -873,19 +859,41 @@ Admin Ahp Platform`;
     return { 
       generalVisitors, 
       registeredUsers, 
+      adminVisits,
+      anomalies,
       topPages: sortedPages,
       trendData: {
         labels: sortedDates.map(item => item[0]),
-        datasets: [{
-          label: 'Jumlah Kunjungan Harian',
-          data: sortedDates.map(item => item[1]),
-          borderColor: '#1e3a8a',
-          backgroundColor: 'rgba(30, 58, 138, 0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 4,
-          pointBackgroundColor: '#1e3a8a'
-        }]
+        datasets: [
+          {
+            label: 'User Terdaftar',
+            data: sortedDates.map(item => item[1].user),
+            borderColor: '#2563eb', // Biru
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+            tension: 0.3, fill: true, pointRadius: 3
+          },
+          {
+            label: 'Pengunjung Umum',
+            data: sortedDates.map(item => item[1].guest),
+            borderColor: '#16a34a', // Hijau
+            backgroundColor: 'rgba(22, 163, 74, 0.1)',
+            tension: 0.3, fill: true, pointRadius: 3
+          },
+          {
+            label: 'Super Admin & Admin',
+            data: sortedDates.map(item => item[1].admin),
+            borderColor: '#9333ea', // Ungu
+            backgroundColor: 'rgba(147, 51, 234, 0.1)',
+            tension: 0.3, fill: true, pointRadius: 3
+          },
+          {
+            label: 'Anomali / Ilegal',
+            data: sortedDates.map(item => item[1].anomaly),
+            borderColor: '#ef4444', // Merah
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            tension: 0.3, fill: true, pointRadius: 3
+          }
+        ]
       }
     };
   }, [visitorStatsList]);
@@ -1293,11 +1301,8 @@ Admin Ahp Platform`;
                               <span style={{ color: '#334155' }}>{expertEmail || expertId || 'Umum'}</span>
                             </div>
                           </td>
-                          
-                          {/* 🟢 PEMISAHAN TEGAS PERTANYAAN USER VS JAWABAN */}
                           <td style={STYLES.td}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                              {/* KOTAK PERTANYAAN USER */}
                               <div style={{ background: '#f8fafc', borderLeft: '4px solid #2563eb', padding: '8px 12px', borderRadius: '0 6px 6px 0' }}>
                                 <div style={{ fontSize: 11, fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
                                   💬 Pertanyaan User:
@@ -1313,8 +1318,6 @@ Admin Ahp Platform`;
                                   </div>
                                 )}
                               </div>
-
-                              {/* KOTAK JAWABAN PAKAR / ADMIN */}
                               <div style={{ background: jawabanExpert ? '#f0fdf4' : '#fffbeb', borderLeft: `4px solid ${jawabanExpert ? '#16a34a' : '#f59e0b'}`, padding: '8px 12px', borderRadius: '0 6px 6px 0' }}>
                                 <div style={{ fontSize: 11, fontWeight: 800, color: jawabanExpert ? '#166534' : '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
                                   {jawabanExpert ? '✅ Jawaban / Balasan Pakar:' : '⏳ Status Jawaban:'}
@@ -1325,13 +1328,11 @@ Admin Ahp Platform`;
                               </div>
                             </div>
                           </td>
-
                           <td style={STYLES.td}>
                             <span style={status.toLowerCase() === 'selesai' || status.toLowerCase() === 'answered' ? STYLES.badgeActive : (status.toLowerCase() === 'diproses' || status.toLowerCase() === 'assigned' ? { ...STYLES.badgePending, background: '#e0f2fe', color: '#0369a1' } : STYLES.badgePending)}>
                               {status.toUpperCase()}
                             </span>
                           </td>
-
                           <td style={{ ...STYLES.td, textAlign: 'center' }}>
                             <button 
                               onClick={() => handleOpenReplyModal(c)} 
@@ -1483,31 +1484,36 @@ Admin Ahp Platform`;
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+              {/* 🟢 STATISTIK DIPERBARUI MENJADI 4 KOLOM */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
                 <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 16 }}>
-                  <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>Total Seluruh Kunjungan</div>
+                  <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>Total Kunjungan</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: '#1e3a8a', marginTop: 4 }}>{totalPublicVisits}</div>
                 </div>
                 <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 16 }}>
-                  <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>Pengunjung Umum (Guest)</div>
+                  <div style={{ fontSize: 12, color: '#166534', fontWeight: 600 }}>Pengunjung Umum</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: '#14532d', marginTop: 4 }}>{visitorAnalytics.generalVisitors}</div>
                 </div>
                 <div style={{ background: '#fdf4ff', border: '1px solid #fbcfe8', borderRadius: 8, padding: 16 }}>
-                  <div style={{ fontSize: 12, color: '#86198f', fontWeight: 600 }}>User Terdaftar (Login)</div>
+                  <div style={{ fontSize: 12, color: '#86198f', fontWeight: 600 }}>User Terdaftar</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: '#701a75', marginTop: 4 }}>{visitorAnalytics.registeredUsers}</div>
+                </div>
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 16 }}>
+                  <div style={{ fontSize: 12, color: '#991b1b', fontWeight: 600 }}>Admin &amp; Anomali</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#7f1d1d', marginTop: 4 }}>{visitorAnalytics.adminVisits + visitorAnalytics.anomalies}</div>
                 </div>
               </div>
 
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 20, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
-                <h4 style={{ margin: '0 0 14px 0', fontSize: 14, color: '#0f172a' }}>📈 Tren Kunjungan Berdasarkan Waktu (Harian)</h4>
-                <div style={{ height: 260, position: 'relative' }}>
+                <h4 style={{ margin: '0 0 14px 0', fontSize: 14, color: '#0f172a' }}>📈 Tren Kunjungan Harian (Berdasarkan Role)</h4>
+                <div style={{ height: 300, position: 'relative' }}>
                   {visitorAnalytics.trendData.labels.length > 0 ? (
                     <Line 
                       data={visitorAnalytics.trendData} 
                       options={{ 
                         responsive: true, 
                         maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
+                        plugins: { legend: { display: true, position: 'top' } },
                         scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
                       }} 
                     />
