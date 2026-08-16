@@ -17,14 +17,6 @@ function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
   return 'free';
 }
 
-function cleanAiText(rawText: string): string {
-  if (!rawText) return '';
-  return rawText
-    .replace(/[*#$]/g, '')
-    .replace(/%/g, ' persen')
-    .trim();
-}
-
 interface ProjectDetail {
   id: string;
   projectid?: string;
@@ -482,7 +474,7 @@ function normalizeSavedResponse(raw: Record<string, unknown>): SavedResponse {
     projectid: String(raw.projectid || raw.project_id || raw.projectId || '').trim(),
     expertid: String(raw.expertid || raw.expert_id || raw.expertId || '').trim(),
     expertindex: Number(raw.expertindex || raw.expert_index || raw.expertIndex || 0),
-    expertname: String(raw.expertname || raw.expert_name || raw.expertName || ''),
+    expertname: String(raw.expertname || raw.expert_name || raw.expertName || '').trim(),
     matrixtype: String(raw.matrixtype || raw.matrix_type || raw.matrixType || '').trim(),
     parentid: String(raw.parentid || raw.parent_id || raw.parentId || '').trim(),
     parentname: String(raw.parentname || raw.parent_name || raw.parentName || ''),
@@ -507,7 +499,6 @@ function buildMatrixTasks(data: BundleState): MatrixTask[] {
   const alternatif = sortByOrder(data.alternatif);
   const tasks: MatrixTask[] = [];
 
-  // 1. Kriteria Utama
   if (criteria.length >= 2) {
     tasks.push({
       key: 'criteria::root', 
@@ -526,7 +517,6 @@ function buildMatrixTasks(data: BundleState): MatrixTask[] {
     });
   }
 
-  // 2. Subkriteria
   if (data.project.punyasubkriteria) {
     criteria.forEach((criterion) => {
       const children = subcriteria.filter((item) => {
@@ -557,7 +547,6 @@ function buildMatrixTasks(data: BundleState): MatrixTask[] {
     });
   }
 
-  // 3. Alternatif
   if (alternatif.length >= 2 && isAlternativeMethod(data.project.metode)) {
     if (data.project.punyasubkriteria) {
       subcriteria.forEach((subcriterion) => {
@@ -988,9 +977,6 @@ function ProjectReportContent() {
   const [savingKey, setSavingKey] = useState('');
   const [message, setMessage] = useState('');
 
-  const [loadingAi, setLoadingAi] = useState(false);
-  const [fullAiReport, setFullAiReport] = useState<any>(null);
-
   const [reviewExpert, setReviewExpert] = useState<ExpertItem | null>(null);
   const [kompetensi, setKompetensi] = useState(5);
   const [responsif, setResponsif] = useState(5);
@@ -1011,40 +997,20 @@ function ProjectReportContent() {
     return [];
   });
   
-  const [canUseAi, setCanUseAi] = useState(false);
   const [dismissWarning, setDismissWarning] = useState(false);
 
   useEffect(() => {
+    const session = getSession();
+    if (!session) {
+      window.location.replace('/login');
+      return;
+    }
+
     const checkSubscriptionAndLoad = async () => {
       try {
         setLoading(true);
         setError('');
         setMessage('');
-
-        // 🟢 SINKRONISASI PLAN USER DENGAN POLA: SUBSCRIPTIONS -> USERS
-        const session = getSession();
-        const rawUserId = String(session?.id || session?.userId || session?.user_id || '').trim();
-        const rawEmail = String(session?.email || '').trim().toLowerCase();
-
-        if (rawUserId || rawEmail) {
-          try {
-            const subRes = await fetchJson<any>(
-              `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}`
-            );
-            if (subRes?.success && subRes?.data?.plan) {
-              const cleanPlan = cleanPlanType(subRes.data.plan);
-              setCanUseAi(cleanPlan === 'plus' || cleanPlan === 'premium');
-            } else {
-              // Fallback jika fetch subscription gagal, periksa data session lokal
-              const localPlan = cleanPlanType(String(session?.plan || 'free'));
-              setCanUseAi(localPlan === 'plus' || localPlan === 'premium');
-            }
-          } catch (subErr) {
-            console.warn('Gagal sinkronisasi subscription:', subErr);
-            const localPlan = cleanPlanType(String(session?.plan || 'free'));
-            setCanUseAi(localPlan === 'plus' || localPlan === 'premium');
-          }
-        }
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
@@ -1052,11 +1018,11 @@ function ProjectReportContent() {
         let responsesRes: any;
 
         try {
-          bundleRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}`);
+          bundleRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
         } catch (e) { console.error('Gagal fetch bundle'); }
         
         try {
-          responsesRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}`);
+          responsesRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
         } catch (e) { console.error('Gagal fetch responses'); }
 
         if (!bundleRes?.success || !bundleRes?.data?.project) {
@@ -1419,73 +1385,22 @@ function ProjectReportContent() {
     }
   };
 
-  const handleGenerateAiReport = async () => {
-    if (!data) return;
-    setLoadingAi(true);
+  // 🟢 Aksi Buka Halaman Draft Laporan (Navigasi Langsung atau Tab Baru)
+  const handleOpenDraftReport = () => {
+    if (!projectId) return;
+    const targetUrl = `/proyek/laporan?id=${encodeURIComponent(projectId)}`;
     
-    try {
-      const completedExpertsCount = expertCompletion.filter(e => e.finished).length;
-      
-      const payloadTasks = tasks.map(task => {
-         const reviews = expertCompletion.map(ec => {
-            const resp = findResponseForTask(data.responses, ec.expert.id, task, data.project.id);
-            if (resp) {
-               return {
-                 expertId: ec.expert.id,
-                 expertName: ec.expert.expertname,
-                 institution: ec.expert.asalinstansi || '',
-                 cr: resp.cr,
-                 status: resp.cr <= 0.1 ? ('konsisten' as const) : ('perlu_tinjauan' as const)
-               };
-            }
-            return null;
-         }).filter((r): r is NonNullable<typeof r> => r !== null);
+    const isMobileOrAndroid = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    );
 
-         return {
-           key: task.key,
-           title: task.title,
-           type: task.matrixtype,
-           parentName: task.parentname,
-           aggregatedWeights: [], 
-           expertReviews: reviews
-         };
-      });
-
-      const payload = {
-        project: {
-          id: data.project.id,
-          name: data.project.namaproyek,
-          method: data.project.metode,
-          hasSubcriteria: data.project.punyasubkriteria,
-          totalExperts: data.experts.length
-        },
-        completion: {
-          totalTasks: tasks.length,
-          totalResponses: data.responses.length,
-          completedExperts: completedExpertsCount,
-          pendingExperts: data.experts.length - completedExpertsCount,
-          status: completedExpertsCount >= data.experts.length ? ('lengkap' as const) : (completedExpertsCount > 0 ? ('parsial' as const) : ('belum_lengkap' as const))
-        },
-        tasks: payloadTasks,
-        alternatives: finalAggregateRanking 
-      };
-
-      const res = await fetch('/api/report-analysis', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const json = await res.json();
-      
-      if (json.success) {
-        setFullAiReport(json.data);
-      } else {
-        alert('Gagal membuat laporan AI: ' + json.message);
+    if (isMobileOrAndroid) {
+      router.push(targetUrl);
+    } else {
+      const printWin = window.open(targetUrl, '_blank');
+      if (!printWin) {
+        router.push(targetUrl);
       }
-    } catch(err) {
-      alert('Terjadi kesalahan saat memanggil AI: ' + err);
-    } finally {
-      setLoadingAi(false);
     }
   };
 
@@ -1508,7 +1423,6 @@ function ProjectReportContent() {
   return (
     <div style={STYLES.page}>
       
-      {/* 🟢 POSISI PALING ATAS & STICKY (FREEZE): GRAFIK & CR GLOBAL */}
       <div style={{ position: 'sticky', top: 0, zIndex: 100, background: '#f8fafc', paddingBottom: 8, paddingTop: 4 }}>
         <section style={STYLES.cardPrimarySticky} className="print-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
@@ -1603,42 +1517,20 @@ function ProjectReportContent() {
             <p style={STYLES.pageDesc}>Pengelolaan pakar, review konsistensi (CR), dan rekapitulasi pembobotan AHP.</p>
           </div>
           <div style={STYLES.headerActions}>
-            
-            {canUseAi ? (
-              <button 
-                onClick={handleGenerateAiReport} 
-                disabled={loadingAi}
-                style={{
-                  ...STYLES.btnPrimary,
-                  background: '#2563eb',
-                  cursor: loadingAi ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {loadingAi ? '⏳ Menyusun...' : '🤖 Draf Laporan AI'}
-              </button>
-            ) : (
-              <button 
-                title="Tingkatkan paket ke PLUS atau PREMIUM untuk menggunakan fasilitas ini"
-                onClick={() => alert('Fasilitas Draf Laporan AI hanya tersedia untuk paket PLUS dan PREMIUM. Silakan tingkatkan langganan Anda.')} 
-                style={{
-                  ...STYLES.btnPrimary,
-                  background: '#94a3b8', 
-                  color: '#f8fafc',
-                  cursor: 'not-allowed',
-                  border: '1px solid #cbd5e1'
-                }}
-              >
-                🔒 Draf Laporan AI
-              </button>
-            )}
-
             <button 
               type="button" 
-              title="Buka halaman laporan lengkap proyek di tab baru" 
-              onClick={() => window.open(`/proyek/laporan?id=${projectId}`, '_blank')} 
-              style={STYLES.btnGhost}
+              title="Buka dokumen laporan lengkap proyek" 
+              onClick={handleOpenDraftReport} 
+              style={{
+                ...STYLES.btnPrimary,
+                background: '#1d4ed8',
+                color: '#ffffff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6
+              }}
             >
-              🖨️ Cetak
+              📄 Tampilkan Draft Laporan
             </button>
             <button type="button" title="Kembali ke dashboard" onClick={() => router.push('/dashboard')} style={STYLES.btnSecondary}>Dashboard</button>
           </div>
@@ -1646,59 +1538,7 @@ function ProjectReportContent() {
 
         {message && <div style={STYLES.infoBox}>{message}</div>}
 
-        {/* AI REPORT SUMMARY */}
-        {fullAiReport && (
-          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '20px 24px', borderRadius: '12px', marginBottom: 16 }}>
-            <h3 style={{ margin: '0 0 16px', color: '#0f172a', borderBottom: '2px solid #e2e8f0', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              🤖 Draf Laporan Analisis AHP Otomatis (Gemini AI)
-            </h3>
-            
-            <div style={{ marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 6px', color: '#1e3a8a', fontSize: 13 }}>Ringkasan Eksekutif</h4>
-              <p style={{ margin: 0, fontSize: 12.5, color: '#334155', lineHeight: 1.5 }}>
-                {fullAiReport.overview?.main_summary || fullAiReport.overview || 'Ringkasan berhasil disusun.'}
-              </p>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 6px', color: '#1e3a8a', fontSize: 13 }}>Temuan Kunci (Key Findings)</h4>
-              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12.5, color: '#334155', lineHeight: 1.5 }}>
-                {fullAiReport.key_findings?.map((item: any, idx: number) => (
-                  <li key={idx} style={{ marginBottom: 4 }}>
-                    <strong>{item.title}</strong>: {item.message}
-                  </li>
-                )) || <li>Temuan analisis berhasil diproses.</li>}
-              </ul>
-            </div>
-
-            {fullAiReport.consistency_review && fullAiReport.consistency_review.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <h4 style={{ margin: '0 0 6px', color: '#1e3a8a', fontSize: 13 }}>Tinjauan Konsistensi Pakar</h4>
-                <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12.5, color: '#334155', lineHeight: 1.5 }}>
-                  {fullAiReport.consistency_review.map((item: any, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 4 }}>
-                      <strong>{item.expert_name} ({item.task_title})</strong>: CR {Number(item.cr_value || 0).toFixed(3)} - 
-                      <span style={{ color: item.status === 'konsisten' ? '#16a34a' : '#dc2626', marginLeft: 4, fontWeight: 600 }}>
-                        {String(item.status || '').toUpperCase()}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div>
-              <h4 style={{ margin: '0 0 6px', color: '#1e3a8a', fontSize: 13 }}>Rekomendasi Tindak Lanjut</h4>
-              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12.5, color: '#334155', lineHeight: 1.5 }}>
-                {fullAiReport.recommendations?.map((rec: string, idx: number) => (
-                  <li key={idx} style={{ marginBottom: 4 }}>{rec}</li>
-                )) || <li>Lanjutkan evaluasi hasil sintesis prioritas.</li>}
-              </ul>
-            </div>
-          </div>
-        )}
-
-        {/* 🟢 BANNER PERINGATAN DENGAN TOMBOL TUTUP */}
+        {/* BANNER PERINGATAN */}
         {unreviewedFinishedExpertsCount > 0 && !dismissWarning && (
           <div style={{
             background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
@@ -1730,7 +1570,7 @@ function ProjectReportContent() {
           </div>
         )}
 
-        {/* 🟢 DI BAWAH GRAFIK & CR GLOBAL: JUDUL KEGIATAN, METODE, & PARAMETER */}
+        {/* PARAMETER PROYEK */}
         <section style={{ ...STYLES.card, padding: '14px 16px' }}>
           <div>
             <div style={STYLES.metaHeader}>
@@ -1764,7 +1604,7 @@ function ProjectReportContent() {
           </div>
         </section>
 
-        {/* 🟢 RANKING PRIORITAS SINTESIS AKHIR (DI BAWAH JUDUL DAN METODE) */}
+        {/* RANKING PRIORITAS */}
         <section style={STYLES.card}>
           <h2 style={{ ...STYLES.sectionTitle, marginBottom: 8 }}>Ranking Prioritas Sintesis Akhir</h2>
           <div style={{ overflowX: 'auto' }}>
@@ -1793,7 +1633,7 @@ function ProjectReportContent() {
           </div>
         </section>
 
-        {/* STATUS RESPONDEN TABLE */}
+        {/* STATUS RESPONDEN */}
         <section style={STYLES.card}>
           <h2 style={STYLES.sectionTitle}>Status Responden &amp; Penilaian (Rating)</h2>
           <div style={STYLES.tableWrap}>
@@ -1875,7 +1715,7 @@ function ProjectReportContent() {
           </div>
         </section>
 
-        {/* TUGAS MATRIKS PERBANDINGAN BERPASANGAN */}
+        {/* TUGAS MATRIKS */}
         {tasks.map((task) => {
           const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
           const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
@@ -2024,9 +1864,7 @@ const STYLES: Record<string, React.CSSProperties> = {
   },
   loader: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: '#64748b', fontSize: 14, fontWeight: 500 },
   container: { maxWidth: 980, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 },
-  
   card: { background: '#fff', borderRadius: 10, padding: '14px 16px', boxShadow: '0 2px 8px rgba(15,23,42,0.02)', border: '1px solid #f1f5f9' },
-  
   cardPrimarySticky: { 
     background: '#0f172a', 
     borderRadius: 10, 
@@ -2036,30 +1874,24 @@ const STYLES: Record<string, React.CSSProperties> = {
     margin: '0 auto',
     boxSizing: 'border-box'
   },
-  
   headerRow: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 2 },
   panelHeader: { display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 },
   headerActions: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' },
-  
   pageTitle: { margin: 0, fontSize: 20, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.5px' },
   pageDesc: { margin: '2px 0 0', color: '#64748b', fontSize: 12 },
   sectionTitle: { margin: 0, fontSize: 15, fontWeight: 700, color: '#1e293b', letterSpacing: '-0.3px' },
   subTitle: { margin: 0, fontSize: 13.5, fontWeight: 700, color: '#1e293b' },
   subTitleDisabled: { margin: 0, fontSize: 13.5, fontWeight: 600, color: '#94a3b8' },
-  
   metaHeader: { display: 'flex', alignItems: 'center', gap: 8 },
   metaText: { color: '#64748b', margin: '2px 0 0', fontSize: 11.5, lineHeight: 1.4 },
-  
   taskPanel: { marginTop: 10, padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, background: '#fafafb' },
   expertBlock: { marginTop: 14, paddingTop: 12, borderTop: '1px dashed #cbd5e1' },
   expertBlockDisabled: { marginTop: 14, paddingTop: 12, borderTop: '1px dashed #e2e8f0', opacity: 0.8 },
   lockedPanel: { background: '#f1f5f9', color: '#64748b', padding: 12, borderRadius: 6, textAlign: 'center', fontSize: 12, border: '1px dashed #cbd5e1' },
   contentGrid: { display: 'flex', flexWrap: 'wrap', gap: 12 },
   compactWeightPanel: { flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 5 },
-
   sliderList: { display: 'flex', flexDirection: 'column', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' },
   sliderRow: { padding: '8px 10px' }, 
-  
   sliderHeaderFull: { 
     display: 'flex', 
     justifyContent: 'space-between', 
@@ -2071,7 +1903,6 @@ const STYLES: Record<string, React.CSSProperties> = {
   sliderItemLeft: { fontWeight: 700, color: '#0f172a', flex: 1, textAlign: 'left', lineHeight: 1.3 },
   sliderItemRight: { fontWeight: 700, color: '#0f172a', flex: 1, textAlign: 'right', lineHeight: 1.3 },
   sliderVs: { color: '#94a3b8', fontSize: 10, fontWeight: 800, padding: '0 6px', background: '#f1f5f9', borderRadius: 4 },
-  
   directionToggleRow: { display: 'flex', gap: 4, margin: '6px 0' },
   dirBtn: { 
     flex: 1, 
@@ -2088,43 +1919,35 @@ const STYLES: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     textAlign: 'center'
   },
-
   sliderTrackWrap: { marginTop: 4, padding: '0 4px' },
   slider: { width: '100%', cursor: 'pointer', height: '5px' },
   sliderValueCompact: { marginTop: 4, fontSize: 11, color: '#1e40af', textAlign: 'center', fontWeight: 700, background: '#eff6ff', padding: '2px 6px', borderRadius: 4, display: 'inline-block', width: '100%', boxSizing: 'border-box' },
-
   weightRowGrid: { display: 'flex', flexWrap: 'wrap', gap: 6 },
   weightCardDark: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', display: 'flex', alignItems: 'center', gap: 8, minWidth: 150 },
   rankBadge: { background: '#38bdf8', color: '#0f172a', fontWeight: 800, fontSize: 11, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4 },
   weightInfo: { display: 'flex', flexDirection: 'column', gap: 0 },
   weightLabelDark: { color: '#e2e8f0', fontSize: 10.5, fontWeight: 500 },
   weightValueDark: { color: '#fff', fontWeight: 800, fontSize: 12.5 },
-  
   weightCardLight: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   weightLabel: { color: '#334155', fontSize: 11.5, fontWeight: 600, flex: 1, paddingRight: 8 },
   weightValue: { color: '#1e40af', fontWeight: 800, fontSize: 12 },
-
   tableWrap: { overflowX: 'auto', marginTop: 8, borderRadius: 6, border: '1px solid #e2e8f0' },
   table: { width: '100%', borderCollapse: 'collapse', minWidth: 520, background: '#fff' },
   th: { textAlign: 'left', padding: '8px 10px', background: '#f8fafc', color: '#475569', fontSize: 11, fontWeight: 600, borderBottom: '1px solid #e2e8f0' },
   td: { padding: '8px 10px', borderBottom: '1px solid #f1f5f9', color: '#334155', fontSize: 11.5, verticalAlign: 'middle' },
   tdHead: { padding: '8px 10px', borderBottom: '1px solid #f1f5f9', color: '#0f172a', fontWeight: 600, fontSize: 11.5, verticalAlign: 'middle' },
   tdSubText: { fontSize: 10, color: '#94a3b8', marginTop: 1, fontWeight: 400 },
-
   badgeSoft: { background: '#f8fafc', color: '#475569', padding: '2px 6px', borderRadius: 999, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px' },
   badgeSuccess: { background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: 4, fontSize: 10.5, fontWeight: 700 },
   badgeWarning: { background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: 4, fontSize: 10.5, fontWeight: 700 },
   badgeLocked: { background: '#f1f5f9', color: '#94a3b8', padding: '3px 8px', borderRadius: 4, fontSize: 10.5, fontWeight: 600, border: '1px solid #e2e8f0' },
-
   btnPrimary: { background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5, transition: '0.2s' },
   btnSecondary: { background: '#fff', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontWeight: 700, fontSize: 11.5 },
   btnGhost: { background: 'transparent', color: '#64748b', border: 'none', padding: '6px 10px', cursor: 'pointer', fontWeight: 600, fontSize: 11.5 },
   actionGroup: { display: 'flex', gap: 4, flexWrap: 'wrap' },
   btnActionSmall: { padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: 'pointer', border: 'none', background: '#f8fafc', color: '#334155' },
-
   errorBox: { background: '#fef2f2', color: '#991b1b', border: '1px dashed #fecaca', padding: 10, borderRadius: 6, marginBottom: 10, fontSize: 12 },
   infoBox: { background: '#f0fdfa', color: '#0f766e', border: '1px dashed #99f6e4', padding: 10, borderRadius: 6, fontSize: 12, fontWeight: 500 },
-
   modalOverlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 10 },
   modalContent: { background: '#fff', borderRadius: 10, padding: 18, maxWidth: 420, width: '100%', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' },
   label: { fontSize: 11.5, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 3 },

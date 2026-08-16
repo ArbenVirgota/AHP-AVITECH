@@ -1,3 +1,5 @@
+// app/expert/update/page.tsx (atau sesuaikan dengan lokasi file Anda)
+
 'use client';
 
 import React, { useEffect, useState, Suspense } from 'react';
@@ -148,6 +150,26 @@ function UpdateExpertProfileContent() {
 
   return (
     <div style={STYLES.page}>
+      {/* 🟢 CSS GLOBAL: Menyembunyikan sidebar dan merentangkan halaman secara full-screen */}
+      <style jsx global>{`
+        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        body, html, main, div[class*="layout"], div[class*="wrapper"] {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          padding-left: 0 !important;
+        }
+      `}</style>
+
       <div style={STYLES.card}>
         <h2 style={{ margin: '0 0 6px', color: '#0f172a', fontSize: 22, fontWeight: 800 }}>
           📝 Perbarui Profil Pakar
@@ -158,7 +180,7 @@ function UpdateExpertProfileContent() {
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px', color: '#475569', fontWeight: 600 }}>Memuat data profil pakar...</div>
-        ) : errorMsg ? (
+        ) : errorMsg && !formData.expert_name ? (
           <div style={STYLES.errorBox}>
             <p style={{ margin: 0, color: '#dc2626', fontWeight: 600 }}>{errorMsg}</p>
             <button onClick={() => router.push('/')} style={STYLES.btnBack}>← Kembali ke Beranda</button>
@@ -344,7 +366,22 @@ export default function UpdateExpertProfilePage() {
 }
 
 const STYLES: Record<string, any> = {
-  page: { minHeight: '100vh', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'sans-serif' },
+  page: { 
+    minHeight: '100vh', 
+    background: '#f1f5f9', 
+    display: 'flex', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    padding: 20, 
+    fontFamily: 'sans-serif',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999999,
+    overflowY: 'auto'
+  },
   card: { background: '#ffffff', borderRadius: 14, width: '100%', maxWidth: 640, padding: 32, boxShadow: '0 4px 15px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0' },
   errorBox: { background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 14, textAlign: 'center', marginBottom: 14 },
   successBox: { background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: 14, color: '#166534', fontWeight: 600, fontSize: 13.5, textAlign: 'center', marginBottom: 14 },

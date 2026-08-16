@@ -1,3 +1,5 @@
+// app/expert/page.tsx
+
 'use client';
 
 import React, { useEffect, useState, useMemo, Suspense } from 'react';
@@ -483,11 +485,27 @@ function ExpertMainContent() {
   };
 
   if (loading) {
-    return <div style={STYLES.page}><div style={STYLES.card}>Memuat data expert dan matriks...</div></div>;
+    return (
+      <div style={STYLES.page}>
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
+        `}</style>
+        <div style={STYLES.card}>Memuat data expert dan matriks...</div>
+      </div>
+    );
   }
 
   if (error || !expert || !project) {
-    return <div style={STYLES.page}><div style={STYLES.card}><div style={STYLES.errorBox}>{error || 'Akses ditolak.'}</div></div></div>;
+    return (
+      <div style={STYLES.page}>
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
+        `}</style>
+        <div style={STYLES.card}><div style={STYLES.errorBox}>{error || 'Akses ditolak.'}</div></div>
+      </div>
+    );
   }
 
   if (step === 'welcome') {
@@ -497,6 +515,11 @@ function ExpertMainContent() {
 
     return (
       <div style={STYLES.page}>
+        {/* 🟢 CSS GLOBAL PENYEMBUNYI SIDEBAR */}
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
+        `}</style>
         <div style={STYLES.container}>
           <div style={STYLES.card}>
             <span style={STYLES.badge}>Selamat Datang, {expertFullName}</span>
@@ -543,6 +566,10 @@ function ExpertMainContent() {
   if (!task) {
     return (
       <div style={STYLES.page}>
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
+        `}</style>
         <div style={STYLES.card}>
           <h3>Tidak ada tugas matriks yang tersedia untuk proyek ini.</h3>
           <button onClick={() => router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`)} style={STYLES.btnPrimary}>
@@ -567,6 +594,11 @@ function ExpertMainContent() {
 
   return (
     <div style={STYLES.page}>
+      {/* 🟢 CSS GLOBAL PENYEMBUNYI SIDEBAR */}
+      <style jsx global>{`
+        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
+        body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
+      `}</style>
       <div style={STYLES.container}>
         <div style={STYLES.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -689,13 +721,20 @@ const STYLES: Record<string, React.CSSProperties> = {
     display: 'flex', 
     alignItems: 'center', 
     justifyContent: 'center', 
-    padding: '24px' 
+    padding: '24px',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 999999,
+    overflowY: 'auto'
   },
   container: { width: '100%', maxWidth: 720 },
   card: { background: '#fff', borderRadius: 16, padding: 28, boxShadow: '0 6px 24px rgba(15,23,42,0.06)' },
   title: { margin: '0 0 6px', fontSize: 20, fontWeight: 800, color: '#0f172a' },
   desc: { margin: '0 0 16px', color: '#475569', fontSize: 13.5, lineHeight: 1.6 },
-  btnPrimary: { padding: '12px 20px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, transition: 'all 0.2s' },
+  btnPrimary: { padding: '12px 20px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, transition: 'all 0.2s', cursor: 'pointer' },
   btnSecondary: { padding: '12px 20px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
   badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block', marginBottom: 12 },
   sliderCard: { border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' },

@@ -47,23 +47,20 @@ interface SavedResponse {
 
 const PENDIDIKAN_OPTIONS = ['D3 / Diploma', 'S1 / Sarjana', 'S2 / Magister', 'S3 / Doktor', 'Profesor / Guru Besar', 'Lainnya'];
 
-// 🟢 FUNGSI BARU: Pencocokan cerdas untuk Pendidikan Terakhir
 function matchPendidikanValue(dbValue: string): string {
   const val = String(dbValue || '').trim().toLowerCase();
-  if (!val) return 'S2 / Magister'; // Nilai default
+  if (!val) return 'S2 / Magister';
 
-  // Cek jika persis sama
   const exactMatch = PENDIDIKAN_OPTIONS.find(opt => opt.toLowerCase() === val);
   if (exactMatch) return exactMatch;
 
-  // Pencocokan kata kunci singkatan (Toleransi)
   if (val.includes('s1') || val.includes('sarjana')) return 'S1 / Sarjana';
   if (val.includes('s2') || val.includes('magister')) return 'S2 / Magister';
   if (val.includes('s3') || val.includes('doktor')) return 'S3 / Doktor';
   if (val.includes('prof') || val.includes('guru besar')) return 'Profesor / Guru Besar';
   if (val.includes('d3') || val.includes('diploma')) return 'D3 / Diploma';
 
-  return 'Lainnya'; // Jika di database tertulis hal lain
+  return 'Lainnya';
 }
 
 function processPhoneNumber(phoneInput?: any): { displayPhone: string; waLinkPhone: string; isValid: boolean; errorMsg: string } {
@@ -137,7 +134,6 @@ function ExpertSelesaiContent() {
     isPublic: true
   });
 
-  // PROTEKSI RIPAWAY BROWSER (HISTORY LOCK): Mencegah navigasi tombol Kembali/Back
   useEffect(() => {
     if (isLocked || isNotifSent) {
       window.history.pushState(null, '', window.location.href);
@@ -197,7 +193,6 @@ function ExpertSelesaiContent() {
 
       const durasiPengalamanParsed = Number(rawExp.durasi_pengalaman || rawExp.pengalaman_tahun || rawExp.pengalaman || rawExp.durasipengalaman || 0);
 
-      // 🟢 Terapkan fungsi pencocokan pendidikan
       const rawPendidikan = String(rawExp.pendidikanterakhir || rawExp.pendidikan_terakhir || rawExp.pendidikan || '');
       const finalPendidikan = matchPendidikanValue(rawPendidikan);
 
@@ -288,6 +283,39 @@ function ExpertSelesaiContent() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  const getSystemSignerInfo = () => {
+    const activeType = typeof window !== 'undefined' ? localStorage.getItem('active_signer_type') : 'main';
+    let name = 'Dr. Arben Virgota, S.Pi., M.Si';
+    let title = 'Lead Developer & System Admin';
+    let sigUrl = typeof window !== 'undefined' ? localStorage.getItem('superadmin_signature_url') : '';
+    if (activeType === 'backup') {
+      name = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_name')) || name;
+      title = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_title')) || 'Wakil System Admin';
+      sigUrl = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_signature_url')) || sigUrl;
+    }
+    return { name, title, sigUrl };
+  };
+
+  const getAppLogoUrl = () => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem('app_system_stamp_url') || '';
+  };
+
+  const getUserSignatureUrl = () => {
+    if (project?.fasilitatorsignature) {
+      return project.fasilitatorsignature;
+    }
+    if (typeof window === 'undefined') return '';
+    const userSession = localStorage.getItem('user_session') || localStorage.getItem('ahp_user_data');
+    if (userSession) {
+      try {
+        const parsed = JSON.parse(userSession);
+        return parsed.signature_url || parsed.tanda_tangan || parsed.foto_ttd || '';
+      } catch {}
+    }
+    return '';
+  };
 
   const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -411,6 +439,9 @@ function ExpertSelesaiContent() {
         return;
       }
 
+      const signerInfo = getSystemSignerInfo();
+      const platformLogo = getAppLogoUrl();
+
       const resCert = await fetch(GOOGLESCRIPTURL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -422,7 +453,9 @@ function ExpertSelesaiContent() {
           expertemail: cleanEmail,
           project_name: project.namaproyek,
           fasilitator_email: project.fasilitatoremail,
-          issuedat: new Date().toISOString().split('T')[0]
+          issuedat: new Date().toISOString().split('T')[0],
+          admin_signature: signerInfo.sigUrl,
+          admin_logo: platformLogo
         })
       });
       const jsonCert = await resCert.json().catch(() => ({}));
@@ -489,39 +522,6 @@ function ExpertSelesaiContent() {
     return `${gD}${nameCore}${gB}`;
   };
 
-  const getSystemSignerInfo = () => {
-    const activeType = typeof window !== 'undefined' ? localStorage.getItem('active_signer_type') : 'main';
-    let name = 'Dr. Arben Virgota, S.Pi., M.Si';
-    let title = 'Lead Developer & System Admin';
-    let sigUrl = typeof window !== 'undefined' ? localStorage.getItem('superadmin_signature_url') : '';
-    if (activeType === 'backup') {
-      name = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_name')) || name;
-      title = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_title')) || 'Wakil System Admin';
-      sigUrl = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_signature_url')) || sigUrl;
-    }
-    return { name, title, sigUrl };
-  };
-
-  const getAppLogoUrl = () => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('app_system_stamp_url') || '';
-  };
-
-  const getUserSignatureUrl = () => {
-    if (project?.fasilitatorsignature) {
-      return project.fasilitatorsignature;
-    }
-    if (typeof window === 'undefined') return '';
-    const userSession = localStorage.getItem('user_session') || localStorage.getItem('ahp_user_data');
-    if (userSession) {
-      try {
-        const parsed = JSON.parse(userSession);
-        return parsed.signature_url || parsed.tanda_tangan || parsed.foto_ttd || '';
-      } catch {}
-    }
-    return '';
-  };
-
   const systemSigner = getSystemSignerInfo();
   const userSigUrl = getUserSignatureUrl();
   const appLogoUrl = getAppLogoUrl();
@@ -547,17 +547,34 @@ function ExpertSelesaiContent() {
   }
 
   return (
-    <div style={{ background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', minHeight: '100vh', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif' }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', zIndex: 999999, overflowY: 'auto', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif', boxSizing: 'border-box' }}>
       
+      {/* 🟢 CSS GLOBAL MUTLAK: MENYEMBUNYIKAN SIDEBAR, HEADER, DAN NAVIGASI INDUK LAYOUT SEJAK RENDER PERTAMA */}
       <style jsx global>{`
+        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        body, html, main, div[class*="layout"], div[class*="wrapper"] {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          padding-left: 0 !important;
+        }
         @media print {
           @page { 
-            size: A4 landscape !important; 
+            size: 297mm 185mm !important; 
             margin: 0 !important; 
           }
           html, body {
             width: 297mm !important;
-            height: 210mm !important;
+            height: 185mm !important;
             overflow: hidden !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -574,9 +591,9 @@ function ExpertSelesaiContent() {
             left: 0 !important; 
             top: 0 !important;
             width: 297mm !important; 
-            height: 210mm !important; 
+            height: 185mm !important; 
             margin: 0 !important;
-            padding: 15mm 20mm !important;
+            padding: 12mm 15mm !important;
             box-shadow: none !important; 
             background: #ffffff !important;
             page-break-after: avoid !important;
@@ -685,7 +702,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* 🟢 CENTANG PERSETUJUAN PUBLIKASI PAKAR (TERHUBUNG KE /terms-expert) */}
             <div style={{
               marginTop: 10,
               marginBottom: 10,
@@ -812,40 +828,49 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            <div className="certificate-print-area" style={{ border: '8px solid #1e3a8a', padding: '20px 30px', borderRadius: 10, background: '#ffffff', color: '#1e293b', textAlign: 'center', fontFamily: "'Georgia', serif", boxSizing: 'border-box', position: 'relative', isolation: 'isolate' }}>
+            <div className="certificate-print-area" style={{ border: '8px solid #1e3a8a', padding: '28px 30px 20px 30px', borderRadius: 10, background: '#ffffff', color: '#1e293b', textAlign: 'center', fontFamily: "'Georgia', serif", boxSizing: 'border-box', position: 'relative', isolation: 'isolate' }}>
               
               {appLogoUrl && (
                 <div style={{ 
                   position: 'absolute', 
-                  top: 15, 
+                  top: 22, 
                   right: 25, 
                   zIndex: 10, 
                   backgroundColor: '#ffffff', 
                   WebkitPrintColorAdjust: 'exact', 
                   printColorAdjust: 'exact',
                   padding: '4px', 
-                  borderRadius: '6px',
+                  borderRadius: '5px',
                   display: 'inline-flex'
                 }}>
-                  <img src={appLogoUrl} alt="Logo Aplikasi" style={{ maxHeight: 45, maxWidth: 100, objectFit: 'contain' }} />
+                  <img src={appLogoUrl} alt="Logo Aplikasi" style={{ maxHeight: 100, maxWidth: 100, objectFit: 'contain' }} />
                 </div>
               )}
 
-              <div style={{ fontSize: 11, fontFamily: 'Arial, sans-serif', color: '#0284c7', letterSpacing: 2, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8 }}>PLATFORM ANALISIS DATA DIGITAL • AHP AVITECH</div>
-              <h1 style={{ fontSize: 32, fontWeight: 'bold', color: '#1e3a8a', margin: 0, letterSpacing: 2 }}>SERTIFIKAT APRESIASI</h1>
-              <div style={{ fontSize: 15, fontStyle: 'italic', color: '#475569', marginTop: 2, marginBottom: 12 }}>Certificate of Expert Contribution</div>
+              <div style={{ fontSize: 11, fontFamily: 'Arial, sans-serif', color: '#0284c7', letterSpacing: '2.5px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 20 }}>PLATFORM ANALISIS DATA DIGITAL • AHP AVITECH</div>
               
-              <div style={{ fontSize: 12, color: '#64748b', fontFamily: 'Arial, sans-serif', textTransform: 'uppercase', letterSpacing: 1 }}>Diberikan dengan hormat kepada / Presented to:</div>
-              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#0f172a', margin: '6px 0', textDecoration: 'underline', textUnderlineOffset: 4 }}>{getFullFormattedExpertName()}</div>
+              <h1 style={{ fontSize: 33, fontWeight: 'bold', color: '#1e3a8a', margin: '0 0 20px 0', letterSpacing: '4px' }}>
+                SERTIFIKAT APRESIASI
+              </h1>
+
+              <div style={{ fontSize: 15.5, fontStyle: 'italic', color: '#475569', marginBottom: 18, letterSpacing: '2px' }}>
+                Certificate of Expert Contribution
+              </div>
               
-              <div style={{ fontSize: 13, lineHeight: 1.5, color: '#334155', marginTop: 10, marginBottom: 0, marginLeft: 'auto', marginRight: 'auto', maxWidth: '92%' }}>
+              <div style={{ fontSize: 12, color: '#64748b', fontFamily: 'Arial, sans-serif', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '30px' }}>
+                Diberikan dengan hormat kepada / Presented to:
+              </div>
+
+              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#0f172a', margin: '4px 0 30px 0', textDecoration: 'underline', textUnderlineOffset: 4 }}>{getFullFormattedExpertName()}</div>
+              
+              <div style={{ fontSize: 13, lineHeight: 1.5, color: '#334155', marginTop: 4, marginBottom: 0, marginLeft: 'auto', marginRight: 'auto', maxWidth: '92%' }}>
                 Atas kontribusi, dedikasi, dan kepakarannya sebagai <strong>Evaluator Pakar (Expert)</strong> melalui peninjauan matriks komparasi berpasangan berbasis <em>Analytic Hierarchy Process (AHP)</em> pada platform digital untuk proyek penelitian ilmiah berjudul:
                 <br />
-                <strong style={{ fontSize: 14.5, color: '#1e3a8a', display: 'block', marginTop: 4 }}>"{project.namaproyek}"</strong>
+                <strong style={{ fontSize: 14.5, color: '#1e3a8a', display: 'block', marginTop: 6 }}>"{project.namaproyek}"</strong>
                 Sertifikat ini diterbitkan sebagai bukti otentik pengakuan atas dukungan akademis dan validasi ilmiah Anda dalam riset ini.
               </div>
               
-              <div style={{ display: 'table', width: '100%', marginTop: 8, tableLayout: 'fixed' }}>
+              <div style={{ display: 'table', width: '100%', marginTop: 12, tableLayout: 'fixed' }}>
                 <div style={{ display: 'table-cell', width: '30%', verticalAlign: 'bottom', textAlign: 'left', padding: '0 6px' }}>
                   <div style={{ fontSize: 10, fontFamily: 'Arial, sans-serif', color: '#64748b', fontWeight: 'bold', marginBottom: 2, letterSpacing: 1 }}>NOMOR SERTIFIKAT</div>
                   <div style={{ fontSize: 11, fontWeight: 'bold', color: '#0f172a', marginBottom: 6 }}>{activeCertNo}</div>

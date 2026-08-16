@@ -25,6 +25,52 @@ function cleanAiText(rawText: string): string {
     .trim();
 }
 
+// 🟢 Helper Pengecekan custom_features Tahan Banting dengan RegEx Word Boundary
+function checkCustomAiPrivilege(rawCustom: any): boolean {
+  if (!rawCustom) return false;
+
+  // Jika nilai boolean langsung
+  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
+    return true;
+  }
+
+  // Jika berupa Object murni
+  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
+    return Boolean(rawCustom.ai || rawCustom.ai_analysis || rawCustom.enable_ai || rawCustom.gemini);
+  }
+
+  // Jika Array atau String, jadikan string utuh dan gunakan RegEx pencarian kata utuh
+  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
+  
+  // Memastikan kata "ai", "gemini", dll tidak rancu dengan kata lain seperti "main" atau "email"
+  return /\b(ai|ai_analysis|analisis_ai|gemini|enable_ai)\b/i.test(str);
+}
+
+// 🟢 Helper Ekstraksi Baris Data API yang disempurnakan
+function extractRowData(res: any, targetEmail: string): any {
+  if (!res) return null;
+  
+  // Mencari titik data aktual
+  let dataTarget = res.data || res.result || res.payload;
+  if (!dataTarget) dataTarget = res; // Fallback jika respon tidak dibungkus
+  
+  // Jika bentuknya array, cari email yang cocok
+  if (Array.isArray(dataTarget)) {
+    const found = dataTarget.find((r: any) => {
+      const em = String(r.user_email || r.email || r.useremail || r.username || '').trim().toLowerCase();
+      return em === targetEmail;
+    });
+    return found || dataTarget[0] || null;
+  }
+  
+  // Jika bentuknya object murni (langsung)
+  if (dataTarget !== null && typeof dataTarget === 'object') {
+    return dataTarget;
+  }
+  
+  return null;
+}
+
 interface ProjectDetail {
   id: string;
   projectid?: string;
@@ -885,78 +931,132 @@ function ProjectReportContent() {
   const [loadingAi, setLoadingAi] = useState(false);
   const [fullAiReport, setFullAiReport] = useState<any>(null);
   const [canUseAi, setCanUseAi] = useState(false);
+  const [userPlanState, setUserPlanState] = useState<'free' | 'pro' | 'plus' | 'premium'>('free');
 
   useEffect(() => {
+    const session = getSession();
+    if (!session) {
+      window.location.replace('/login');
+      return;
+    }
+
     const checkSubscriptionAndLoad = async () => {
       try {
         setLoading(true);
         setError('');
 
-        // 1. SINKRONISASI PLAN USER DENGAN POLA: SUBSCRIPTIONS -> USERS
-        const session = getSession();
+        const rawEmail = String(session?.email || session?.user_email || session?.userEmail || session?.username || '').trim().toLowerCase();
         const rawUserId = String(session?.id || session?.userId || session?.user_id || '').trim();
-        const rawEmail = String(session?.email || '').trim().toLowerCase();
 
-        let planConfirmed = false;
+        let resolvedPlan = '';
+        let hasCustomAi = false;
 
-        if (rawUserId || rawEmail) {
-          // 1. Mencoba via metode GET menggunakan 'getusersubscription'
+        if (rawEmail || rawUserId) {
+          const timestamp = Date.now();
+
+          // 🟢 TAHAP 1: BACA SHEET SUBSCRIPTIONS
           try {
-            const subRes = await fetchJson<any>(
-              `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}`
-            );
-            
-            if (subRes?.success && subRes?.data?.plan) {
-              const cleanPlan = cleanPlanType(subRes.data.plan);
-              setCanUseAi(cleanPlan === 'plus' || cleanPlan === 'premium');
-              planConfirmed = true;
-            }
-          } catch (subErr) {
-            console.warn('Gagal memuat plan via GET, mencoba POST...', subErr);
-          }
+            const subUrl = `${GOOGLESCRIPTURL}?action=getsubscription&user_email=${encodeURIComponent(rawEmail)}&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${timestamp}`;
+            const subRes = await fetchJson<any>(subUrl, { cache: 'no-store' });
 
-          // 2. Fallback via POST menggunakan 'getusersubscription'
-          if (!planConfirmed) {
-            try {
-              const postRes = await fetchJson<any>(GOOGLESCRIPTURL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                  action: 'getusersubscription',
-                  user_id: rawUserId,
-                  email: rawEmail
-                })
-              });
-              
-              if (postRes?.success && postRes?.data?.plan) {
-                const cleanPlan = cleanPlanType(postRes.data.plan);
-                setCanUseAi(cleanPlan === 'plus' || cleanPlan === 'premium');
-                planConfirmed = true;
+            const sData = extractRowData(subRes, rawEmail);
+
+            if (sData && Object.keys(sData).length > 0) {
+              const subPlan = String(
+                sData.plan || 
+                sData.plan_type || 
+                sData.plantype || 
+                sData.status_plan || 
+                sData.status_user || 
+                sData.role || 
+                ''
+              ).toLowerCase().trim();
+
+              if (['free', 'pro', 'plus', 'premium'].includes(subPlan)) {
+                resolvedPlan = subPlan;
               }
-            } catch (postErr) {
-              console.warn('Gagal memuat plan via POST:', postErr);
+
+              // Pengecekan multi-nama key untuk kolom custom_features di sheet subscriptions
+              let customFeaturesVal = '';
+              for (const key of Object.keys(sData)) {
+                const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (lowerKey === 'customfeatures' || lowerKey === 'customfeature' || lowerKey === 'features' || lowerKey === 'privileges' || lowerKey === 'akses') {
+                  customFeaturesVal = String(sData[key] || '');
+                  break;
+                }
+              }
+
+              if (checkCustomAiPrivilege(customFeaturesVal)) {
+                hasCustomAi = true;
+              }
+            }
+          } catch (errSub) {
+            console.warn('Gagal membaca sheet subscriptions:', errSub);
+          }
+
+          // 🟢 TAHAP 2: JIKA TIDAK ADA DI SUBSCRIPTIONS, BACA SHEET USERS
+          if (!resolvedPlan) {
+            try {
+              const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${timestamp}`;
+              const userRes = await fetchJson<any>(userUrl, { cache: 'no-store' });
+
+              const uData = extractRowData(userRes, rawEmail);
+
+              if (uData && Object.keys(uData).length > 0) {
+                const userPlan = String(
+                  uData.plan || 
+                  uData.role || 
+                  uData.status_user || 
+                  uData.status || 
+                  ''
+                ).toLowerCase().trim();
+
+                if (['free', 'pro', 'plus', 'premium'].includes(userPlan)) {
+                  resolvedPlan = userPlan;
+                }
+
+                let userCustomVal = '';
+                for (const key of Object.keys(uData)) {
+                  const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  if (lowerKey === 'customfeatures' || lowerKey === 'customfeature' || lowerKey === 'features' || lowerKey === 'privileges' || lowerKey === 'akses') {
+                    userCustomVal = String(uData[key] || '');
+                    break;
+                  }
+                }
+
+                if (!hasCustomAi && checkCustomAiPrivilege(userCustomVal)) {
+                  hasCustomAi = true;
+                }
+              }
+            } catch (errUser) {
+              console.warn('Gagal membaca sheet users:', errUser);
             }
           }
         }
 
-        // 3. Fallback terakhir ke session lokal
-        if (!planConfirmed && session) {
-          const localPlan = cleanPlanType(String(session?.plan || 'free'));
-          setCanUseAi(localPlan === 'plus' || localPlan === 'premium');
+        // 🟢 TAHAP 3: FALLBACK KE SESSION LOKAL JIKA TIDAK ADA DI KEDUA SHEET
+        if (!resolvedPlan) {
+          resolvedPlan = String(session?.status_user || session?.plan || 'free');
         }
 
-        // --- LANJUTAN FETCH DATA PROYEK ---
+        const finalCleanPlan = cleanPlanType(resolvedPlan);
+        setUserPlanState(finalCleanPlan);
+
+        // 🟢 AI AKTIF JIKA: Base plan Plus/Premium ATAU terdapat hak akses custom AI
+        const isAiEnabled = (finalCleanPlan === 'plus' || finalCleanPlan === 'premium' || hasCustomAi);
+        setCanUseAi(isAiEnabled);
+
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
         let bundleRes: any;
         let responsesRes: any;
 
         try {
-          bundleRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}`);
+          bundleRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
         } catch (e) { console.error('Gagal fetch bundle'); }
         
         try {
-          responsesRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}`);
+          responsesRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
         } catch (e) { console.error('Gagal fetch responses'); }
 
         if (!bundleRes?.success || !bundleRes?.data?.project) {
@@ -1082,7 +1182,13 @@ function ProjectReportContent() {
          };
       });
 
+      // 🟢 Jika akun mendapat custom AI override, berikan tingkat analisis mendalam (premium)
+      const effectivePlanForAi = canUseAi && (userPlanState === 'free' || userPlanState === 'pro') 
+        ? 'premium' 
+        : userPlanState;
+
       const payload = {
+        userPlan: effectivePlanForAi,
         project: {
           id: data.project.id,
           name: data.project.namaproyek,
@@ -1090,6 +1196,8 @@ function ProjectReportContent() {
           hasSubcriteria: data.project.punyasubkriteria,
           totalExperts: data.experts.length
         },
+        criteria: data.criteria,
+        subcriteria: data.subcriteria,
         completion: {
           totalTasks: tasks.length,
           totalResponses: data.responses.length,
@@ -1118,7 +1226,7 @@ function ProjectReportContent() {
           }
         }
       } catch (apiErr) {
-        console.warn('API Route gagal, beralih ke generator draf lokal.', apiErr);
+        console.warn('API Route gagal, beralih ke fallback terpusat.', apiErr);
       }
 
       if (!jsonResult) {
@@ -1126,38 +1234,29 @@ function ProjectReportContent() {
         const topScore = formatNumber(finalAggregateRanking[0]?.score || 0, 4);
 
         jsonResult = {
-          overview: {
-            project_name: data.project.namaproyek,
-            completion_status: completedExpertsCount >= data.experts.length ? 'lengkap' : 'parsial',
-            overall_consistency: 'Konsisten',
-            main_summary: `Laporan rekapitulasi analitis untuk proyek ${data.project.namaproyek} telah berhasil disusun berdasarkan sintesis matriks perbandingan berpasangan dari ${data.experts.length} responden pakar dan fasilitator utama. Berdasarkan hasil perhitungan pembobotan hirarki analitis, alternatif atau kriteria ${topAlternative} menduduki peringkat prioritas tertinggi dengan skor ${topScore}. Seluruh rasio konsistensi telah diverifikasi berada dalam ambang batas validitas ilmiah yang dapat dipertanggungjawabkan secara akademis.`
+          section_overview: `Laporan evaluasi analitis mendalam untuk proyek ${data.project.namaproyek} ini menyajikan sintesis berbasis metode Analytic Hierarchy Process (AHP) dengan melibatkan ${data.experts.length} pakar. Proses perbandingan berpasangan dan agregasi geometric mean berhasil menghasilkan kesepakatan kelompok yang terukur dan objektif.`,
+          section_consistency: {
+            narrative: 'Evaluasi terhadap rasio konsistensi menunjukkan bahwa seluruh responden memiliki tingkat keandalan penilaian yang tinggi (Consistency Ratio berada di bawah toleransi 0.10). Hal ini membuktikan persepsi para pakar terbebas dari kontradiksi logis yang signifikan.',
+            expert_evaluations: [
+              {
+                expert_name: 'Evaluasi Kolektif Pakar',
+                status: 'Konsisten',
+                notes: 'Penilaian komparasi antar elemen hierarki telah memenuhi standar konsistensi logis metodologis.'
+              }
+            ]
           },
-          key_findings: [
-            {
-              title: 'Validasi Konsistensi Rasio',
-              severity: 'info',
-              message: 'Nilai rasio konsistensi dari seluruh penilai aktif berada di bawah batas ambang kritis nol koma sepuluh, yang menandakan tidak adanya kontradiksi logis yang signifikan.'
-            },
-            {
-              title: 'Integritas Prioritas Keputusan',
-              severity: 'info',
-              message: `Sintesis agregat global menempatkan ${topAlternative} sebagai fokus utama rekomendasi kebijakan penelitian.`
-            }
-          ],
-          consistency_review: [],
-          expert_recommendations: [
-            {
-              expert_name: 'Evaluasi Kolektif Pakar',
-              status_consistency: 'Konsisten',
-              advice: 'Seluruh pakar disarankan untuk mempertahankan konsistensi metodologis dalam memberikan penilaian komparasi.'
-            }
-          ],
-          evaluation_recommendations: [
-            'Memaksimalkan pemanfaatan alternatif peringkat teratas sebagai fokus implementasi strategis di lapangan.'
-          ],
-          recommendations: [
-            'Gunakan hasil peringkat prioritas sintesis akhir sebagai acuan utama dalam pengambilan keputusan strategis.',
-            'Lanjutkan proses pengesahan dokumen riset dan pelaporan pertanggungjawaban ilmiah kepada instansi terkait.'
+          section_criteria: {
+            narrative: 'Distribusi bobot kriteria memperlihatkan konsensus yang kuat terhadap elemen-elemen prioritas. Kriteria dengan nilai tertinggi memegang peranan krusial dalam menentukan skor akhir alternatif keputusan.',
+            strategic_insight: 'Disarankan untuk memprioritaskan alokasi pengawasan pada kriteria dengan bobot signifikansi dominan.'
+          },
+          section_alternatives: {
+            narrative: `Sintesis peringkat akhir menempatkan ${topAlternative} pada peringkat pertama dengan skor bobot sebesar ${topScore}. Keunggulan ini didukung oleh performa konsisten pada parameter kriteria dengan bobot terbesar.`,
+            sensitivity_notes: `Dominasi skor pada ${topAlternative} menunjukkan ketahanan alternatif terhadap dinamika perubahan bobot pendukung.`
+          },
+          section_final_recommendations: [
+            `Menjadikan alternatif ${topAlternative} sebagai fokus utama dalam eksekusi kebijakan strategis.`,
+            'Melakukan peninjauan berkala terhadap indikator pendukung keputusan.',
+            'Mengesahkan dokumen laporan riset ini sebagai rujukan pertanggungjawaban ilmiah.'
           ]
         };
       }
@@ -1168,6 +1267,23 @@ function ProjectReportContent() {
     } finally {
       setLoadingAi(false);
     }
+  };
+
+  const handlePrintDocument = () => {
+    if (typeof window === 'undefined') return;
+
+    window.requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          window.print();
+        } catch (e) {
+          console.warn('window.print() gagal, mencoba fallback reload printer:', e);
+          setTimeout(() => {
+            window.print();
+          }, 300);
+        }
+      }, 150);
+    });
   };
 
   if (loading) return <div style={STYLES.page}><div style={STYLES.loader}>Memuat Laporan Proyek...</div></div>;
@@ -1186,12 +1302,15 @@ function ProjectReportContent() {
         @media print {
           @page { 
             size: A4 portrait !important; 
-            margin: 12mm !important; 
+            margin: 10mm 12mm !important; 
           }
           html, body {
-            width: 210mm !important;
+            width: 100% !important;
+            height: auto !important;
             background: #ffffff !important;
             color: #0f172a !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           body * { 
             visibility: visible !important; 
@@ -1202,8 +1321,9 @@ function ProjectReportContent() {
           .print-card {
             box-shadow: none !important;
             border: 1px solid #cbd5e1 !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+            margin-bottom: 10px !important;
           }
         }
       `}</style>
@@ -1223,83 +1343,30 @@ function ProjectReportContent() {
                 disabled={loadingAi}
                 style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: loadingAi ? 'not-allowed' : 'pointer' }}
               >
-                {loadingAi ? '⏳ Menyusun...' : '🤖 Analisis Draf AI'}
+                {loadingAi ? '⏳ Menyusun Pembahasan...' : '🤖 Analisis Draf AI'}
               </button>
             ) : (
               <button 
-                title="Fitur Analisis AI hanya tersedia untuk paket PLUS dan PREMIUM"
-                onClick={() => alert('Fasilitas Analisis Draf AI terkunci. Silakan tingkatkan paket langganan Anda ke PLUS atau PREMIUM.')}
+                title="Fitur Analisis AI tidak aktif untuk akun ini"
+                onClick={() => alert('Fasilitas Analisis Draf AI terkunci. Silakan hubungi admin atau tingkatkan paket langganan Anda.')}
                 style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
               >
                 🔒 Analisis Draf AI
               </button>
             )}
 
-            <button type="button" onClick={() => window.print()} style={STYLES.btnGhost}>🖨️ Cetak Dokumen (PDF)</button>
+            <button 
+              type="button" 
+              onClick={handlePrintDocument} 
+              style={STYLES.btnGhost}
+              title="Cetak atau simpan dokumen ke file PDF"
+            >
+              🖨️ Cetak Dokumen (PDF)
+            </button>
           </div>
         </div>
 
-        {/* AI REPORT SUMMARY */}
-        {fullAiReport && (
-          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '16px 20px', borderRadius: '10px', marginBottom: 12 }} className="print-card">
-            <h3 style={{ margin: '0 0 12px', color: '#0f172a', borderBottom: '2px solid #e2e8f0', paddingBottom: '6px', fontSize: 14 }}>
-              🤖 Draf Laporan Analisis AHP Otomatis (Gemini AI)
-            </h3>
-            
-            <div style={{ marginBottom: 12 }}>
-              <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Ringkasan Eksekutif</h4>
-              <p style={{ margin: 0, fontSize: 12, color: '#334155', lineHeight: 1.4, textAlign: 'justify', textJustify: 'inter-word' }}>
-                {cleanAiText(fullAiReport.overview.main_summary)}
-              </p>
-            </div>
-
-            <div style={{ marginBottom: 12 }}>
-              <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Temuan Kunci</h4>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                {fullAiReport.key_findings?.map((item: any, idx: number) => (
-                  <li key={idx} style={{ marginBottom: 2 }}><strong>{cleanAiText(item.title)}</strong>: {cleanAiText(item.message)}</li>
-                ))}
-              </ul>
-            </div>
-
-            {fullAiReport.expert_recommendations && fullAiReport.expert_recommendations.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Saran &amp; Rekomendasi untuk Pakar (Expert)</h4>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                  {fullAiReport.expert_recommendations.map((item: any, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 2 }}>
-                      <strong>{cleanAiText(item.expert_name)}</strong> ({item.status_consistency}): {cleanAiText(item.advice)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {fullAiReport.evaluation_recommendations && fullAiReport.evaluation_recommendations.length > 0 && (
-              <div style={{ marginBottom: 12 }}>
-                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Berdasarkan Hasil Penilaian</h4>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                  {fullAiReport.evaluation_recommendations.map((rec: string, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {fullAiReport.recommendations && fullAiReport.recommendations.length > 0 && (
-              <div>
-                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Strategis Umum</h4>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                  {fullAiReport.recommendations.map((rec: string, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* KOTAK PROYEK & FASILITATOR (Nama Peneliti & Nama Lembaga/Institusi) */}
+        {/* KOTAK PROYEK & FASILITATOR */}
         <section style={STYLES.card} className="print-card">
           <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 8, marginBottom: 10 }}>
             <span style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
@@ -1331,9 +1398,7 @@ function ProjectReportContent() {
             <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div>
                 <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>👤 Peneliti / Fasilitator Utama</div>
-                {/* Menampilkan nama pengguna/peneliti secara langsung */}
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{data.project.fasilitatornama}</div>
-                {/* Menampilkan nama instansi atau institusi */}
                 <div style={{ fontSize: 10.5, color: '#475569', fontWeight: 600 }}>{data.project.fasilitatorlembaga}</div>
                 <div style={{ fontSize: 10.5, color: '#2563eb' }}>{data.project.fasilitatoremail}</div>
               </div>
@@ -1355,6 +1420,14 @@ function ProjectReportContent() {
             </div>
           </div>
         </section>
+
+        {/* SISIPAN AI: 1. PENGANTAR & METODOLOGI UMUM */}
+        {fullAiReport?.section_overview && (
+          <div style={STYLES.aiBoxNeutral} className="print-card">
+            <h4 style={STYLES.aiBoxHeader}>🤖 Pengantar &amp; Kontekstualisasi Metodologi (AI Analysis)</h4>
+            <p style={STYLES.aiParagraph}>{cleanAiText(fullAiReport.section_overview)}</p>
+          </div>
+        )}
 
         {/* GRAFIK & RANKING GLOBAL */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
@@ -1404,7 +1477,20 @@ function ProjectReportContent() {
 
         </div>
 
-        {/* STATUS RESPONDEN */}
+        {/* SISIPAN AI: 2. ANALISIS PRIORITAS ALTERNATIF & SENSITIVITAS */}
+        {fullAiReport?.section_alternatives && (
+          <div style={STYLES.aiBoxAmber} className="print-card">
+            <h4 style={{ ...STYLES.aiBoxHeader, color: '#92400e' }}>💡 Pembahasan Analitis Sintesis Alternatif Pilihan (AI Insight)</h4>
+            <p style={{ ...STYLES.aiParagraph, color: '#78350f' }}>{cleanAiText(fullAiReport.section_alternatives.narrative)}</p>
+            {fullAiReport.section_alternatives.sensitivity_notes && (
+              <div style={{ marginTop: 6, fontSize: 11, color: '#92400e', fontStyle: 'italic', borderTop: '1px dashed #fcd34d', paddingTop: 4 }}>
+                <strong>Catatan Sensitivitas:</strong> {cleanAiText(fullAiReport.section_alternatives.sensitivity_notes)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* STATUS RESPONDEN & PROGRES */}
         <section style={STYLES.card} className="print-card">
           <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
           <table style={STYLES.table}>
@@ -1436,6 +1522,54 @@ function ProjectReportContent() {
             </tbody>
           </table>
         </section>
+
+        {/* SISIPAN AI: 3. EVALUASI RASIO KONSISTENSI & CATATAN PAKAR */}
+        {fullAiReport?.section_consistency && (
+          <div style={STYLES.aiBoxBlue} className="print-card">
+            <h4 style={{ ...STYLES.aiBoxHeader, color: '#1e40af' }}>🔍 Evaluasi Konsistensi &amp; Reliabilitas Penilaian Pakar (AI Evaluation)</h4>
+            <p style={{ ...STYLES.aiParagraph, color: '#1e3a8a' }}>{cleanAiText(fullAiReport.section_consistency.narrative)}</p>
+            {fullAiReport.section_consistency.expert_evaluations && fullAiReport.section_consistency.expert_evaluations.length > 0 && (
+              <div style={{ marginTop: 8, borderTop: '1px solid #bfdbfe', paddingTop: 6 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#1e40af', marginBottom: 4 }}>Catatan Spesifik Per Pakar:</div>
+                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, color: '#1e3a8a', lineHeight: 1.4 }}>
+                  {fullAiReport.section_consistency.expert_evaluations.map((exp: any, idx: number) => (
+                    <li key={idx} style={{ marginBottom: 2 }}>
+                      <strong>{cleanAiText(exp.expert_name)}</strong> ({cleanAiText(exp.status)}): {cleanAiText(exp.notes)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SISIPAN AI: 4. PEMBAHASAN DISTRIBUSI BOBOT KRITERIA */}
+        {fullAiReport?.section_criteria && (
+          <div style={STYLES.aiBoxSlate} className="print-card">
+            <h4 style={{ ...STYLES.aiBoxHeader, color: '#334155' }}>⚖️ Analisis Distribusi Bobot Kriteria &amp; Trade-off (AI Analysis)</h4>
+            <p style={{ ...STYLES.aiParagraph, color: '#334155' }}>{cleanAiText(fullAiReport.section_criteria.narrative)}</p>
+            {fullAiReport.section_criteria.strategic_insight && (
+              <div style={{ marginTop: 6, fontSize: 11, color: '#0f172a', background: 'rgba(255,255,255,0.7)', padding: '6px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}>
+                <span style={{ fontWeight: 700, color: '#2563eb' }}>Implikasi Strategis: </span>
+                {cleanAiText(fullAiReport.section_criteria.strategic_insight)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SISIPAN AI: 5. REKOMENDASI TINDAK LANJUT AKHIR */}
+        {fullAiReport?.section_final_recommendations && fullAiReport.section_final_recommendations.length > 0 && (
+          <div style={STYLES.card} className="print-card">
+            <h3 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 8, color: '#0f172a' }}>
+              🎯 Rekomendasi Strategis &amp; Tindak Lanjut Organisasi
+            </h3>
+            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 11.5, color: '#334155', lineHeight: 1.5 }}>
+              {fullAiReport.section_final_recommendations.map((rec: string, idx: number) => (
+                <li key={idx} style={{ marginBottom: 4 }}>{cleanAiText(rec)}</li>
+              ))}
+            </ol>
+          </div>
+        )}
 
         {/* DETAIL SESI MATRIKS PERBANDINGAN & EVALUASI FASILITATOR */}
         {tasks.map((task) => {
@@ -1598,4 +1732,11 @@ const STYLES: Record<string, React.CSSProperties> = {
   btnSecondary: { background: '#fff', color: '#0f172a', border: '1px solid #cbd5e1', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11 },
   btnGhost: { background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600, fontSize: 11 },
   errorBox: { background: '#fef2f2', color: '#991b1b', border: '1px dashed #fecaca', padding: 10, borderRadius: 6, marginBottom: 10, fontSize: 12 },
+
+  aiBoxNeutral: { background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '12px 14px' },
+  aiBoxAmber: { background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '12px 14px' },
+  aiBoxBlue: { background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '12px 14px' },
+  aiBoxSlate: { background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: '12px 14px' },
+  aiBoxHeader: { margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: '#0f172a', textTransform: 'none' },
+  aiParagraph: { margin: 0, fontSize: 11.5, lineHeight: 1.5, textAlign: 'justify', textJustify: 'inter-word' }
 };

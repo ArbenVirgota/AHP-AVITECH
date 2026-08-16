@@ -3,13 +3,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
+import Link from 'next/navigation'; // Jika menggunakan Next.js standar, Link dari 'next/link'
 import { usePathname } from 'next/navigation';
+import NextLink from 'next/link';
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false); // Status lipat/sembunyi sidebar di desktop
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -29,13 +30,14 @@ export default function Sidebar() {
 
   if (!isMounted) return null;
 
-  if (pathname === '/login' || pathname === '/register' || pathname === '/' || pathname.startsWith('/admin')) {
+  // 🟢 1. SEMBUNYIKAN SIDEBAR DI LANDING PAGE (/) SERTA HALAMAN LOGIN, REGISTER, & ADMIN
+  if (pathname === '/' || pathname === '/login' || pathname === '/register' || pathname.startsWith('/admin')) {
     return null;
   }
 
   return (
     <>
-      {/* TOMBOL HAMBURGER (Membuka Sidebar di Mobile) */}
+      {/* TOMBOL HAMBURGER (MOBILE) */}
       <button 
         onClick={() => setIsMobileOpen(true)} 
         style={STYLES.mobileMenuBtn}
@@ -52,7 +54,7 @@ export default function Sidebar() {
         />
       )}
 
-      {/* TOMBOL TOGGLE (Buka/Tutup Sidebar di Desktop) */}
+      {/* TOMBOL TOGGLE (DESKTOP) */}
       <button
         onClick={() => setIsCollapsed(!isCollapsed)}
         style={{
@@ -68,7 +70,6 @@ export default function Sidebar() {
       <aside style={{
         ...STYLES.sidebar,
         width: isCollapsed ? 76 : 260,
-        // Logika posisi: Jika di mobile mengikuti isMobileOpen, jika di desktop mengikuti isCollapsed
         left: isMobileOpen ? 0 : (isCollapsed ? '-260px' : '0'),
       }}>
         <div style={STYLES.sidebarHeader}>
@@ -80,13 +81,7 @@ export default function Sidebar() {
             </div>
           )}
           
-          {/* TOMBOL 'X' UNTUK MENUTUP SIDEBAR DI MOBILE */}
-          <button 
-            onClick={() => setIsMobileOpen(false)} 
-            style={STYLES.closeBtnMobile}
-          >
-            ✕
-          </button>
+          {/* 🟢 2. TOMBOL 'X' DIHAPUS SESUAI PERMINTAAN */}
         </div>
 
         <div style={STYLES.menuContainer}>
@@ -95,7 +90,7 @@ export default function Sidebar() {
             {menuItems.map((item) => {
               const isActive = pathname === item.path || pathname.startsWith(`${item.path}/`);
               return (
-                <Link 
+                <NextLink 
                   key={item.path} 
                   href={item.path} 
                   onClick={() => setIsMobileOpen(false)}
@@ -104,7 +99,7 @@ export default function Sidebar() {
                 >
                   <span style={STYLES.navIcon}>{item.icon}</span>
                   {!isCollapsed && <span style={STYLES.navText}>{item.name}</span>}
-                </Link>
+                </NextLink>
               );
             })}
           </nav>
@@ -113,7 +108,7 @@ export default function Sidebar() {
         <div style={{ ...STYLES.menuContainer, marginTop: 'auto', borderTop: '1px solid #1e293b', paddingTop: 16 }}>
           <nav style={STYLES.nav}>
             {bottomMenuItems.map((item) => (
-              <Link 
+              <NextLink 
                 key={item.name} 
                 href={item.path}
                 onClick={() => {
@@ -127,13 +122,12 @@ export default function Sidebar() {
               >
                 <span style={STYLES.navIcon}>{item.icon}</span>
                 {!isCollapsed && <span style={STYLES.navText}>{item.name}</span>}
-              </Link>
+              </NextLink>
             ))}
           </nav>
         </div>
       </aside>
 
-      {/* CSS RESPONSIF DESKTOP */}
       <style>{`
         @media (min-width: 768px) {
           aside {
@@ -146,7 +140,6 @@ export default function Sidebar() {
           .mobile-btn {
             display: none !important;
           }
-          /* Tampilkan tombol panah toggle di layar komputer */
           button[title="Buka Sidebar"], button[title="Sembunyikan Sidebar"] {
             display: flex !important;
           }
@@ -281,14 +274,6 @@ const STYLES: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     boxShadow: '0 2px 5px rgba(0,0,0,0.2)',
     transition: 'left 0.3s ease-in-out',
-  },
-  closeBtnMobile: {
-    marginLeft: 'auto',
-    background: 'none',
-    border: 'none',
-    color: '#94a3b8',
-    fontSize: 20,
-    cursor: 'pointer',
   },
   overlay: {
     position: 'fixed',
