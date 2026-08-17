@@ -120,6 +120,14 @@ function ExpertSelesaiContent() {
   const [showCertModal, setShowCertModal] = useState(false);
   const [officialCertId, setOfficialCertId] = useState<string>(''); 
 
+  // 🟢 State Aset Sistem dari Sheet system_assets / app_settings
+  const [systemAssets, setSystemAssets] = useState<{
+    platform_logo?: string;
+    admin_signature?: string;
+    co_admin_signature?: string;
+    [key: string]: string | undefined;
+  }>({});
+
   const [formData, setFormData] = useState({
     gelarDepan: '',
     expertname: '',
@@ -184,16 +192,28 @@ function ExpertSelesaiContent() {
 
       const ts = Date.now();
       
-      const tokenRes = await fetch(GOOGLESCRIPTURL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        cache: 'no-store',
-        body: JSON.stringify({ action: 'getexpertbytoken', token: token })
-      });
+      // Ambil data expert & aset sistem secara paralel
+      const [tokenRes, assetsRes] = await Promise.all([
+        fetch(GOOGLESCRIPTURL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          cache: 'no-store',
+          body: JSON.stringify({ action: 'getexpertbytoken', token: token })
+        }),
+        fetch(`${GOOGLESCRIPTURL}?action=get_system_assets&_t=${ts}`, { cache: 'no-store' }).catch(() => null)
+      ]);
+
       const json = await tokenRes.json();
 
       if (!json?.success || !json?.data?.expert || !json?.data?.project) {
         throw new Error(json?.message || 'Data expert tidak ditemukan.');
+      }
+
+      if (assetsRes) {
+        const assetsJson = await assetsRes.json().catch(() => ({}));
+        if (assetsJson?.success && assetsJson.data) {
+          setSystemAssets(assetsJson.data);
+        }
       }
 
       const rawExp = json.data.expert;
@@ -306,22 +326,24 @@ function ExpertSelesaiContent() {
     void loadData();
   }, [loadData]);
 
+  // 🟢 Resolusi Tanda Tangan & Data Pengesah Sistem (Prioritas Sheet system_assets)
   const getSystemSignerInfo = () => {
     const activeType = typeof window !== 'undefined' ? localStorage.getItem('active_signer_type') : 'main';
     let name = 'Dr. Arben Virgota, S.Pi., M.Si';
     let title = 'Lead Developer & System Admin';
-    let sigUrl = typeof window !== 'undefined' ? localStorage.getItem('superadmin_signature_url') : '';
+    let sigUrl = systemAssets.admin_signature || (typeof window !== 'undefined' ? localStorage.getItem('superadmin_signature_url') : '') || '';
+    
     if (activeType === 'backup') {
       name = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_name')) || name;
       title = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_title')) || 'Wakil System Admin';
-      sigUrl = (typeof window !== 'undefined' && localStorage.getItem('backup_signer_signature_url')) || sigUrl;
+      sigUrl = systemAssets.co_admin_signature || (typeof window !== 'undefined' && localStorage.getItem('backup_signer_signature_url')) || sigUrl;
     }
     return { name, title, sigUrl };
   };
 
+  // 🟢 Resolusi Logo Platform (Prioritas Sheet system_assets)
   const getAppLogoUrl = () => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('app_system_stamp_url') || '';
+    return systemAssets.platform_logo || (typeof window !== 'undefined' ? localStorage.getItem('app_system_stamp_url') : '') || '/logo.png';
   };
 
   const getUserSignatureUrl = () => {
@@ -925,20 +947,34 @@ function ExpertSelesaiContent() {
                   </div>
                 </div>
                 
+                {/* Kolom 2: Peneliti Utama dengan Latar Belakang Putih Transparan pada TTD */}
                 <div style={{ display: 'table-cell', width: '35%', verticalAlign: 'bottom', textAlign: 'center', padding: '0 6px' }}>
                   <div style={{ fontSize: 10, fontFamily: 'Arial, sans-serif', color: '#64748b', fontWeight: 'bold', marginBottom: 2, letterSpacing: 1 }}>DITERBITKAN DI</div>
                   <div style={{ fontSize: 11, fontWeight: 'bold', color: '#0f172a', marginBottom: 4 }}>Mataram, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
                   <div style={{ height: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
                     {userSigUrl ? (
-                      <img 
-                        src={userSigUrl} 
-                        alt="Tanda Tangan Peneliti" 
-                        style={{ 
-                          maxHeight: 50, 
-                          maxWidth: 140, 
-                          objectFit: 'contain' 
-                        }} 
-                      />
+                      <div style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0)',
+                        WebkitPrintColorAdjust: 'exact',
+                        printColorAdjust: 'exact',
+                        padding: '2px 4px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '6px'
+                      }}>
+                        <img 
+                          src={userSigUrl} 
+                          alt="Tanda Tangan Peneliti" 
+                          style={{ 
+                            maxHeight: 50, 
+                            maxWidth: 140, 
+                            objectFit: 'contain',
+                            mixBlendMode: 'multiply',
+			    opacity: 0.99
+                          }} 
+                        />
+                      </div>
                     ) : (
                       <span style={{ color: '#cbd5e1', fontStyle: 'italic', fontSize: 10 }}>(Tanda Tangan Digital)</span>
                     )}
@@ -949,6 +985,7 @@ function ExpertSelesaiContent() {
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{project.fasilitatorlembaga}</div>
                 </div>
 
+                {/* Kolom 3: Pengesah System (Admin/Superadmin) */}
                 <div style={{ display: 'table-cell', width: '35%', verticalAlign: 'bottom', textAlign: 'center', padding: '0 6px' }}>
                   <div style={{ position: 'relative', width: '100%' }}>
                     

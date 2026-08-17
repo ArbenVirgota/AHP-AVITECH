@@ -175,21 +175,52 @@ export default function SuperAdminControlPage() {
       setLoading(true);
       setApiError('');
 
-      const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData] = await Promise.all([
+      const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData, systemAssetsData] = await Promise.all([
         fetchWithCatch('getadmins'),
         fetchWithCatch('getadminlogs'),
         fetchWithCatch('getpaymentsettings'),
         fetchWithCatch('getdiditsettings'),
         fetchWithCatch('getplansettings'),
-        fetchWithCatch('getallusersubscriptions')
+        fetchWithCatch('getallusersubscriptions'),
+        fetchWithCatch('get_system_assets')
       ]);
 
       setAdmins(Array.isArray(admData) ? admData : []);
       setAdminLogsList(Array.isArray(logsData) ? logsData : []);
       setUserSubscriptions(Array.isArray(userSubsData) ? userSubsData : []);
 
+      // 🟢 Sinkronisasi data Aset Sistem dari Sheet system_assets / app_settings
+      if (systemAssetsData && typeof systemAssetsData === 'object' && !Array.isArray(systemAssetsData)) {
+        if (systemAssetsData.active_signer_type) {
+          setActiveSignerType(systemAssetsData.active_signer_type as 'main' | 'backup');
+          localStorage.setItem('active_signer_type', systemAssetsData.active_signer_type);
+        }
+        if (systemAssetsData.admin_signature || systemAssetsData.superadmin_signature_url) {
+          const sig = systemAssetsData.admin_signature || systemAssetsData.superadmin_signature_url;
+          setSuperAdminSignatureUrl(sig);
+          localStorage.setItem('superadmin_signature_url', sig);
+        }
+        if (systemAssetsData.backup_signer_name) {
+          setBackupSignerName(systemAssetsData.backup_signer_name);
+          localStorage.setItem('backup_signer_name', systemAssetsData.backup_signer_name);
+        }
+        if (systemAssetsData.backup_signer_title) {
+          setBackupSignerTitle(systemAssetsData.backup_signer_title);
+          localStorage.setItem('backup_signer_title', systemAssetsData.backup_signer_title);
+        }
+        if (systemAssetsData.co_admin_signature || systemAssetsData.backup_signer_signature_url) {
+          const coSig = systemAssetsData.co_admin_signature || systemAssetsData.backup_signer_signature_url;
+          setBackupSignerSignatureUrl(coSig);
+          localStorage.setItem('backup_signer_signature_url', coSig);
+        }
+        if (systemAssetsData.platform_logo || systemAssetsData.app_system_stamp_url) {
+          const logo = systemAssetsData.platform_logo || systemAssetsData.app_system_stamp_url;
+          setAppSystemStampUrl(logo);
+          localStorage.setItem('app_system_stamp_url', logo);
+        }
+      }
+
       if (Array.isArray(planSettingsData) && planSettingsData.length > 0) {
-        // Pastikan plan_key selalu uppercase
         const normalizedPlans = planSettingsData.map((p: any) => ({
           ...p,
           plan_key: String(p.plan_key || p.label || 'FREE').toUpperCase()
@@ -287,7 +318,6 @@ export default function SuperAdminControlPage() {
     const q = subSearchQuery.toLowerCase().trim();
 
     return userSubs.filter((item) => {
-      // 1. Cek dan sembunyikan jika akun merupakan Evaluator Pakar
       const statusUser = String(item.status_user || item.status || item.source || '').toUpperCase();
       const userId = String(item.user_id || item.id || '').toUpperCase();
       const proSource = String(item.pro_source || item.plan_source || '').toUpperCase();
@@ -300,7 +330,6 @@ export default function SuperAdminControlPage() {
 
       if (isExpertUser) return false;
 
-      // 2. Filter berdasarkan pencarian nama, email, plan, atau notes
       if (!q) return true;
 
       const email = String(
@@ -319,7 +348,6 @@ export default function SuperAdminControlPage() {
     });
   }, [userSubs, subSearchQuery]);
 
-  // Helper memproses status checkbox custom_features menjadi string terpisah koma
   const toggleCustomFeatureCheck = (featureKey: string) => {
     let currentList: string[] = subForm.custom_features
       ? subForm.custom_features.split(',').map((f) => f.trim().toLowerCase())
@@ -578,6 +606,7 @@ export default function SuperAdminControlPage() {
     }
   };
 
+  // 🟢 SIMPAN TANDA TANGAN & LOGO LANGSUNG KE SHEET SYSTEM_ASSETS
   const handleSaveSignatureSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -593,17 +622,23 @@ export default function SuperAdminControlPage() {
 
       if (GOOGLE_SCRIPT_URL) {
         await Promise.all([
+          // 🟢 Simpan batch ke sheet system_assets / app_settings
           fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
-              action: 'savesuperadminsignature',
-              active_signer_type: activeSignerType,
-              superadmin_signature_url: superAdminSignatureUrl,
-              backup_signer_name: backupSignerName,
-              backup_signer_title: backupSignerTitle,
-              backup_signer_signature_url: backupSignerSignatureUrl,
-              app_system_stamp_url: appSystemStampUrl,
+              action: 'save_system_assets',
+              assets: {
+                active_signer_type: activeSignerType,
+                admin_signature: superAdminSignatureUrl,
+                superadmin_signature_url: superAdminSignatureUrl,
+                backup_signer_name: backupSignerName,
+                backup_signer_title: backupSignerTitle,
+                co_admin_signature: backupSignerSignatureUrl,
+                backup_signer_signature_url: backupSignerSignatureUrl,
+                platform_logo: appSystemStampUrl,
+                app_system_stamp_url: appSystemStampUrl
+              },
               adminEmail, adminName, adminRole
             })
           }),
@@ -633,7 +668,7 @@ export default function SuperAdminControlPage() {
         ]);
       }
 
-      alert('✅ Pengaturan Tanda Tangan, Logo, Xendit & Didit.me berhasil disimpan!');
+      alert('✅ Pengaturan Tanda Tangan, Logo (Tersimpan ke Sheets), Xendit & Didit.me berhasil disimpan!');
     } catch (err: any) {
       alert(`Gagal menyimpan: ${err.message}`);
     } finally {
@@ -846,7 +881,7 @@ export default function SuperAdminControlPage() {
                 <div>
                   <h3 style={STYLES.cardTitle}>📜 Subscriptions &amp; Hak Akses Komersial ({filteredUserSubs.length})</h3>
                   <p style={STYLES.cardDesc}>
-                    Pengaturan paket komersial (FREE, PLUS, PRO, PREMIUM). Data Evaluator Pakar dikelola terpisah pada Dashboard Operasional Admin[cite: 5].
+                    Pengaturan paket komersial (FREE, PLUS, PRO, PREMIUM). Data Evaluator Pakar dikelola terpisah pada Dashboard Operasional Admin.
                   </p>
                 </div>
                 <button onClick={fetchSuperData} disabled={loading} style={{ ...STYLES.btnUpload, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
@@ -888,7 +923,6 @@ export default function SuperAdminControlPage() {
                         const status = String(item.status || item.Status || 'ACTIVE').toUpperCase();
                         const exp = item.expired_date || item.expired || '-';
                         
-                        // Item Privilese Lengkap
                         const maxProj = item.max_projects;
                         const maxExp = item.max_experts || item.max_experts_manual;
                         const maxExpDir = item.max_experts_directory;
@@ -953,7 +987,7 @@ export default function SuperAdminControlPage() {
               <div style={STYLES.cardTitleRow}>
                 <div>
                   <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Harga & Batasan Paket (Semester Pass)</h3>
-                  <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan[cite: 5].</p>
+                  <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan.</p>
                 </div>
                 <button onClick={handleSavePlans} disabled={saving} style={STYLES.btnAdd}>
                   {saving ? 'Menyimpan...' : '💾 Simpan Pengaturan Paket'}
