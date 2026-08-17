@@ -3,8 +3,9 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { getSession } from '@/lib/auth';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { getSession, clearSession } from '@/lib/auth';
+import type { UserSession } from '@/lib/auth';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
@@ -17,10 +18,101 @@ function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
   return 'free';
 }
 
+function checkCustomAiPrivilege(rawCustom: any): boolean {
+  if (!rawCustom) return false;
+  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
+    return true;
+  }
+  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
+    return Boolean(rawCustom.ai || rawCustom.ai_analysis || rawCustom.enable_ai || rawCustom.gemini);
+  }
+  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
+  return /\b(ai|ai_analysis|analisis_ai|gemini|enable_ai)\b/i.test(str);
+}
+
+function checkCustomFeature(rawCustom: any, featureKeyword: string): boolean {
+  if (!rawCustom) return false;
+  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
+    return true;
+  }
+  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
+    return Boolean(rawCustom[featureKeyword]);
+  }
+  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
+  const regex = new RegExp(`\\b(${featureKeyword})\\b`, 'i');
+  return regex.test(str);
+}
+
+function extractRowData(res: any, targetEmail: string): any {
+  if (!res) return null;
+  let dataTarget = res.data || res.result || res.payload;
+  if (!dataTarget) dataTarget = res;
+  if (Array.isArray(dataTarget)) {
+    const found = dataTarget.find((item: any) => {
+      const em = String(item.user_email || item.email || item.useremail || item.username || '').trim().toLowerCase();
+      return em === targetEmail;
+    });
+    return found || dataTarget[0] || null;
+  }
+  if (dataTarget !== null && typeof dataTarget === 'object') {
+    return dataTarget;
+  }
+  return null;
+}
+
+// 🟢 NORMALISASI KETAT KOLOM SUBSCRIPTIONS (MENCEGAH KOLOM BERGESER / TERTUKAR)
+function normalizeSubscriptionData(raw: any, targetEmail: string): any {
+  if (!raw) return null;
+  let dataObj = raw.data || raw.result || raw.payload || raw;
+  if (Array.isArray(dataObj)) {
+    dataObj = dataObj.find((item: any) => {
+      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      return em === targetEmail.trim().toLowerCase();
+    }) || dataObj[0] || null;
+  }
+  if (!dataObj || typeof dataObj !== 'object') return null;
+
+  const getField = (keys: string[]) => {
+    for (const k of keys) {
+      for (const objKey of Object.keys(dataObj)) {
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
+          return dataObj[objKey];
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawStatus = getField(['status', 'subscription_status']);
+  const rawExpDate = getField(['expired_date', 'expireddate']);
+  
+  const rawMaxProjects = getField(['max_projects', 'maxprojects']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
+  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
+  const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
+
+  return {
+    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
+    status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
+    expired_date: rawExpDate ? String(rawExpDate) : '',
+    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
+  };
+}
+
 interface ProjectDetail {
   id: string;
   projectid?: string;
   namaproyek: string;
+  nama_proyek?: string;
   deskripsi: string;
   metode: string;
   jumlahexpert: number;
@@ -309,10 +401,12 @@ function sliderLabel(saatyVal: number, left: string, right: string): string {
 }
 
 function normalizeProject(raw: Record<string, unknown>): ProjectDetail {
+  const rawProjectName = String(raw.namaproyek || raw.nama_proyek || raw.judul || '').trim();
   return {
     id: String(raw.id || raw.projectid || raw.project_id || raw.projectId || '').trim(),
     projectid: String(raw.projectid || raw.project_id || raw.id || '').trim(),
-    namaproyek: String(raw.namaproyek || raw.nama_proyek || ''),
+    namaproyek: rawProjectName,
+    nama_proyek: rawProjectName,
     deskripsi: String(raw.deskripsi || ''),
     metode: String(raw.metode || ''),
     jumlahexpert: Number(raw.jumlahexpert || raw.jumlah_expert || 0),
@@ -473,7 +567,7 @@ function normalizeSavedResponse(raw: Record<string, unknown>): SavedResponse {
     id: String(raw.id || raw.responseid || raw.response_id || raw.responseId || '').trim(),
     projectid: String(raw.projectid || raw.project_id || raw.projectId || '').trim(),
     expertid: String(raw.expertid || raw.expert_id || raw.expertId || '').trim(),
-    expertindex: Number(raw.expertindex || raw.expert_index || raw.expertIndex || 0),
+    expertindex: Number(raw.expertindex || raw.expert_index || 0),
     expertname: String(raw.expertname || raw.expert_name || raw.expertName || '').trim(),
     matrixtype: String(raw.matrixtype || raw.matrix_type || raw.matrixType || '').trim(),
     parentid: String(raw.parentid || raw.parent_id || raw.parentId || '').trim(),
@@ -964,10 +1058,277 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
   return res.json();
 }
 
-function ProjectReportContent() {
+// 🟢 KOMPONEN TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO TRANSPARAN
+function AppTopBar() {
+  return (
+    <div style={topBarStyles.container} className="no-print">
+      <div style={topBarStyles.brandGroup}>
+        <img src="/logo.png" alt="Logo AHP" style={topBarStyles.logo} />
+        <div>
+          <h2 style={topBarStyles.title}>ANALYTIC HIERARCHY PROCESS</h2>
+          <p style={topBarStyles.subtitle}>Sistem Pendukung Keputusan Multi-Kriteria Terintegrasi</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 🟢 KOMPONEN SIDEBAR KELOLA DENGAN PLAN DI ATAS & DAFTAR PROYEK (FOTO PROFIL OPTIMAL)
+function DashboardSidebar({
+  user,
+  userProfile,
+  userPlan,
+  projects,
+  isProfileComplete,
+  isCollapsed,
+  consultationCount,
+  onToggleCollapse,
+  onOpenProfile,
+  onOpenUpgrade,
+  onLogout,
+  onSelectSection
+}: {
+  user: UserSession | null;
+  userProfile: { nama: string; foto_profil?: string };
+  userPlan: string;
+  projects: ProjectDetail[];
+  isProfileComplete: boolean;
+  isCollapsed: boolean;
+  consultationCount: number;
+  onToggleCollapse: () => void;
+  onOpenProfile: () => void;
+  onOpenUpgrade: () => void;
+  onLogout: () => void;
+  onSelectSection: (sec: 'dashboard' | 'consultation') => void;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`;
+  const planBadgeColor = 
+    userPlan === 'premium' ? '#9333ea' : 
+    userPlan === 'plus' ? '#2563eb' : 
+    userPlan === 'pro' ? '#16a34a' : '#64748b';
+
+  const navItems = [
+    {
+      label: planLabelFormatted,
+      icon: '⭐',
+      badgeColor: planBadgeColor,
+      onClick: onOpenUpgrade
+    },
+    {
+      label: 'Dashboard Analisis',
+      icon: '📊',
+      active: pathname === '/dashboard',
+      onClick: () => {
+        router.push('/dashboard');
+        onSelectSection('dashboard');
+      }
+    },
+    {
+      label: 'Tiket Konsultasi',
+      icon: '💬',
+      badge: consultationCount > 0 ? String(consultationCount) : undefined,
+      badgeColor: '#10b981',
+      onClick: () => onSelectSection('consultation')
+    },
+    {
+      label: 'Direktori Pakar',
+      icon: '👥',
+      active: pathname === '/expert-directory',
+      onClick: () => router.push('/expert-directory')
+    },
+    {
+      label: 'Profil & Pengesahan',
+      icon: '⚙️',
+      badge: !isProfileComplete ? '!' : undefined,
+      badgeColor: '#ef4444',
+      onClick: onOpenProfile
+    },
+    {
+      label: 'Panduan Sistem',
+      icon: '📖',
+      active: pathname === '/panduan',
+      onClick: () => router.push('/panduan')
+    }
+  ];
+
+  return (
+    <aside className="no-print" style={{
+      ...sidebarStyles.aside,
+      width: isCollapsed ? 76 : 260,
+      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+    }}>
+      <div style={sidebarStyles.brandContainer}>
+        {!isCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <div style={sidebarStyles.brandLogo}>AHP</div>
+            <div>
+              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
+              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
+            </div>
+          </div>
+        )}
+        <button 
+          type="button" 
+          onClick={onToggleCollapse} 
+          style={sidebarStyles.collapseBtn}
+          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
+        >
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2.5" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{
+              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.25s ease'
+            }}
+          >
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div style={{
+        ...sidebarStyles.userCard,
+        justifyContent: isCollapsed ? 'center' : 'flex-start',
+        padding: isCollapsed ? '10px 4px' : '12px'
+      }}>
+        {/* 🟢 AVATAR KONDISIONAL: FOTO USER DITAMPILKAN TANPA OVERLAY INISIAL */}
+        <div style={{
+          ...sidebarStyles.userAvatar,
+          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
+        }}>
+          {userProfile.foto_profil ? (
+            <img 
+              src={userProfile.foto_profil} 
+              alt="Avatar" 
+              style={sidebarStyles.userAvatarImg} 
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
+          )}
+        </div>
+
+        {!isCollapsed && (
+          <div style={sidebarStyles.userInfo}>
+            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
+            <div style={sidebarStyles.userEmail}>{user?.email}</div>
+          </div>
+        )}
+      </div>
+
+      <nav style={sidebarStyles.nav}>
+        {navItems.map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={item.onClick}
+            title={isCollapsed ? item.label : undefined}
+            style={{
+              ...sidebarStyles.navButton,
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              padding: isCollapsed ? '12px 0' : '10px 14px',
+              ...(item.active ? sidebarStyles.navButtonActive : {}),
+              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
+            }}
+          >
+            <span style={sidebarStyles.navIcon}>{item.icon}</span>
+            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
+            {item.badge && (
+              <span style={{
+                ...sidebarStyles.badgeWarn,
+                background: item.badgeColor || '#ef4444',
+                position: isCollapsed ? 'absolute' : 'relative',
+                top: isCollapsed ? 4 : 'auto',
+                right: isCollapsed ? 12 : 'auto'
+              }}>
+                {item.badge}
+              </span>
+            )}
+            {idx === 0 && !isCollapsed && (
+              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
+                Upgrade
+              </span>
+            )}
+          </button>
+        ))}
+
+        {!isCollapsed && projects.length > 0 && (
+          <div style={{ marginTop: 12, paddingBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
+              📁 Proyek Anda ({projects.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'transparent',
+                    color: '#cbd5e1',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    padding: '6px 14px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={p.namaproyek || p.nama_proyek}
+                >
+                  <span style={{ fontSize: 10 }}>🔹</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </nav>
+
+      <div style={{
+        ...sidebarStyles.footer,
+        padding: isCollapsed ? '12px 6px' : '16px'
+      }}>
+        <button 
+          type="button" 
+          onClick={onLogout} 
+          style={sidebarStyles.btnLogout}
+          title={isCollapsed ? "Logout" : undefined}
+        >
+          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function ProjectKelolaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('id');
+
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [userProfile, setUserProfile] = useState<{ nama: string; foto_profil?: string }>({ nama: '', foto_profil: '' });
+  const [userPlan, setUserPlan] = useState<string>('free');
+  const [allUserProjects, setAllUserProjects] = useState<ProjectDetail[]>([]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [data, setData] = useState<BundleState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1000,17 +1361,79 @@ function ProjectReportContent() {
   const [dismissWarning, setDismissWarning] = useState(false);
 
   useEffect(() => {
-    const session = getSession();
-    if (!session) {
+    const s = getSession();
+    if (!s) {
       window.location.replace('/login');
       return;
     }
+    setSession(s);
+    setUserProfile({ nama: s.nama || s.email || 'Pengguna', foto_profil: s.foto_profil || s.fotoprofil || '' });
 
     const checkSubscriptionAndLoad = async () => {
       try {
         setLoading(true);
         setError('');
         setMessage('');
+
+        const rawEmail = String(s.email || '').trim().toLowerCase();
+        const rawUserId = String(s.id || '').trim();
+
+        let resolvedPlan = '';
+
+        if (rawEmail || rawUserId) {
+          // 🟢 1. Ambil data profil dari sheet users (fallback jika subscriptions tidak ada barisnya)
+          try {
+            const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
+            const userRes = await fetchJson<any>(userUrl);
+            const uData = extractRowData(userRes, rawEmail);
+
+            if (uData && Object.keys(uData).length > 0) {
+              setUserProfile({
+                nama: uData.nama || s.nama || 'Pengguna',
+                foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
+              });
+
+              const userPlanDirect = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim();
+              if (['free', 'pro', 'plus', 'premium'].includes(userPlanDirect)) {
+                resolvedPlan = userPlanDirect;
+              }
+            }
+          } catch (errUser) {
+            console.warn('Gagal membaca profil pengguna:', errUser);
+          }
+
+          // 🟢 2. Ambil dari sheet subscriptions via fungsi normalisasi presisi
+          try {
+            const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
+            const subRes = await fetchJson<any>(subUrl);
+            const parsed = normalizeSubscriptionData(subRes, rawEmail);
+
+            if (parsed && parsed.plan) {
+              const cleanP = cleanPlanType(parsed.plan);
+              if (cleanP) {
+                resolvedPlan = cleanP;
+              }
+            }
+          } catch (errSub) {
+            console.warn('Gagal membaca sheet subscriptions:', errSub);
+          }
+        }
+
+        if (!resolvedPlan) {
+          resolvedPlan = String(s.status_user || s.plan || 'free');
+        }
+
+        setUserPlan(cleanPlanType(resolvedPlan));
+
+        // 🟢 3. Ambil daftar seluruh proyek user untuk ditampilkan di sidebar
+        try {
+          const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
+          if (projRes?.success && Array.isArray(projRes.data)) {
+            setAllUserProjects(projRes.data.map(normalizeProject));
+          }
+        } catch (e) {
+          console.warn('Gagal memuat daftar proyek sidebar:', e);
+        }
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
@@ -1385,7 +1808,6 @@ function ProjectReportContent() {
     }
   };
 
-  // 🟢 Aksi Buka Halaman Draft Laporan (Navigasi Langsung atau Tab Baru)
   const handleOpenDraftReport = () => {
     if (!projectId) return;
     const targetUrl = `/proyek/laporan?id=${encodeURIComponent(projectId)}`;
@@ -1404,11 +1826,24 @@ function ProjectReportContent() {
     }
   };
 
-  if (loading) return <div style={STYLES.page}><div style={STYLES.loader}>Memuat Data Laporan...</div></div>;
+  const handleLogout = () => {
+    clearSession();
+    router.replace('/login');
+  };
+
+  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
+    if (sec === 'dashboard') {
+      router.push('/dashboard');
+    } else {
+      router.push('/dashboard#consultation-section');
+    }
+  };
+
+  if (loading) return <div style={STYLES.page}><div style={STYLES.loader}>Memuat Data Kelola...</div></div>;
   if (error || !data) return (
     <div style={STYLES.page}>
       <div style={STYLES.card}>
-        <div style={STYLES.errorBox}>{error || 'Data laporan tidak tersedia.'}</div>
+        <div style={STYLES.errorBox}>{error || 'Data kelola tidak tersedia.'}</div>
         <button type="button" onClick={() => router.back()} style={STYLES.btnSecondary}>Kembali</button>
       </div>
     </div>
@@ -1421,448 +1856,695 @@ function ProjectReportContent() {
   ).length;
 
   return (
-    <div style={STYLES.page}>
-      
-      <div style={{ position: 'sticky', top: 0, zIndex: 100, background: '#f8fafc', paddingBottom: 8, paddingTop: 4 }}>
-        <section style={STYLES.cardPrimarySticky} className="print-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-            <div>
-              <h2 style={{...STYLES.sectionTitle, color: '#fff', fontSize: 14}}>Grafik Pie Chart Global</h2>
-              <p style={{...STYLES.metaText, color: '#cbd5e1', marginTop: 1, fontSize: 10.5}}>
-                {hasAlternatives ? 'Skor prioritas alternatif tertinggi.' : 'Bobot prioritas kriteria/subkriteria.'}
-              </p>
-            </div>
-            
-            <div title="Consistency Ratio (CR) Global. Nilai <= 0.1 dianggap konsisten (✓)" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '3px 6px', cursor: 'help' }}>
-              <div style={{ color: '#94a3b8', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 1 }}>CR Global</div>
-              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                {globalCrList.length === 0 ? (
-                  <span style={{ color: '#fff', fontSize: 10.5 }}>-</span>
-                ) : (
-                  globalCrList.map((gCr, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                      <span style={{ color: '#cbd5e1', fontSize: 10 }}>{gCr.title}:</span>
-                      <span style={{ fontWeight: 700, fontSize: 10.5, color: gCr.cr <= 0.1 ? '#4ade80' : '#f87171' }}>
-                        {formatNumber(gCr.cr, 3)} {gCr.cr <= 0.1 ? '✓' : '⚠️'}
-                      </span>
-                    </div>
-                  ))
-                )}
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
+      {/* 🟢 SIDEBAR UTAMA DENGAN PLAN DI ATAS & DAFTAR PROYEK */}
+      <DashboardSidebar
+        user={session}
+        userProfile={userProfile}
+        userPlan={userPlan}
+        projects={allUserProjects}
+        isProfileComplete={true}
+        isCollapsed={isSidebarCollapsed}
+        consultationCount={0}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onOpenProfile={() => router.push('/dashboard?action=profile')}
+        onOpenUpgrade={() => router.push('/dashboard')}
+        onLogout={handleLogout}
+        onSelectSection={handleScrollToSection}
+      />
+
+      {/* 🟢 AREA KONTEN UTAMA */}
+      <main style={STYLES.page}>
+        
+        <div style={{ position: 'sticky', top: 0, zIndex: 100, background: '#f8fafc', paddingBottom: 8, paddingTop: 4 }}>
+          {/* 🟢 TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO DIPERBESAR */}
+          <AppTopBar />
+
+          <section style={STYLES.cardPrimarySticky} className="print-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+              <div>
+                <h2 style={{...STYLES.sectionTitle, color: '#fff', fontSize: 14}}>Grafik Pie Chart Global</h2>
+                <p style={{...STYLES.metaText, color: '#cbd5e1', marginTop: 1, fontSize: 10.5}}>
+                  {hasAlternatives ? 'Skor prioritas alternatif tertinggi.' : 'Bobot prioritas kriteria/subkriteria.'}
+                </p>
+              </div>
+              
+              <div title="Consistency Ratio (CR) Global. Nilai <= 0.1 dianggap konsisten (✓)" style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, padding: '3px 6px', cursor: 'help' }}>
+                <div style={{ color: '#94a3b8', fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 1 }}>CR Global</div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                  {globalCrList.length === 0 ? (
+                    <span style={{ color: '#fff', fontSize: 10.5 }}>-</span>
+                  ) : (
+                    globalCrList.map((gCr, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <span style={{ color: '#cbd5e1', fontSize: 10 }}>{gCr.title}:</span>
+                        <span style={{ fontWeight: 700, fontSize: 10.5, color: gCr.cr <= 0.1 ? '#4ade80' : '#f87171' }}>
+                          {formatNumber(gCr.cr, 3)} {gCr.cr <= 0.1 ? '✓' : '⚠️'}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div style={{ marginBottom: 4 }}>
-            <GlobalPieChart data={finalAggregateRanking} />
-          </div>
-
-          <div style={{...STYLES.weightRowGrid, maxHeight: 95, overflowY: 'auto' }}>
-            {finalAggregateRanking.length === 0 ? (
-              <div style={{color: '#fff', fontSize: 11}}>Belum ada data aktif...</div>
-            ) : (
-              finalAggregateRanking.map((item) => (
-                <div key={item.name} title={`Peringkat #${item.rank}: ${item.name} (Skor: ${formatNumber(item.score, 5)})`} style={{...STYLES.weightCardDark, padding: '4px 8px', cursor: 'help'}}>
-                  <div style={{...STYLES.rankBadge, width: 20, height: 20, fontSize: 10.5}}>#{item.rank}</div>
-                  <div style={{...STYLES.weightInfo}}>
-                    <div style={{...STYLES.weightLabelDark, fontSize: 10.5}}>{item.name}</div>
-                    <div style={{...STYLES.weightValueDark, fontSize: 12}}>{formatNumber(item.score, 5)}</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-      </div>
-
-      <div style={STYLES.container}>
-        {reviewExpert && (
-          <div style={STYLES.modalOverlay}>
-            <div style={STYLES.modalContent}>
-              <h3 style={STYLES.sectionTitle}>Beri Penilaian untuk {reviewExpert.expertname}</h3>
-              <p style={STYLES.metaText}>Nilai expert berdasarkan beberapa aspek kualitas kinerja.</p>
-              
-              <form onSubmit={handleSubmitReview} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-                <div>
-                  <label style={STYLES.label}>Kompetensi / Keahlian (1 - 5):</label>
-                  <input type="number" min={1} max={5} value={kompetensi} onChange={(e) => setKompetensi(Number(e.target.value))} style={STYLES.inputNumber} required />
-                </div>
-                <div>
-                  <label style={STYLES.label}>Responsivitas / Komunikasi (1 - 5):</label>
-                  <input type="number" min={1} max={5} value={responsif} onChange={(e) => setResponsif(Number(e.target.value))} style={STYLES.inputNumber} required />
-                </div>
-                <div>
-                  <label style={STYLES.label}>Ketepatan Waktu Pengisian (1 - 5):</label>
-                  <input type="number" min={1} max={5} value={ketepatan} onChange={(e) => setKetepatan(Number(e.target.value))} style={STYLES.inputNumber} required />
-                </div>
-                <div>
-                  <label style={STYLES.label}>Ulasan / Catatan Tambahan (Opsional):</label>
-                  <textarea value={ulasan} onChange={(e) => setUlasan(e.target.value)} style={STYLES.textarea} placeholder="Tulis ulasan kinerja expert..." />
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-                  <button type="button" onClick={() => setReviewExpert(null)} style={STYLES.btnSecondary}>Batal</button>
-                  <button type="submit" style={STYLES.btnPrimary} disabled={submittingReview}>
-                    {submittingReview ? 'Menyimpan...' : 'Kirim Penilaian'}
-                  </button>
-                </div>
-              </form>
+            <div style={{ marginBottom: 4 }}>
+              <GlobalPieChart data={finalAggregateRanking} />
             </div>
-          </div>
-        )}
 
-        {/* HEADER */}
-        <div style={STYLES.headerRow}>
-          <div>
-            <h1 style={STYLES.pageTitle}>Laporan &amp; Review Matriks</h1>
-            <p style={STYLES.pageDesc}>Pengelolaan pakar, review konsistensi (CR), dan rekapitulasi pembobotan AHP.</p>
-          </div>
-          <div style={STYLES.headerActions}>
-            <button 
-              type="button" 
-              title="Buka dokumen laporan lengkap proyek" 
-              onClick={handleOpenDraftReport} 
-              style={{
-                ...STYLES.btnPrimary,
-                background: '#1d4ed8',
-                color: '#ffffff',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6
-              }}
-            >
-              📄 Tampilkan Draft Laporan
-            </button>
-            <button type="button" title="Kembali ke dashboard" onClick={() => router.push('/dashboard')} style={STYLES.btnSecondary}>Dashboard</button>
-          </div>
+            <div style={{...STYLES.weightRowGrid, maxHeight: 95, overflowY: 'auto' }}>
+              {finalAggregateRanking.length === 0 ? (
+                <div style={{color: '#fff', fontSize: 11}}>Belum ada data aktif...</div>
+              ) : (
+                finalAggregateRanking.map((item) => (
+                  <div key={item.name} title={`Peringkat #${item.rank}: ${item.name} (Skor: ${formatNumber(item.score, 5)})`} style={{...STYLES.weightCardDark, padding: '4px 8px', cursor: 'help'}}>
+                    <div style={{...STYLES.rankBadge, width: 20, height: 20, fontSize: 10.5}}>#{item.rank}</div>
+                    <div style={{...STYLES.weightInfo}}>
+                      <div style={{...STYLES.weightLabelDark, fontSize: 10.5}}>{item.name}</div>
+                      <div style={{...STYLES.weightValueDark, fontSize: 12}}>{formatNumber(item.score, 5)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
         </div>
 
-        {message && <div style={STYLES.infoBox}>{message}</div>}
-
-        {/* BANNER PERINGATAN */}
-        {unreviewedFinishedExpertsCount > 0 && !dismissWarning && (
-          <div style={{
-            background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
-            border: '1px solid #f59e0b',
-            color: '#b45309',
-            padding: '10px 14px',
-            borderRadius: 8,
-            fontSize: 12,
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: '0 2px 6px rgba(245, 158, 11, 0.15)'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 16 }}>⚠️</span>
-              <span>Peringatan: Ada <strong>{unreviewedFinishedExpertsCount} expert</strong> yang telah menyelesaikan tugas kuesionernya namun belum Anda berikan penilaian kinerja (⭐).</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: 999 }}>Harap Nilai</span>
-              <button 
-                onClick={() => setDismissWarning(true)} 
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: '#b45309', padding: '0 4px', fontWeight: 800 }}
-                title="Abaikan peringatan ini"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* PARAMETER PROYEK */}
-        <section style={{ ...STYLES.card, padding: '14px 16px' }}>
-          <div>
-            <div style={STYLES.metaHeader}>
-              <h2 style={{...STYLES.sectionTitle, fontSize: 16}}>{data.project.namaproyek}</h2>
-              <span title="Metode perhitungan dan pembobotan AHP" style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
-            </div>
-            <p style={{...STYLES.metaText, fontSize: 11.5, marginTop: 4}}>{data.project.deskripsi || 'Tidak ada deskripsi.'}</p>
-          </div>
-          
-          <div style={{ marginTop: 10, overflowX: 'auto', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', fontSize: 11.5 }}>
-              <tbody>
-                <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc', width: '35%' }}>Metode AHP</td>
-                  <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{formatMethodLabel(data.project.metode)}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Subkriteria</td>
-                  <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{data.project.punyasubkriteria ? 'Diaktifkan' : 'Tidak Ada'}</td>
-                </tr>
-                <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Sesi Tugas</td>
-                  <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{tasks.length} Sesi</td>
-                </tr>
-                <tr>
-                  <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Jumlah Expert</td>
-                  <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{data.experts.length} Orang</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* RANKING PRIORITAS */}
-        <section style={STYLES.card}>
-          <h2 style={{ ...STYLES.sectionTitle, marginBottom: 8 }}>Ranking Prioritas Sintesis Akhir</h2>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ ...STYLES.th, width: 50, textAlign: 'center' }}>Rank</th>
-                  <th style={STYLES.th}>Alternatif / Elemen</th>
-                  <th style={{ ...STYLES.th, textAlign: 'right' }}>Bobot Skor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {finalAggregateRanking.map((item) => (
-                  <tr key={item.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                      <span style={{ background: item.rank === 1 ? '#1e3a8a' : '#f1f5f9', color: item.rank === 1 ? '#fff' : '#334155', fontWeight: 700, padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>
-                        #{item.rank}
-                      </span>
-                    </td>
-                    <td style={{ padding: '6px 8px', fontWeight: 600, color: '#0f172a' }}>{item.name}</td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>{formatNumber(item.score, 4)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* STATUS RESPONDEN */}
-        <section style={STYLES.card}>
-          <h2 style={STYLES.sectionTitle}>Status Responden &amp; Penilaian (Rating)</h2>
-          <div style={STYLES.tableWrap}>
-            <table style={STYLES.table}>
-              <thead>
-                <tr>
-                  <th style={STYLES.th}>Nama &amp; Instansi</th>
-                  <th style={STYLES.th}>Progress</th>
-                  <th style={STYLES.th}>Status</th>
-                  <th style={STYLES.th}>Aksi Undangan</th>
-                  <th style={STYLES.th}>Penilaian Expert</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expertCompletion.length === 0 ? (
-                  <tr><td style={STYLES.td} colSpan={5} align="center">Belum ada responden.</td></tr>
-                ) : (
-                  expertCompletion.map((item) => {
-                    const expEmail = item.expert.expertemail || item.expert.expert_email || item.expert.email || '';
-
-                    const gD = item.expert.gelardepan ? `${item.expert.gelardepan} ` : '';
-                    const gB = item.expert.gelarbelakang ? `, ${item.expert.gelarbelakang}` : '';
-                    const namaUtama = item.expert.expertname || item.expert.expert_name || item.expert.nama || 'Pakar Tanpa Nama';
-                    const namaLengkap = `${gD}${namaUtama}${gB}`;
-
-                    const isFinishedUnreviewed = item.finished && !item.expert.isreviewed && !reviewedExpertIds.includes(item.expert.id);
-
-                    return (
-                      <tr key={item.expert.id} style={{ opacity: item.finished ? 1 : 0.85 }}>
-                        <td style={STYLES.tdHead}>
-                          {namaLengkap}
-                          <div style={STYLES.tdSubText}>{item.expert.asalinstansi || 'Instansi belum diatur'}</div>
-                        </td>
-                        <td style={STYLES.td}><strong>{item.done}</strong> / {item.total}</td>
-                        <td style={STYLES.td}>
-                          <span title={item.finished ? "Semua sesi matriks telah diisi" : "Belum lengkap"} style={item.finished ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                            {item.finished ? 'Selesai' : item.done > 0 ? 'Parsial' : 'Tertunda'}
-                          </span>
-                        </td>
-                        <td style={STYLES.td}>
-                          <div style={STYLES.actionGroup}>
-                            <button title="Salin link kuesioner expert" onClick={() => handleCopyLink(item.expert.token)} style={STYLES.btnActionSmall}>🔗</button>
-                            {expEmail && expEmail.trim() !== '' && (
-                              <button title="Kirim undangan via Email" onClick={() => handleSendEmail(item.expert)} style={{...STYLES.btnActionSmall, color: '#3730a3', background: '#e0e7ff'}}>Mail</button>
-                            )}
-                          </div>
-                        </td>
-                        <td style={STYLES.td}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <button 
-                              onClick={() => item.finished && setReviewExpert(item.expert)} 
-                              disabled={!item.finished}
-                              style={{
-                                ...STYLES.btnActionSmall, 
-                                color: item.finished ? '#b45309' : '#94a3b8', 
-                                background: isFinishedUnreviewed ? '#fef08a' : item.finished ? '#fef3c7' : '#f1f5f9',
-                                border: isFinishedUnreviewed ? '1px solid #eab308' : 'none',
-                                cursor: item.finished ? 'pointer' : 'not-allowed',
-                                opacity: item.finished ? 1 : 0.6,
-                                fontWeight: isFinishedUnreviewed ? 700 : 600
-                              }} 
-                              title={item.finished ? "Beri penilaian kinerja expert" : "Expert belum menyelesaikan tugas"}
-                            >
-                              ⭐ Nilai Expert
-                            </button>
-                            {isFinishedUnreviewed && (
-                              <span title="Data expert sudah masuk, silakan berikan penilaian!" style={{ color: '#d97706', fontSize: 10, fontWeight: 700, background: '#fef9c3', padding: '2px 6px', borderRadius: 4, border: '1px solid #fde047' }}>
-                                ⚠️ Belum Dinilai
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {/* TUGAS MATRIKS */}
-        {tasks.map((task) => {
-          const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
-          const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
-
-          return (
-            <section key={task.key} style={STYLES.card}>
-              <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 8, marginBottom: 12 }}>
-                <h2 style={STYLES.sectionTitle}>{task.title}</h2>
-                <p style={STYLES.metaText}>{task.description}</p>
-              </div>
-
-              {/* MATRIKS FASILITATOR */}
-              <div style={STYLES.taskPanel}>
-                <div style={STYLES.panelHeader}>
+        <div style={STYLES.container}>
+          {reviewExpert && (
+            <div style={STYLES.modalOverlay}>
+              <div style={STYLES.modalContent}>
+                <h3 style={STYLES.sectionTitle}>Beri Penilaian untuk {reviewExpert.expertname}</h3>
+                <p style={STYLES.metaText}>Nilai expert berdasarkan beberapa aspek kualitas kinerja.</p>
+                
+                <form onSubmit={handleSubmitReview} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
                   <div>
-                    <h3 style={STYLES.subTitle}>Matriks Fasilitator</h3>
-                    <p style={STYLES.metaText}>Perubahan bobot perbandingan di bawah akan langsung mempengaruhi hasil sintesis global.</p>
+                    <label style={STYLES.label}>Kompetensi / Keahlian (1 - 5):</label>
+                    <input type="number" min={1} max={5} value={kompetensi} onChange={(e) => setKompetensi(Number(e.target.value))} style={STYLES.inputNumber} required />
                   </div>
-                  <div style={STYLES.headerActions}>
-                    <span title={`Consistency Ratio (CR) Fasilitator: ${formatNumber(facilitatorAnalysis.cr, 4)}`} style={facilitatorAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                      CR: {formatNumber(facilitatorAnalysis.cr, 3)}
-                    </span>
-                    <button type="button" title="Simpan perubahan matriks fasilitator ke database" style={STYLES.btnPrimary} onClick={() => saveFacilitatorMatrix(task)} disabled={savingKey === `facilitator::${task.key}`}>
-                      {savingKey === `facilitator::${task.key}` ? 'Menyimpan...' : 'Simpan Matriks'}
+                  <div>
+                    <label style={STYLES.label}>Responsivitas / Komunikasi (1 - 5):</label>
+                    <input type="number" min={1} max={5} value={responsif} onChange={(e) => setResponsif(Number(e.target.value))} style={STYLES.inputNumber} required />
+                  </div>
+                  <div>
+                    <label style={STYLES.label}>Ketepatan Waktu Pengisian (1 - 5):</label>
+                    <input type="number" min={1} max={5} value={ketepatan} onChange={(e) => setKetepatan(Number(e.target.value))} style={STYLES.inputNumber} required />
+                  </div>
+                  <div>
+                    <label style={STYLES.label}>Ulasan / Catatan Tambahan (Opsional):</label>
+                    <textarea value={ulasan} onChange={(e) => setUlasan(e.target.value)} style={STYLES.textarea} placeholder="Tulis ulasan kinerja expert..." />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+                    <button type="button" onClick={() => setReviewExpert(null)} style={STYLES.btnSecondary}>Batal</button>
+                    <button type="submit" style={STYLES.btnPrimary} disabled={submittingReview}>
+                      {submittingReview ? 'Menyimpan...' : 'Kirim Penilaian'}
                     </button>
                   </div>
-                </div>
-                
-                <div style={STYLES.contentGrid}>
-                  <div style={{ flex: 2, minWidth: 280 }}>
-                    <PairwiseSliderList 
-                      labels={task.itemnames} 
-                      matrix={facilitatorMatrix} 
-                      onChange={(i, j, val, dir) => updateFacilitatorMatrix(task.key, i, j, val, dir)} 
-                      parentName={task.parentname}
-                    />
-                  </div>
-                  <div style={STYLES.compactWeightPanel}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Bobot Hasil Sintesis:</div>
-                    {task.itemnames.map((label, idx) => (
-                      <div key={`fac-${label}`} title={`Bobot lokal untuk ${label}`} style={STYLES.weightCardLight}>
-                        <div style={STYLES.weightLabel}>{label}</div>
-                        <div style={STYLES.weightValue}>{formatNumber(facilitatorAnalysis.weights[idx] || 0, 4)}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                </form>
               </div>
+            </div>
+          )}
 
-              {/* MATRIKS RESPONS EXPERT */}
-              {data.experts.map((expert) => {
-                const key = matrixKey(task.key, expert.id);
-                const editable = editableMap[key];
-                const saved = findResponseForTask(data.responses, expert.id, task, data.project.id);
-                const isSubmitted = !!saved;
+          {/* HEADER */}
+          <div style={STYLES.headerRow}>
+            <div>
+              <h1 style={STYLES.pageTitle}>Laporan &amp; Review Matriks</h1>
+              <p style={STYLES.pageDesc}>Pengelolaan pakar, review konsistensi (CR), dan rekapitulasi pembobotan AHP.</p>
+            </div>
+            <div style={STYLES.headerActions}>
+              <button 
+                type="button" 
+                title="Buka dokumen laporan lengkap proyek" 
+                onClick={handleOpenDraftReport} 
+                style={{
+                  ...STYLES.btnPrimary,
+                  background: '#1d4ed8',
+                  color: '#ffffff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                📄 Tampilkan Draft Laporan
+              </button>
+              <button type="button" title="Kembali ke dashboard" onClick={() => router.push('/dashboard')} style={STYLES.btnSecondary}>Dashboard</button>
+            </div>
+          </div>
 
-                const originalMatrix = editable?.originalMatrix || getDefaultMatrix(task.itemnames.length);
-                const currentMatrix = editable?.currentMatrix || getDefaultMatrix(task.itemnames.length);
-                const currentAnalysis = calculateAHP(currentMatrix);
+          {message && <div style={STYLES.infoBox}>{message}</div>}
 
-                const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
-                const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
-                const namaUtama = expert.expertname || expert.expert_name || expert.nama || '-';
-                const headerNamaLengkap = `${gD}${namaUtama}${gB}`;
+          {/* BANNER PERINGATAN */}
+          {unreviewedFinishedExpertsCount > 0 && !dismissWarning && (
+            <div style={{
+              background: 'linear-gradient(135deg, #fef3c7, #fde68a)',
+              border: '1px solid #f59e0b',
+              color: '#b45309',
+              padding: '10px 14px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              boxShadow: '0 2px 6px rgba(245, 158, 11, 0.15)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span>Peringatan: Ada <strong>{unreviewedFinishedExpertsCount} expert</strong> yang telah menyelesaikan tugas kuesionernya namun belum Anda berikan penilaian kinerja (⭐).</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11, background: '#f59e0b', color: '#fff', padding: '2px 8px', borderRadius: 999 }}>Harap Nilai</span>
+                <button 
+                  onClick={() => setDismissWarning(true)} 
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, color: '#b45309', padding: '0 4px', fontWeight: 800 }}
+                  title="Abaikan peringatan ini"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
 
-                return (
-                  <div key={key} style={isSubmitted ? STYLES.expertBlock : STYLES.expertBlockDisabled}>
-                    <div style={STYLES.panelHeader}>
-                      <div>
-                        <h3 style={isSubmitted ? STYLES.subTitle : STYLES.subTitleDisabled}>{headerNamaLengkap}</h3>
-                        <p style={STYLES.metaText}>{expert.asalinstansi || '-'}</p>
-                      </div>
-                      <div style={STYLES.headerActions}>
-                        {isSubmitted ? (
-                          <>
-                            <span title="Consistency Ratio (CR) dari jawaban asli expert" style={currentAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                              CR Asli: {formatNumber(calculateAHP(originalMatrix).cr, 3)}
+          {/* PARAMETER PROYEK */}
+          <section style={{ ...STYLES.card, padding: '14px 16px' }}>
+            <div>
+              <div style={STYLES.metaHeader}>
+                <h2 style={{...STYLES.sectionTitle, fontSize: 16}}>{data.project.namaproyek}</h2>
+                <span title="Metode perhitungan dan pembobotan AHP" style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
+              </div>
+              <p style={{...STYLES.metaText, fontSize: 11.5, marginTop: 4}}>{data.project.deskripsi || 'Tidak ada deskripsi.'}</p>
+            </div>
+            
+            <div style={{ marginTop: 10, overflowX: 'auto', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', fontSize: 11.5 }}>
+                <tbody>
+                  <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc', width: '35%' }}>Metode AHP</td>
+                    <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{formatMethodLabel(data.project.metode)}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Subkriteria</td>
+                    <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{data.project.punyasubkriteria ? 'Diaktifkan' : 'Tidak Ada'}</td>
+                  </tr>
+                  <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Sesi Tugas</td>
+                    <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{tasks.length} Sesi</td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: '6px 10px', color: '#64748b', fontWeight: 600, background: '#f8fafc' }}>Jumlah Expert</td>
+                    <td style={{ padding: '6px 10px', color: '#0f172a', fontWeight: 700 }}>{data.experts.length} Orang</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* RANKING PRIORITAS */}
+          <section style={STYLES.card}>
+            <h2 style={{ ...STYLES.sectionTitle, marginBottom: 8 }}>Ranking Prioritas Sintesis Akhir</h2>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...STYLES.th, width: 50, textAlign: 'center' }}>Rank</th>
+                    <th style={STYLES.th}>Alternatif / Elemen</th>
+                    <th style={{ ...STYLES.th, textAlign: 'right' }}>Bobot Skor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalAggregateRanking.map((item) => (
+                    <tr key={item.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                        <span style={{ background: item.rank === 1 ? '#1e3a8a' : '#f1f5f9', color: item.rank === 1 ? '#fff' : '#334155', fontWeight: 700, padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>
+                          #{item.rank}
+                        </span>
+                      </td>
+                      <td style={{ padding: '6px 8px', fontWeight: 600, color: '#0f172a' }}>{item.name}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>{formatNumber(item.score, 4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* STATUS RESPONDEN */}
+          <section style={STYLES.card}>
+            <h2 style={STYLES.sectionTitle}>Status Responden &amp; Penilaian (Rating)</h2>
+            <div style={STYLES.tableWrap}>
+              <table style={STYLES.table}>
+                <thead>
+                  <tr>
+                    <th style={STYLES.th}>Nama &amp; Instansi</th>
+                    <th style={STYLES.th}>Progress</th>
+                    <th style={STYLES.th}>Status</th>
+                    <th style={STYLES.th}>Aksi Undangan</th>
+                    <th style={STYLES.th}>Penilaian Expert</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expertCompletion.length === 0 ? (
+                    <tr><td style={STYLES.td} colSpan={5} align="center">Belum ada responden.</td></tr>
+                  ) : (
+                    expertCompletion.map((item) => {
+                      const expEmail = item.expert.expertemail || item.expert.expert_email || item.expert.email || '';
+
+                      const gD = item.expert.gelardepan ? `${item.expert.gelardepan} ` : '';
+                      const gB = item.expert.gelarbelakang ? `, ${item.expert.gelarbelakang}` : '';
+                      const namaUtama = item.expert.expertname || item.expert.expert_name || item.expert.nama || 'Pakar Tanpa Nama';
+                      const namaLengkap = `${gD}${namaUtama}${gB}`;
+
+                      const isFinishedUnreviewed = item.finished && !item.expert.isreviewed && !reviewedExpertIds.includes(item.expert.id);
+
+                      return (
+                        <tr key={item.expert.id} style={{ opacity: item.finished ? 1 : 0.85 }}>
+                          <td style={STYLES.tdHead}>
+                            {namaLengkap}
+                            <div style={STYLES.tdSubText}>{item.expert.asalinstansi || 'Instansi belum diatur'}</div>
+                          </td>
+                          <td style={STYLES.td}><strong>{item.done}</strong> / {item.total}</td>
+                          <td style={STYLES.td}>
+                            <span title={item.finished ? "Semua sesi matriks telah diisi" : "Belum lengkap"} style={item.finished ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                              {item.finished ? 'Selesai' : item.done > 0 ? 'Parsial' : 'Tertunda'}
                             </span>
-                            <span title="Consistency Ratio (CR) berdasarkan revisi fasilitator saat ini" style={currentAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                              CR Revisi: {formatNumber(currentAnalysis.cr, 3)}
-                            </span>
-                            <button type="button" title="Simpan hasil revisi fasilitator untuk expert ini" style={STYLES.btnPrimary} onClick={() => saveExpertRevision(task, expert)} disabled={savingKey === key}>
-                              {savingKey === key ? 'Menyimpan...' : 'Simpan Revisi'}
-                            </button>
-                            <button type="button" title="Kembalikan matriks ke jawaban asli expert (Revert)" style={STYLES.btnGhost} onClick={() => revertExpertMatrix(task.key, expert.id)}>Kembalikan</button>
-                          </>
-                        ) : (
-                          <span title="Responden belum mengisi sesi ini" style={STYLES.badgeLocked}>🔒 Belum Mengisi</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {isSubmitted ? (
-                      <div style={STYLES.contentGrid}>
-                        <div style={{ flex: 2, minWidth: 280 }}>
-                          <PairwiseSliderList 
-                            labels={task.itemnames} 
-                            matrix={currentMatrix} 
-                            onChange={(i, j, val, dir) => updateExpertMatrix(task.key, expert.id, i, j, val, dir)} 
-                            parentName={task.parentname}
-                          />
-                        </div>
-                        <div style={STYLES.compactWeightPanel}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Bobot Jawaban Expert:</div>
-                          {task.itemnames.map((label, idx) => (
-                            <div key={`exp-${label}`} title={`Bobot lokal expert untuk ${label}`} style={STYLES.weightCardLight}>
-                              <div style={STYLES.weightLabel}>{label}</div>
-                              <div style={STYLES.weightValue}>{formatNumber(currentAnalysis.weights[idx] || 0, 4)}</div>
+                          </td>
+                          <td style={STYLES.td}>
+                            <div style={STYLES.actionGroup}>
+                              <button title="Salin link kuesioner expert" onClick={() => handleCopyLink(item.expert.token)} style={STYLES.btnActionSmall}>🔗</button>
+                              {expEmail && expEmail.trim() !== '' && (
+                                <button title="Kirim undangan via Email" onClick={() => handleSendEmail(item.expert)} style={{...STYLES.btnActionSmall, color: '#3730a3', background: '#e0e7ff'}}>Mail</button>
+                              )}
                             </div>
-                          ))}
+                          </td>
+                          <td style={STYLES.td}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <button 
+                                onClick={() => item.finished && setReviewExpert(item.expert)} 
+                                disabled={!item.finished}
+                                style={{
+                                  ...STYLES.btnActionSmall, 
+                                  color: item.finished ? '#b45309' : '#94a3b8', 
+                                  background: isFinishedUnreviewed ? '#fef08a' : item.finished ? '#fef3c7' : '#f1f5f9',
+                                  border: isFinishedUnreviewed ? '1px solid #eab308' : 'none',
+                                  cursor: item.finished ? 'pointer' : 'not-allowed',
+                                  opacity: item.finished ? 1 : 0.6,
+                                  fontWeight: isFinishedUnreviewed ? 700 : 600
+                                }} 
+                                title={item.finished ? "Beri penilaian kinerja expert" : "Expert belum menyelesaikan tugas"}
+                              >
+                                ⭐ Nilai Expert
+                              </button>
+                              {isFinishedUnreviewed && (
+                                <span title="Data expert sudah masuk, silakan berikan penilaian!" style={{ color: '#d97706', fontSize: 10, fontWeight: 700, background: '#fef9c3', padding: '2px 6px', borderRadius: 4, border: '1px solid #fde047' }}>
+                                  ⚠️ Belum Dinilai
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* TUGAS MATRIKS */}
+          {tasks.map((task) => {
+            const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
+            const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
+
+            return (
+              <section key={task.key} style={STYLES.card}>
+                <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 8, marginBottom: 12 }}>
+                  <h2 style={STYLES.sectionTitle}>{task.title}</h2>
+                  <p style={STYLES.metaText}>{task.description}</p>
+                </div>
+
+                {/* MATRIKS FASILITATOR */}
+                <div style={STYLES.taskPanel}>
+                  <div style={STYLES.panelHeader}>
+                    <div>
+                      <h3 style={STYLES.subTitle}>Matriks Fasilitator</h3>
+                      <p style={STYLES.metaText}>Perubahan bobot perbandingan di bawah akan langsung mempengaruhi hasil sintesis global.</p>
+                    </div>
+                    <div style={STYLES.headerActions}>
+                      <span title={`Consistency Ratio (CR) Fasilitator: ${formatNumber(facilitatorAnalysis.cr, 4)}`} style={facilitatorAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                        CR: {formatNumber(facilitatorAnalysis.cr, 3)}
+                      </span>
+                      <button type="button" title="Simpan perubahan matriks fasilitator ke database" style={STYLES.btnPrimary} onClick={() => saveFacilitatorMatrix(task)} disabled={savingKey === `facilitator::${task.key}`}>
+                        {savingKey === `facilitator::${task.key}` ? 'Menyimpan...' : 'Simpan Matriks'}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div style={STYLES.contentGrid}>
+                    <div style={{ flex: 2, minWidth: 280 }}>
+                      <PairwiseSliderList 
+                        labels={task.itemnames} 
+                        matrix={facilitatorMatrix} 
+                        onChange={(i, j, val, dir) => updateFacilitatorMatrix(task.key, i, j, val, dir)} 
+                        parentName={task.parentname}
+                      />
+                    </div>
+                    <div style={STYLES.compactWeightPanel}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Bobot Hasil Sintesis:</div>
+                      {task.itemnames.map((label, idx) => (
+                        <div key={`fac-${label}`} title={`Bobot lokal untuk ${label}`} style={STYLES.weightCardLight}>
+                          <div style={STYLES.weightLabel}>{label}</div>
+                          <div style={STYLES.weightValue}>{formatNumber(facilitatorAnalysis.weights[idx] || 0, 4)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* MATRIKS RESPONS EXPERT */}
+                {data.experts.map((expert) => {
+                  const key = matrixKey(task.key, expert.id);
+                  const editable = editableMap[key];
+                  const saved = findResponseForTask(data.responses, expert.id, task, data.project.id);
+                  const isSubmitted = !!saved;
+
+                  const originalMatrix = editable?.originalMatrix || getDefaultMatrix(task.itemnames.length);
+                  const currentMatrix = editable?.currentMatrix || getDefaultMatrix(task.itemnames.length);
+                  const currentAnalysis = calculateAHP(currentMatrix);
+
+                  const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
+                  const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
+                  const namaUtama = expert.expertname || expert.expert_name || expert.nama || '-';
+                  const headerNamaLengkap = `${gD}${namaUtama}${gB}`;
+
+                  return (
+                    <div key={key} style={isSubmitted ? STYLES.expertBlock : STYLES.expertBlockDisabled}>
+                      <div style={STYLES.panelHeader}>
+                        <div>
+                          <h3 style={isSubmitted ? STYLES.subTitle : STYLES.subTitleDisabled}>{headerNamaLengkap}</h3>
+                          <p style={STYLES.metaText}>{expert.asalinstansi || '-'}</p>
+                        </div>
+                        <div style={STYLES.headerActions}>
+                          {isSubmitted ? (
+                            <>
+                              <span title="Consistency Ratio (CR) dari jawaban asli expert" style={currentAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                                CR Asli: {formatNumber(calculateAHP(originalMatrix).cr, 3)}
+                              </span>
+                              <span title="Consistency Ratio (CR) berdasarkan revisi fasilitator saat ini" style={currentAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                                CR Revisi: {formatNumber(currentAnalysis.cr, 3)}
+                              </span>
+                              <button type="button" title="Simpan hasil revisi fasilitator untuk expert ini" style={STYLES.btnPrimary} onClick={() => saveExpertRevision(task, expert)} disabled={savingKey === key}>
+                                {savingKey === key ? 'Menyimpan...' : 'Simpan Revisi'}
+                              </button>
+                              <button type="button" title="Kembalikan matriks ke jawaban asli expert (Revert)" style={STYLES.btnGhost} onClick={() => revertExpertMatrix(task.key, expert.id)}>Kembalikan</button>
+                            </>
+                          ) : (
+                            <span title="Responden belum mengisi sesi ini" style={STYLES.badgeLocked}>🔒 Belum Mengisi</span>
+                          )}
                         </div>
                       </div>
-                    ) : (
-                      <div style={STYLES.lockedPanel}>
-                        Data perbandingan belum tersedia karena <strong>{headerNamaLengkap}</strong> belum menyelesaikan tugas ini.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          );
-        })}
-      </div>
+
+                      {isSubmitted ? (
+                        <div style={STYLES.contentGrid}>
+                          <div style={{ flex: 2, minWidth: 280 }}>
+                            <PairwiseSliderList 
+                              labels={task.itemnames} 
+                              matrix={currentMatrix} 
+                              onChange={(i, j, val, dir) => updateExpertMatrix(task.key, expert.id, i, j, val, dir)} 
+                              parentName={task.parentname}
+                            />
+                          </div>
+                          <div style={STYLES.compactWeightPanel}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>Bobot Jawaban Expert:</div>
+                            {task.itemnames.map((label, idx) => (
+                              <div key={`exp-${label}`} title={`Bobot lokal expert untuk ${label}`} style={STYLES.weightCardLight}>
+                                <div style={STYLES.weightLabel}>{label}</div>
+                                <div style={STYLES.weightValue}>{formatNumber(currentAnalysis.weights[idx] || 0, 4)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={STYLES.lockedPanel}>
+                          Data perbandingan belum tersedia karena <strong>{headerNamaLengkap}</strong> belum menyelesaikan tugas ini.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
+            );
+          })}
+        </div>
+      </main>
     </div>
   );
 }
 
-export default function ProjectReportPage() {
+export default function ProjectKelolaPage() {
   return (
     <Suspense fallback={<div style={STYLES.page}><div style={STYLES.loader}>Memuat Halaman Kelola...</div></div>}>
-      <ProjectReportContent />
+      <ProjectKelolaContent />
     </Suspense>
   );
 }
 
+const topBarStyles: Record<string, React.CSSProperties> = {
+  container: {
+    background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.9) 100%)',
+    border: '1px solid #86efac',
+    borderRadius: 10,
+    padding: '14px 20px',
+    marginBottom: 12,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+  },
+  brandGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
+  logo: {
+    height: 80,
+    width: 'auto',
+    objectFit: 'contain',
+    opacity: 0.85,
+    mixBlendMode: 'multiply',
+  },
+  title: {
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#064e3b',
+    letterSpacing: '0.04em',
+  },
+  subtitle: {
+    margin: '2px 0 0',
+    fontSize: 11,
+    color: '#065f46',
+    fontWeight: 600,
+  },
+};
+
+const sidebarStyles: Record<string, React.CSSProperties> = {
+  aside: {
+    background: '#0f172a',
+    color: '#f8fafc',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    borderRight: '1px solid #1e293b',
+    flexShrink: 0,
+    boxSizing: 'border-box',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+  },
+  brandContainer: {
+    padding: '20px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottom: '1px solid #1e293b',
+    minHeight: 70,
+    boxSizing: 'border-box',
+  },
+  brandLogo: {
+    width: 36,
+    height: 36,
+    background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+    borderRadius: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    fontSize: 13,
+    color: 'white',
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#ffffff',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  },
+  brandSubtitle: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+  },
+  collapseBtn: {
+    background: '#1e293b',
+    border: '1px solid #334155',
+    color: '#94a3b8',
+    borderRadius: 6,
+    width: 28,
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'all 0.2s ease',
+  },
+  userCard: {
+    margin: '12px 10px',
+    background: '#1e293b',
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    border: '1px solid #334155',
+    overflow: 'hidden',
+  },
+  userAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: '50%',
+    background: '#2563eb',
+    color: 'white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: 13,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  userAvatarImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  userInfo: {
+    overflow: 'hidden',
+  },
+  userName: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#f8fafc',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  userEmail: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nav: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '0 8px',
+    flexGrow: 1,
+    overflowY: 'auto',
+  },
+  navButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'transparent',
+    color: '#cbd5e1',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'all 0.15s ease',
+    width: '100%',
+    boxSizing: 'border-box',
+    position: 'relative',
+  },
+  navButtonActive: {
+    background: '#2563eb',
+    color: '#ffffff',
+    fontWeight: 700,
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+  },
+  navIcon: {
+    fontSize: 15,
+    flexShrink: 0,
+  },
+  navLabel: {
+    flexGrow: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  badgeWarn: {
+    color: 'white',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    fontSize: 9.5,
+    fontWeight: 800,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    boxSizing: 'border-box',
+  },
+  footer: {
+    borderTop: '1px solid #1e293b',
+  },
+  btnLogout: {
+    width: '100%',
+    padding: '8px 10px',
+    background: '#1e293b',
+    color: '#f87171',
+    border: '1px solid #334155',
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textAlign: 'center',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
+};
+
 const STYLES: Record<string, React.CSSProperties> = {
   page: { 
+    flex: 1,
     background: 'linear-gradient(rgba(248, 250, 252, 0.90), rgba(248, 250, 252, 0.60)), url("/bg-kelola.jpg")',
     backgroundSize: 'cover',
     backgroundPosition: 'center',
     backgroundAttachment: 'fixed',
     minHeight: '100vh', 
-    padding: '16px 12px', 
-    fontFamily: '"Inter", "Segoe UI", sans-serif' 
+    padding: '16px 20px', 
+    fontFamily: '"Inter", "Segoe UI", sans-serif',
+    overflowX: 'hidden'
   },
-  loader: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: '#64748b', fontSize: 14, fontWeight: 500 },
+  loaderWrap: { flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f8fafc' },
+  loader: { color: '#64748b', fontSize: 14, fontWeight: 500 },
   container: { maxWidth: 980, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 },
   card: { background: '#fff', borderRadius: 10, padding: '14px 16px', boxShadow: '0 2px 8px rgba(15,23,42,0.02)', border: '1px solid #f1f5f9' },
   cardPrimarySticky: { 

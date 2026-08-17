@@ -176,6 +176,27 @@ function ExpertMainContent() {
   const [savingMatrix, setSavingMatrix] = useState(false);
 
   useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const hiddenElements: HTMLElement[] = [];
+      const selectors = 'aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"]';
+      const els = document.querySelectorAll<HTMLElement>(selectors);
+      
+      els.forEach((el) => {
+        if (el.style.display !== 'none') {
+          hiddenElements.push(el);
+          el.style.display = 'none';
+        }
+      });
+
+      return () => {
+        hiddenElements.forEach((el) => {
+          el.style.display = '';
+        });
+      };
+    }
+  }, []);
+
+  useEffect(() => {
     const loadExpertData = async () => {
       if (!token) {
         setError('Token expert tidak valid atau tidak ditemukan di URL.');
@@ -475,6 +496,7 @@ function ExpertMainContent() {
         setCurrentTaskIndex((prev) => prev + 1);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
+        // 🟢 DIARAHKAN KE app/expert/selesai/page.tsx
         router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`);
       }
     } catch (err) {
@@ -484,13 +506,29 @@ function ExpertMainContent() {
     }
   };
 
+  const GLOBAL_HIDE_CSS = `
+    aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    body, html, main, div[class*="layout"], div[class*="wrapper"] {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      padding-left: 0 !important;
+    }
+  `;
+
   if (loading) {
     return (
       <div style={STYLES.page}>
-        <style jsx global>{`
-          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
-          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
-        `}</style>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
         <div style={STYLES.card}>Memuat data expert dan matriks...</div>
       </div>
     );
@@ -499,10 +537,7 @@ function ExpertMainContent() {
   if (error || !expert || !project) {
     return (
       <div style={STYLES.page}>
-        <style jsx global>{`
-          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
-          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
-        `}</style>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
         <div style={STYLES.card}><div style={STYLES.errorBox}>{error || 'Akses ditolak.'}</div></div>
       </div>
     );
@@ -515,11 +550,7 @@ function ExpertMainContent() {
 
     return (
       <div style={STYLES.page}>
-        {/* 🟢 CSS GLOBAL PENYEMBUNYI SIDEBAR */}
-        <style jsx global>{`
-          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
-          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
-        `}</style>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
         <div style={STYLES.container}>
           <div style={STYLES.card}>
             <span style={STYLES.badge}>Selamat Datang, {expertFullName}</span>
@@ -566,10 +597,7 @@ function ExpertMainContent() {
   if (!task) {
     return (
       <div style={STYLES.page}>
-        <style jsx global>{`
-          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
-          body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
-        `}</style>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
         <div style={STYLES.card}>
           <h3>Tidak ada tugas matriks yang tersedia untuk proyek ini.</h3>
           <button onClick={() => router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`)} style={STYLES.btnPrimary}>
@@ -594,11 +622,7 @@ function ExpertMainContent() {
 
   return (
     <div style={STYLES.page}>
-      {/* 🟢 CSS GLOBAL PENYEMBUNYI SIDEBAR */}
-      <style jsx global>{`
-        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"] { display: none !important; width: 0 !important; height: 0 !important; }
-        body, html, main, div[class*="layout"], div[class*="wrapper"] { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; margin-left: 0 !important; padding-left: 0 !important; }
-      `}</style>
+      <style jsx global>{GLOBAL_HIDE_CSS}</style>
       <div style={STYLES.container}>
         <div style={STYLES.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -727,7 +751,7 @@ const STYLES: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 999999,
+    zIndex: 2147483647,
     overflowY: 'auto'
   },
   container: { width: '100%', maxWidth: 720 },

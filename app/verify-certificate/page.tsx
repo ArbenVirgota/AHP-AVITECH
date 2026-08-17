@@ -1,3 +1,5 @@
+// app/sertifikat/verify/page.tsx
+
 'use client';
 
 import React, { useEffect, useState, Suspense } from 'react';
@@ -8,14 +10,11 @@ const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
 
 interface CertificateData {
   certificateid: string;
-  expertname: string;       // Nama lengkap beserta gelar
+  expertname: string;       // Nama lengkap beserta gelar pakar
   projectname: string;      // Judul penelitian / Nama proyek riset
-  bidangkeahlian?: string;  // Bidang keahlian pakar
-  peranan?: string;         // Peranan
-  foto_url?: string;        // Foto profil pakar (opsional)
-  fotoUrl?: string;
   issuedat: string;
   type: string;
+  fasilitator_nama?: string; // Nama peneliti beserta gelar dari sheet certificates
   [key: string]: any;
 }
 
@@ -72,6 +71,24 @@ function VerifyContent() {
   if (loading) {
     return (
       <div style={{ ...pageBgStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#64748b', fontSize: 14 }}>
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+          }
+        `}</style>
         Memverifikasi keaslian sertifikat proyek...
       </div>
     );
@@ -80,6 +97,24 @@ function VerifyContent() {
   if (error || !certData) {
     return (
       <div style={{ ...pageBgStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+        <style jsx global>{`
+          aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+          body, html, main, div[class*="layout"], div[class*="wrapper"] {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+          }
+        `}</style>
         <div style={{ background: '#fff', border: '1px solid #fecaca', borderRadius: 12, padding: 20, textAlign: 'center', maxWidth: 460, width: '100%', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: 32, marginBottom: 6 }}>❌</div>
           <h2 style={{ color: '#991b1b', margin: '0 0 6px', fontSize: 17 }}>Verifikasi Gagal</h2>
@@ -92,25 +127,42 @@ function VerifyContent() {
     );
   }
 
-  // Toleransi pemformatan tanggal
   const rawDateStr = certData.issuedat || certData.issued_at || '';
   const issuedDate = rawDateStr ? new Date(rawDateStr) : new Date();
   const formattedDate = !isNaN(issuedDate.getTime()) 
     ? issuedDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
     : rawDateStr || '-';
 
-  // Fallback nilai nama & properti
   const expertNameFull = certData.expertname || certData.expert_name || certData.nama || 'Pakar Evaluasi';
   const projectNameFull = certData.projectname || certData.project_name || certData.namaproyek || certData.judul_penelitian || 'Proyek Riset AHP';
-  const bidangKeahlianFull = certData.bidangkeahlian || certData.bidang_keahlian || 'Pakar Evaluasi & Pengambilan Keputusan';
   const perananFull = certData.peranan || 'Pakar / Expert Responden AHP';
   const fotoExpert = certData.foto_url || certData.fotoUrl || certData.foto || '';
+  
+  // Mengambil nama peneliti beserta gelar langsung dari kolom fasilitator_nama
+  const penelitiName = certData.fasilitator_nama || certData.fasilitatornama || certData.peneliti || '-';
 
   return (
     <div style={{ ...pageBgStyle, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 16 }}>
+      <style jsx global>{`
+        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+          visibility: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+        }
+        body, html, main, div[class*="layout"], div[class*="wrapper"] {
+          margin: 0 !important;
+          padding: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          padding-left: 0 !important;
+        }
+      `}</style>
+
       <div style={{ background: '#fff', borderRadius: 14, padding: '20px 24px', maxWidth: 520, width: '100%', boxShadow: '0 10px 30px rgba(15,23,42,0.08)', border: '2px solid #38bdf8', textAlign: 'center' }}>
-        
-        {/* Logo Instansi */}
         <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
           <img 
             src="/logo.png" 
@@ -119,7 +171,6 @@ function VerifyContent() {
           />
         </div>
 
-        {/* Badge Resmi Terverifikasi */}
         <div style={{ display: 'inline-block', background: '#dcfce7', color: '#166534', padding: '3px 10px', borderRadius: 999, fontSize: 10.5, fontWeight: 700, marginBottom: 8 }}>
           ✓ SERTIFIKAT PROYEK RESMI &amp; PERMANEN
         </div>
@@ -127,10 +178,7 @@ function VerifyContent() {
         <h2 style={{ color: '#0f172a', fontSize: 18, fontWeight: 800, margin: '0 0 4px' }}>Certificate of Appreciation</h2>
         <p style={{ color: '#64748b', fontSize: 11.5, margin: '0 0 14px' }}>ID Dokumen: <strong>{certData.certificateid}</strong></p>
 
-        {/* Konten Detail Blok Verifikasi */}
         <div style={{ background: '#f8fafc', borderRadius: 8, padding: '14px 16px', textAlign: 'left', border: '1px solid #e2e8f0', marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          
-          {/* Section Nama & Foto Expert */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingBottom: 8, borderBottom: '1px dashed #cbd5e1' }}>
             <img 
               src={fotoExpert || `https://ui-avatars.com/api/?name=${encodeURIComponent(expertNameFull)}&background=0284c7&color=fff`} 
@@ -146,7 +194,6 @@ function VerifyContent() {
             </div>
           </div>
 
-          {/* Peranan */}
           <div>
             <span style={{ fontSize: 10.5, color: '#64748b', display: 'block', fontWeight: 600 }}>Peranan:</span>
             <span style={{ fontSize: 12.5, color: '#2563eb', fontWeight: 700 }}>
@@ -154,21 +201,17 @@ function VerifyContent() {
             </span>
           </div>
 
-          {/* Bidang Keahlian */}
-          <div>
-            <span style={{ fontSize: 10.5, color: '#64748b', display: 'block', fontWeight: 600 }}>Bidang Keahlian:</span>
-            <span style={{ fontSize: 12.5, color: '#334155', fontWeight: 600 }}>
-              {bidangKeahlianFull}
-            </span>
-          </div>
-
-          {/* Nama Proyek */}
           <div>
             <span style={{ fontSize: 10.5, color: '#64748b', display: 'block', fontWeight: 600 }}>Proyek Penelitian / Evaluasi:</span>
             <span style={{ fontSize: 12.5, color: '#334155', fontWeight: 600 }}>{projectNameFull}</span>
           </div>
 
-          {/* Tanggal Terbit & Status */}
+          {/* Nama Peneliti Utama / Fasilitator */}
+          <div>
+            <span style={{ fontSize: 10.5, color: '#64748b', display: 'block', fontWeight: 600 }}>Peneliti Utama / Fasilitator:</span>
+            <span style={{ fontSize: 12.5, color: '#0f172a', fontWeight: 600 }}>{penelitiName}</span>
+          </div>
+
           <div style={{ marginTop: 2, paddingTop: 8, borderTop: '1px dashed #cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <span style={{ fontSize: 10, color: '#64748b', display: 'block', fontWeight: 600 }}>Tanggal Terbit:</span>
@@ -181,7 +224,6 @@ function VerifyContent() {
               <span style={{ fontSize: 12, fontWeight: 700, color: '#16a34a' }}>Aktif / Berlaku Selamanya</span>
             </div>
           </div>
-
         </div>
 
         <button onClick={() => router.push('/')} style={{ background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>

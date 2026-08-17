@@ -134,6 +134,28 @@ function ExpertSelesaiContent() {
     isPublic: true
   });
 
+  // 🟢 EFFECT DOM REMOVER MUTLAK: Menyembunyikan sidebar, navbar, drawer dari layout induk
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      const hiddenElements: HTMLElement[] = [];
+      const selectors = 'aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"]';
+      const els = document.querySelectorAll<HTMLElement>(selectors);
+      
+      els.forEach((el) => {
+        if (el.style.display !== 'none') {
+          hiddenElements.push(el);
+          el.style.display = 'none';
+        }
+      });
+
+      return () => {
+        hiddenElements.forEach((el) => {
+          el.style.display = '';
+        });
+      };
+    }
+  }, []);
+
   useEffect(() => {
     if (isLocked || isNotifSent) {
       window.history.pushState(null, '', window.location.href);
@@ -453,6 +475,8 @@ function ExpertSelesaiContent() {
           expertemail: cleanEmail,
           project_name: project.namaproyek,
           fasilitator_email: project.fasilitatoremail,
+          fasilitator_nama: project.fasilitatornama,
+          fasilitatornama: project.fasilitatornama,
           issuedat: new Date().toISOString().split('T')[0],
           admin_signature: signerInfo.sigUrl,
           admin_logo: platformLogo
@@ -490,7 +514,7 @@ function ExpertSelesaiContent() {
           instansi: formData.asalinstansi,
           project_name: project.namaproyek,
           expert_id: expert.id,
-          certificateid: officialCertId || 'AHP-EXP-001/2026',
+          certificateid: officialCertId || 'AHP-EXP-001-2026',
           token: token,
           project_id: project.id
         })
@@ -513,7 +537,7 @@ function ExpertSelesaiContent() {
     }
   };
 
-  const activeCertNo = officialCertId || 'AHP-EXP-001/2026';
+  const activeCertNo = (officialCertId || 'AHP-EXP-001-2026').replace(/\//g, '-');
 
   const getFullFormattedExpertName = () => {
     const gD = formData.gelarDepan.trim() ? `${formData.gelarDepan.trim()} ` : '';
@@ -526,12 +550,81 @@ function ExpertSelesaiContent() {
   const userSigUrl = getUserSignatureUrl();
   const appLogoUrl = getAppLogoUrl();
 
-  if (loading) return <div style={{ padding: 20, textAlign: 'center', fontSize: 13, fontFamily: 'Segoe UI, sans-serif' }}>Memuat halaman rekapitulasi selesai...</div>;
-  if (error || !project || !expert) return <div style={{ padding: 20, color: 'red', textAlign: 'center', fontSize: 13, fontFamily: 'Segoe UI, sans-serif' }}>{error}</div>;
+  const GLOBAL_HIDE_CSS = `
+    aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    body, html, main, div[class*="layout"], div[class*="wrapper"] {
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      margin-left: 0 !important;
+      padding-left: 0 !important;
+    }
+    @media print {
+      @page { 
+        size: 297mm 185mm !important; 
+        margin: 0 !important; 
+      }
+      html, body {
+        width: 297mm !important;
+        height: 185mm !important;
+        overflow: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+      }
+      body * { 
+        visibility: hidden !important; 
+      }
+      .certificate-print-area, .certificate-print-area * { 
+        visibility: visible !important; 
+      }
+      .certificate-print-area {
+        position: fixed !important; 
+        left: 0 !important; 
+        top: 0 !important;
+        width: 297mm !important; 
+        height: 185mm !important; 
+        margin: 0 !important;
+        padding: 12mm 15mm !important;
+        box-shadow: none !important; 
+        background: #ffffff !important;
+        page-break-after: avoid !important;
+        page-break-inside: avoid !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      .no-print { 
+        display: none !important; 
+      }
+    }
+  `;
+
+  if (loading) return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Segoe UI, sans-serif' }}>
+      <style jsx global>{GLOBAL_HIDE_CSS}</style>
+      <div>Memuat halaman rekapitulasi selesai...</div>
+    </div>
+  );
+
+  if (error || !project || !expert) return (
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'red', fontFamily: 'Segoe UI, sans-serif' }}>
+      <style jsx global>{GLOBAL_HIDE_CSS}</style>
+      <div>{error}</div>
+    </div>
+  );
 
   if (isLocked) {
     return (
-      <div style={{ background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'Segoe UI, sans-serif' }}>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'Segoe UI, sans-serif' }}>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
         <div style={{ background: 'white', padding: '36px 28px', borderRadius: 16, border: '1px solid #cbd5e1', maxWidth: 480, width: '100%', textAlign: 'center', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
           <h2 style={{ margin: '0 0 8px', fontSize: 20, color: '#0f172a', fontWeight: 800 }}>Evaluasi Telah Selesai &amp; Dikunci</h2>
@@ -547,65 +640,8 @@ function ExpertSelesaiContent() {
   }
 
   return (
-    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', zIndex: 999999, overflowY: 'auto', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif', boxSizing: 'border-box' }}>
-      
-      {/* 🟢 CSS GLOBAL MUTLAK: MENYEMBUNYIKAN SIDEBAR, HEADER, DAN NAVIGASI INDUK LAYOUT SEJAK RENDER PERTAMA */}
-      <style jsx global>{`
-        aside, nav, header, .sidebar, [class*="sidebar"], .drawer, [class*="drawer"], [class*="navigation"] {
-          display: none !important;
-          width: 0 !important;
-          height: 0 !important;
-          visibility: hidden !important;
-          opacity: 0 !important;
-          pointer-events: none !important;
-        }
-        body, html, main, div[class*="layout"], div[class*="wrapper"] {
-          margin: 0 !important;
-          padding: 0 !important;
-          width: 100% !important;
-          max-width: 100% !important;
-          margin-left: 0 !important;
-          padding-left: 0 !important;
-        }
-        @media print {
-          @page { 
-            size: 297mm 185mm !important; 
-            margin: 0 !important; 
-          }
-          html, body {
-            width: 297mm !important;
-            height: 185mm !important;
-            overflow: hidden !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #ffffff !important;
-          }
-          body * { 
-            visibility: hidden !important; 
-          }
-          .certificate-print-area, .certificate-print-area * { 
-            visibility: visible !important; 
-          }
-          .certificate-print-area {
-            position: fixed !important; 
-            left: 0 !important; 
-            top: 0 !important;
-            width: 297mm !important; 
-            height: 185mm !important; 
-            margin: 0 !important;
-            padding: 12mm 15mm !important;
-            box-shadow: none !important; 
-            background: #ffffff !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .no-print { 
-            display: none !important; 
-          }
-        }
-      `}</style>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', zIndex: 2147483647, overflowY: 'auto', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif', boxSizing: 'border-box' }}>
+      <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
       <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }} className="no-print">
         
@@ -877,7 +913,7 @@ function ExpertSelesaiContent() {
                   
                   <div style={{ marginBottom: 4 }}>
                     <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=70x70&data=${encodeURIComponent(`https://ahp.avitech.cloud/verify-certificate?id=${activeCertNo.replace(/\//g, '-')}`)}`} 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=70x70&data=${encodeURIComponent(`https://ahp.avitech.cloud/verify-certificate?id=${activeCertNo}`)}`} 
                       alt="QR Verifikasi Sertifikat" 
                       style={{ width: 50, height: 50, border: '1px solid #cbd5e1', padding: 2, background: '#fff', objectFit: 'contain' }} 
                     />
@@ -885,7 +921,7 @@ function ExpertSelesaiContent() {
 
                   <div style={{ fontSize: 10, fontFamily: 'Arial, sans-serif', color: '#64748b', fontWeight: 'bold', marginBottom: 1, letterSpacing: 1 }}>VERIFIKASI SISTEM</div>
                   <div style={{ fontSize: 9.5, color: '#2563eb', wordBreak: 'break-all', fontFamily: 'Arial, sans-serif' }}>
-                    https://ahp.avitech.cloud/verify-certificate?id={activeCertNo.replace(/\//g, '-')}
+                    https://ahp.avitech.cloud/verify-certificate?id={activeCertNo}
                   </div>
                 </div>
                 
@@ -942,7 +978,7 @@ function ExpertSelesaiContent() {
                             style={{ 
                               maxHeight: 90, 
                               maxWidth: 200, 
-                              objectFit: 'contain'
+                              objectFit: 'contain' 
                             }} 
                           />
                         </div>

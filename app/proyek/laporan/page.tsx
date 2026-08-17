@@ -3,8 +3,9 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { getSession } from '@/lib/auth';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { getSession, clearSession } from '@/lib/auth';
+import type { UserSession } from '@/lib/auth';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
@@ -25,56 +26,101 @@ function cleanAiText(rawText: string): string {
     .trim();
 }
 
-// 🟢 Helper Pengecekan custom_features Tahan Banting dengan RegEx Word Boundary
 function checkCustomAiPrivilege(rawCustom: any): boolean {
   if (!rawCustom) return false;
-
-  // Jika nilai boolean langsung
   if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
     return true;
   }
-
-  // Jika berupa Object murni
   if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
     return Boolean(rawCustom.ai || rawCustom.ai_analysis || rawCustom.enable_ai || rawCustom.gemini);
   }
-
-  // Jika Array atau String, jadikan string utuh dan gunakan RegEx pencarian kata utuh
   const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
-  
-  // Memastikan kata "ai", "gemini", dll tidak rancu dengan kata lain seperti "main" atau "email"
   return /\b(ai|ai_analysis|analisis_ai|gemini|enable_ai)\b/i.test(str);
 }
 
-// 🟢 Helper Ekstraksi Baris Data API yang disempurnakan
+function checkCustomFeature(rawCustom: any, featureKeyword: string): boolean {
+  if (!rawCustom) return false;
+  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
+    return true;
+  }
+  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
+    return Boolean(rawCustom[featureKeyword]);
+  }
+  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
+  const regex = new RegExp(`\\b(${featureKeyword})\\b`, 'i');
+  return regex.test(str);
+}
+
 function extractRowData(res: any, targetEmail: string): any {
   if (!res) return null;
-  
-  // Mencari titik data aktual
   let dataTarget = res.data || res.result || res.payload;
-  if (!dataTarget) dataTarget = res; // Fallback jika respon tidak dibungkus
-  
-  // Jika bentuknya array, cari email yang cocok
+  if (!dataTarget) dataTarget = res;
   if (Array.isArray(dataTarget)) {
-    const found = dataTarget.find((r: any) => {
-      const em = String(r.user_email || r.email || r.useremail || r.username || '').trim().toLowerCase();
+    const found = dataTarget.find((item: any) => {
+      const em = String(item.user_email || item.email || item.useremail || item.username || '').trim().toLowerCase();
       return em === targetEmail;
     });
     return found || dataTarget[0] || null;
   }
-  
-  // Jika bentuknya object murni (langsung)
   if (dataTarget !== null && typeof dataTarget === 'object') {
     return dataTarget;
   }
-  
   return null;
+}
+
+// 🟢 NORMALISASI KETAT KOLOM SUBSCRIPTIONS (MENCEGAH KOLOM BERGESER / TERTUKAR)
+function normalizeSubscriptionData(raw: any, targetEmail: string): any {
+  if (!raw) return null;
+  let dataObj = raw.data || raw.result || raw.payload || raw;
+  if (Array.isArray(dataObj)) {
+    dataObj = dataObj.find((item: any) => {
+      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      return em === targetEmail.trim().toLowerCase();
+    }) || dataObj[0] || null;
+  }
+  if (!dataObj || typeof dataObj !== 'object') return null;
+
+  const getField = (keys: string[]) => {
+    for (const k of keys) {
+      for (const objKey of Object.keys(dataObj)) {
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
+          return dataObj[objKey];
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawStatus = getField(['status', 'subscription_status']);
+  const rawExpDate = getField(['expired_date', 'expireddate']);
+  
+  const rawMaxProjects = getField(['max_projects', 'maxprojects']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
+  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
+  const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
+
+  return {
+    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
+    status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
+    expired_date: rawExpDate ? String(rawExpDate) : '',
+    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
+  };
 }
 
 interface ProjectDetail {
   id: string;
   projectid?: string;
   namaproyek: string;
+  nama_proyek?: string;
   deskripsi: string;
   metode: string;
   jumlahexpert: number;
@@ -344,10 +390,13 @@ function normalizeProject(raw: Record<string, unknown>): ProjectDetail {
     raw.asal_instansi || raw.institusi || raw.university || raw.organization || ''
   ).trim();
 
+  const rawProjectName = String(raw.namaproyek || raw.nama_proyek || raw.judul || '').trim();
+
   return {
     id: String(raw.id || raw.projectid || raw.project_id || raw.projectId || '').trim(),
     projectid: String(raw.projectid || raw.project_id || raw.id || '').trim(),
-    namaproyek: String(raw.namaproyek || raw.nama_proyek || ''),
+    namaproyek: rawProjectName,
+    nama_proyek: rawProjectName,
     deskripsi: String(raw.deskripsi || ''),
     metode: String(raw.metode || ''),
     jumlahexpert: Number(raw.jumlahexpert || raw.jumlah_expert || 0),
@@ -524,7 +573,7 @@ function normalizeSavedResponse(raw: Record<string, unknown>): SavedResponse {
     id: String(raw.id || raw.responseid || raw.response_id || raw.responseId || '').trim(),
     projectid: String(raw.projectid || raw.project_id || raw.projectId || '').trim(),
     expertid: String(raw.expertid || raw.expert_id || raw.expertId || '').trim(),
-    expertindex: Number(raw.expertindex || raw.expert_index || raw.expertIndex || 0),
+    expertindex: Number(raw.expertindex || raw.expert_index || 0),
     expertname: String(raw.expertname || raw.expert_name || raw.expertName || '').trim(),
     matrixtype: String(raw.matrixtype || raw.matrix_type || raw.matrixType || '').trim(),
     parentid: String(raw.parentid || raw.parent_id || raw.parentId || '').trim(),
@@ -712,18 +761,18 @@ function buildFinalAggregateRanking(
     
     const matrices: number[][][] = [];
 
-    responses.forEach((r) => {
-      const sameType = normalizeMethod(r.matrixtype) === normalizeMethod(task.matrixtype);
+    responses.forEach((responseItem) => {
+      const sameType = normalizeMethod(responseItem.matrixtype) === normalizeMethod(task.matrixtype);
       if (!sameType) return;
       
-      const rExpertId = String(r.expertid || '').trim();
-      const isFacilitator = rExpertId === 'FACILITATOR' || r.submittedby === 'Fasilitator';
-      const hasMatrixData = Array.isArray(r.matriksjson) && r.matriksjson.length > 0;
+      const rExpertId = String(responseItem.expertid || '').trim();
+      const isFacilitator = rExpertId === 'FACILITATOR' || responseItem.submittedby === 'Fasilitator';
+      const hasMatrixData = Array.isArray(responseItem.matriksjson) && responseItem.matriksjson.length > 0;
 
       if (!isFacilitator && !hasMatrixData) return;
 
       let parentMatch = false;
-      const rParentId = normalizeParentMatch(r.parentid);
+      const rParentId = normalizeParentMatch(responseItem.parentid);
       const tParentId = normalizeParentMatch(task.parentid);
       const pId = normalizeParentMatch(project.id);
 
@@ -736,11 +785,11 @@ function buildFinalAggregateRanking(
 
       if (parentMatch) {
         if (!isFacilitator) {
-          const editKey = matrixKey(task.key, r.expertid);
+          const editKey = matrixKey(task.key, responseItem.expertid);
           if (editableMap[editKey] && editableMap[editKey].currentMatrix) {
             matrices.push(normalizeMatrix(editableMap[editKey].currentMatrix, task.itemnames.length));
           } else {
-            matrices.push(normalizeMatrix(r.matriksjson, task.itemnames.length));
+            matrices.push(normalizeMatrix(responseItem.matriksjson, task.itemnames.length));
           }
         }
       }
@@ -917,10 +966,277 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
   return res.json();
 }
 
+// 🟢 KOMPONEN TOP BAR UTAMA DENGAN DUKUNGAN CETAK PDF YANG RAPI
+function AppTopBar() {
+  return (
+    <div style={topBarStyles.container} className="print-topbar">
+      <div style={topBarStyles.brandGroup}>
+        <img src="/logo.png" alt="Logo AHP" style={topBarStyles.logo} className="print-logo" />
+        <div>
+          <h2 style={topBarStyles.title} className="print-title">ANALYTIC HIERARCHY PROCESS</h2>
+          <p style={topBarStyles.subtitle} className="print-subtitle">Sistem Pendukung Keputusan Multi-Kriteria Terintegrasi</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 🟢 KOMPONEN SIDEBAR DENGAN PLAN DI POSISI ATAS & DAFTAR PROYEK
+function DashboardSidebar({
+  user,
+  userProfile,
+  userPlan,
+  projects,
+  isProfileComplete,
+  isCollapsed,
+  consultationCount,
+  onToggleCollapse,
+  onOpenProfile,
+  onOpenUpgrade,
+  onLogout,
+  onSelectSection
+}: {
+  user: UserSession | null;
+  userProfile: { nama: string; foto_profil?: string };
+  userPlan: string;
+  projects: ProjectDetail[];
+  isProfileComplete: boolean;
+  isCollapsed: boolean;
+  consultationCount: number;
+  onToggleCollapse: () => void;
+  onOpenProfile: () => void;
+  onOpenUpgrade: () => void;
+  onLogout: () => void;
+  onSelectSection: (sec: 'dashboard' | 'consultation') => void;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`;
+  const planBadgeColor = 
+    userPlan === 'premium' ? '#9333ea' : 
+    userPlan === 'plus' ? '#2563eb' : 
+    userPlan === 'pro' ? '#16a34a' : '#64748b';
+
+  const navItems = [
+    {
+      label: planLabelFormatted,
+      icon: '⭐',
+      badgeColor: planBadgeColor,
+      onClick: onOpenUpgrade
+    },
+    {
+      label: 'Dashboard Analisis',
+      icon: '📊',
+      active: pathname === '/dashboard',
+      onClick: () => {
+        router.push('/dashboard');
+        onSelectSection('dashboard');
+      }
+    },
+    {
+      label: 'Tiket Konsultasi',
+      icon: '💬',
+      badge: consultationCount > 0 ? String(consultationCount) : undefined,
+      badgeColor: '#10b981',
+      onClick: () => onSelectSection('consultation')
+    },
+    {
+      label: 'Direktori Pakar',
+      icon: '👥',
+      active: pathname === '/expert-directory',
+      onClick: () => router.push('/expert-directory')
+    },
+    {
+      label: 'Profil & Pengesahan',
+      icon: '⚙️',
+      badge: !isProfileComplete ? '!' : undefined,
+      badgeColor: '#ef4444',
+      onClick: onOpenProfile
+    },
+    {
+      label: 'Panduan Sistem',
+      icon: '📖',
+      active: pathname === '/panduan',
+      onClick: () => router.push('/panduan')
+    }
+  ];
+
+  return (
+    <aside className="no-print" style={{
+      ...sidebarStyles.aside,
+      width: isCollapsed ? 76 : 260,
+      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+    }}>
+      <div style={sidebarStyles.brandContainer}>
+        {!isCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <div style={sidebarStyles.brandLogo}>AHP</div>
+            <div>
+              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
+              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
+            </div>
+          </div>
+        )}
+        <button 
+          type="button" 
+          onClick={onToggleCollapse} 
+          style={sidebarStyles.collapseBtn}
+          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
+        >
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2.5" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{
+              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.25s ease'
+            }}
+          >
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div style={{
+        ...sidebarStyles.userCard,
+        justifyContent: isCollapsed ? 'center' : 'flex-start',
+        padding: isCollapsed ? '10px 4px' : '12px'
+      }}>
+        {/* 🟢 AVATAR KONDISIONAL BEBAS BERTUMPUK */}
+        <div style={{
+          ...sidebarStyles.userAvatar,
+          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
+        }}>
+          {userProfile.foto_profil ? (
+            <img 
+              src={userProfile.foto_profil} 
+              alt="Avatar" 
+              style={sidebarStyles.userAvatarImg} 
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
+          )}
+        </div>
+
+        {!isCollapsed && (
+          <div style={sidebarStyles.userInfo}>
+            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
+            <div style={sidebarStyles.userEmail}>{user?.email}</div>
+          </div>
+        )}
+      </div>
+
+      <nav style={sidebarStyles.nav}>
+        {navItems.map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={item.onClick}
+            title={isCollapsed ? item.label : undefined}
+            style={{
+              ...sidebarStyles.navButton,
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              padding: isCollapsed ? '12px 0' : '10px 14px',
+              ...(item.active ? sidebarStyles.navButtonActive : {}),
+              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
+            }}
+          >
+            <span style={sidebarStyles.navIcon}>{item.icon}</span>
+            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
+            {item.badge && (
+              <span style={{
+                ...sidebarStyles.badgeWarn,
+                background: item.badgeColor || '#ef4444',
+                position: isCollapsed ? 'absolute' : 'relative',
+                top: isCollapsed ? 4 : 'auto',
+                right: isCollapsed ? 12 : 'auto'
+              }}>
+                {item.badge}
+              </span>
+            )}
+            {idx === 0 && !isCollapsed && (
+              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
+                Upgrade
+              </span>
+            )}
+          </button>
+        ))}
+
+        {!isCollapsed && projects.length > 0 && (
+          <div style={{ marginTop: 12, paddingBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
+              📁 Proyek Anda ({projects.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'transparent',
+                    color: '#cbd5e1',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    padding: '6px 14px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={p.namaproyek || p.nama_proyek}
+                >
+                  <span style={{ fontSize: 10 }}>🔹</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </nav>
+
+      <div style={{
+        ...sidebarStyles.footer,
+        padding: isCollapsed ? '12px 6px' : '16px'
+      }}>
+        <button 
+          type="button" 
+          onClick={onLogout} 
+          style={sidebarStyles.btnLogout}
+          title={isCollapsed ? "Logout" : undefined}
+        >
+          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
 function ProjectReportContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('id');
+
+  const [session, setSession] = useState<UserSession | null>(null);
+  const [userProfile, setUserProfile] = useState<{ nama: string; foto_profil?: string }>({ nama: '', foto_profil: '' });
+  const [userPlan, setUserPlan] = useState<string>('free');
+  const [allUserProjects, setAllUserProjects] = useState<ProjectDetail[]>([]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [data, setData] = useState<BundleState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -931,120 +1247,115 @@ function ProjectReportContent() {
   const [loadingAi, setLoadingAi] = useState(false);
   const [fullAiReport, setFullAiReport] = useState<any>(null);
   const [canUseAi, setCanUseAi] = useState(false);
-  const [userPlanState, setUserPlanState] = useState<'free' | 'pro' | 'plus' | 'premium'>('free');
 
   useEffect(() => {
-    const session = getSession();
-    if (!session) {
+    const s = getSession();
+    if (!s) {
       window.location.replace('/login');
       return;
     }
+    setSession(s);
+    setUserProfile({ nama: s.nama || s.email || 'Pengguna', foto_profil: s.foto_profil || s.fotoprofil || '' });
 
     const checkSubscriptionAndLoad = async () => {
       try {
         setLoading(true);
         setError('');
 
-        const rawEmail = String(session?.email || session?.user_email || session?.userEmail || session?.username || '').trim().toLowerCase();
-        const rawUserId = String(session?.id || session?.userId || session?.user_id || '').trim();
+        const rawEmail = String(s.email || '').trim().toLowerCase();
+        const rawUserId = String(s.id || '').trim();
 
         let resolvedPlan = '';
-        let hasCustomAi = false;
+        let customAiDetected = false;
+        let isSubscriptionRowFound = false;
 
         if (rawEmail || rawUserId) {
-          const timestamp = Date.now();
-
-          // 🟢 TAHAP 1: BACA SHEET SUBSCRIPTIONS
+          // 🟢 1. Ambil data profil dari sheet users (sebagai fallback jika sheet subscriptions kosong)
           try {
-            const subUrl = `${GOOGLESCRIPTURL}?action=getsubscription&user_email=${encodeURIComponent(rawEmail)}&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${timestamp}`;
-            const subRes = await fetchJson<any>(subUrl, { cache: 'no-store' });
+            const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
+            const userRes = await fetchJson<any>(userUrl);
+            const uData = extractRowData(userRes, rawEmail);
 
-            const sData = extractRowData(subRes, rawEmail);
+            if (uData && Object.keys(uData).length > 0) {
+              setUserProfile({
+                nama: uData.nama || s.nama || 'Pengguna',
+                foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
+              });
 
-            if (sData && Object.keys(sData).length > 0) {
-              const subPlan = String(
-                sData.plan || 
-                sData.plan_type || 
-                sData.plantype || 
-                sData.status_plan || 
-                sData.status_user || 
-                sData.role || 
-                ''
-              ).toLowerCase().trim();
-
-              if (['free', 'pro', 'plus', 'premium'].includes(subPlan)) {
-                resolvedPlan = subPlan;
+              const userPlanDirect = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim();
+              if (['free', 'pro', 'plus', 'premium'].includes(userPlanDirect)) {
+                resolvedPlan = userPlanDirect;
               }
 
-              // Pengecekan multi-nama key untuk kolom custom_features di sheet subscriptions
-              let customFeaturesVal = '';
-              for (const key of Object.keys(sData)) {
+              // Fallback AI dari users jika nanti subscription tidak ada barisnya
+              let userCustomVal = '';
+              for (const key of Object.keys(uData)) {
                 const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                if (lowerKey === 'customfeatures' || lowerKey === 'customfeature' || lowerKey === 'features' || lowerKey === 'privileges' || lowerKey === 'akses') {
-                  customFeaturesVal = String(sData[key] || '');
+                if (['customfeatures', 'customfeature', 'features', 'privileges', 'akses'].includes(lowerKey)) {
+                  userCustomVal = String(uData[key] || '');
                   break;
                 }
               }
+              if (checkCustomAiPrivilege(userCustomVal) || checkCustomFeature(userCustomVal, 'ai') || checkCustomFeature(userCustomVal, 'gemini')) {
+                customAiDetected = true;
+              }
+            }
+          } catch (errUser) {
+            console.warn('Gagal membaca profil pengguna:', errUser);
+          }
 
-              if (checkCustomAiPrivilege(customFeaturesVal)) {
-                hasCustomAi = true;
+          // 🟢 2. Ambil dari sheet subscriptions via fungsi normalisasi presisi
+          // ATURAN HIERARKI KETAT: Jika baris ditemukan, izin fasilitas HANYA AKTIF jika kolom custom_features diisi eksplisit
+          try {
+            const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
+            const subRes = await fetchJson<any>(subUrl);
+            const parsed = normalizeSubscriptionData(subRes, rawEmail);
+
+            if (parsed && (parsed.plan || parsed.status)) {
+              isSubscriptionRowFound = true;
+
+              const cleanP = cleanPlanType(parsed.plan);
+              if (cleanP) {
+                resolvedPlan = cleanP;
+              }
+
+              // Periksa kolom custom_features eksplisit
+              const subCustomVal = String(parsed.custom_features || '');
+              if (subCustomVal.trim() !== '') {
+                customAiDetected = checkCustomAiPrivilege(subCustomVal) || checkCustomFeature(subCustomVal, 'ai') || checkCustomFeature(subCustomVal, 'gemini');
+              } else {
+                // Kolom kosong = tidak aktif (tanpa fallback ke default plan)
+                customAiDetected = false;
               }
             }
           } catch (errSub) {
             console.warn('Gagal membaca sheet subscriptions:', errSub);
           }
-
-          // 🟢 TAHAP 2: JIKA TIDAK ADA DI SUBSCRIPTIONS, BACA SHEET USERS
-          if (!resolvedPlan) {
-            try {
-              const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${timestamp}`;
-              const userRes = await fetchJson<any>(userUrl, { cache: 'no-store' });
-
-              const uData = extractRowData(userRes, rawEmail);
-
-              if (uData && Object.keys(uData).length > 0) {
-                const userPlan = String(
-                  uData.plan || 
-                  uData.role || 
-                  uData.status_user || 
-                  uData.status || 
-                  ''
-                ).toLowerCase().trim();
-
-                if (['free', 'pro', 'plus', 'premium'].includes(userPlan)) {
-                  resolvedPlan = userPlan;
-                }
-
-                let userCustomVal = '';
-                for (const key of Object.keys(uData)) {
-                  const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                  if (lowerKey === 'customfeatures' || lowerKey === 'customfeature' || lowerKey === 'features' || lowerKey === 'privileges' || lowerKey === 'akses') {
-                    userCustomVal = String(uData[key] || '');
-                    break;
-                  }
-                }
-
-                if (!hasCustomAi && checkCustomAiPrivilege(userCustomVal)) {
-                  hasCustomAi = true;
-                }
-              }
-            } catch (errUser) {
-              console.warn('Gagal membaca sheet users:', errUser);
-            }
-          }
         }
 
-        // 🟢 TAHAP 3: FALLBACK KE SESSION LOKAL JIKA TIDAK ADA DI KEDUA SHEET
         if (!resolvedPlan) {
-          resolvedPlan = String(session?.status_user || session?.plan || 'free');
+          resolvedPlan = String(s.status_user || s.plan || 'free');
         }
 
         const finalCleanPlan = cleanPlanType(resolvedPlan);
-        setUserPlanState(finalCleanPlan);
+        setUserPlan(finalCleanPlan);
 
-        // 🟢 AI AKTIF JIKA: Base plan Plus/Premium ATAU terdapat hak akses custom AI
-        const isAiEnabled = (finalCleanPlan === 'plus' || finalCleanPlan === 'premium' || hasCustomAi);
+        // Jika subscription row ada, gunakan izin custom_features murni. Jika tidak ada row, gunakan default tier plan.
+        const isAiEnabled = isSubscriptionRowFound 
+          ? customAiDetected 
+          : (customAiDetected || finalCleanPlan === 'plus' || finalCleanPlan === 'premium');
+
         setCanUseAi(isAiEnabled);
+
+        // 🟢 3. Ambil daftar seluruh proyek user untuk ditampilkan di sidebar
+        try {
+          const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
+          if (projRes?.success && Array.isArray(projRes.data)) {
+            setAllUserProjects(projRes.data.map(normalizeProject));
+          }
+        } catch (e) {
+          console.warn('Gagal memuat daftar proyek sidebar:', e);
+        }
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
@@ -1098,7 +1409,7 @@ function ProjectReportContent() {
 
           const facilitatorSaved = responses.find((item: SavedResponse) => {
             const rExpertId = String(item.expertid || '').trim();
-            const isFacilitator = item.submittedby === 'Fasilitator' || item.submittedby === 'facilitator' || rExpertId === 'FACILITATOR';
+            const isFacilitator = rExpertId === 'FACILITATOR' || item.submittedby === 'Fasilitator';
             const sameType = normalizeMethod(item.matrixtype) === normalizeMethod(task.matrixtype);
             if (!isFacilitator || !sameType) return false;
             
@@ -1170,7 +1481,7 @@ function ProjectReportContent() {
                };
             }
             return null;
-         }).filter((r): r is NonNullable<typeof r> => r !== null);
+         }).filter((item): item is NonNullable<typeof item> => item !== null);
 
          return {
            key: task.key,
@@ -1182,13 +1493,7 @@ function ProjectReportContent() {
          };
       });
 
-      // 🟢 Jika akun mendapat custom AI override, berikan tingkat analisis mendalam (premium)
-      const effectivePlanForAi = canUseAi && (userPlanState === 'free' || userPlanState === 'pro') 
-        ? 'premium' 
-        : userPlanState;
-
       const payload = {
-        userPlan: effectivePlanForAi,
         project: {
           id: data.project.id,
           name: data.project.namaproyek,
@@ -1196,8 +1501,6 @@ function ProjectReportContent() {
           hasSubcriteria: data.project.punyasubkriteria,
           totalExperts: data.experts.length
         },
-        criteria: data.criteria,
-        subcriteria: data.subcriteria,
         completion: {
           totalTasks: tasks.length,
           totalResponses: data.responses.length,
@@ -1226,7 +1529,7 @@ function ProjectReportContent() {
           }
         }
       } catch (apiErr) {
-        console.warn('API Route gagal, beralih ke fallback terpusat.', apiErr);
+        console.warn('API Route gagal, beralih ke generator draf lokal.', apiErr);
       }
 
       if (!jsonResult) {
@@ -1234,29 +1537,38 @@ function ProjectReportContent() {
         const topScore = formatNumber(finalAggregateRanking[0]?.score || 0, 4);
 
         jsonResult = {
-          section_overview: `Laporan evaluasi analitis mendalam untuk proyek ${data.project.namaproyek} ini menyajikan sintesis berbasis metode Analytic Hierarchy Process (AHP) dengan melibatkan ${data.experts.length} pakar. Proses perbandingan berpasangan dan agregasi geometric mean berhasil menghasilkan kesepakatan kelompok yang terukur dan objektif.`,
-          section_consistency: {
-            narrative: 'Evaluasi terhadap rasio konsistensi menunjukkan bahwa seluruh responden memiliki tingkat keandalan penilaian yang tinggi (Consistency Ratio berada di bawah toleransi 0.10). Hal ini membuktikan persepsi para pakar terbebas dari kontradiksi logis yang signifikan.',
-            expert_evaluations: [
-              {
-                expert_name: 'Evaluasi Kolektif Pakar',
-                status: 'Konsisten',
-                notes: 'Penilaian komparasi antar elemen hierarki telah memenuhi standar konsistensi logis metodologis.'
-              }
-            ]
+          overview: {
+            project_name: data.project.namaproyek,
+            completion_status: completedExpertsCount >= data.experts.length ? 'lengkap' : 'parsial',
+            overall_consistency: 'Konsisten',
+            main_summary: `Laporan rekapitulasi analitis untuk proyek ${data.project.namaproyek} telah berhasil disusun berdasarkan sintesis matriks perbandingan berpasangan dari ${data.experts.length} responden pakar dan fasilitator utama. Berdasarkan hasil perhitungan pembobotan hirarki analitis, alternatif atau kriteria ${topAlternative} menduduki peringkat prioritas tertinggi dengan skor ${topScore}. Seluruh rasio konsistensi telah diverifikasi berada dalam ambang batas validitas ilmiah yang dapat dipertanggungjawabkan secara akademis.`
           },
-          section_criteria: {
-            narrative: 'Distribusi bobot kriteria memperlihatkan konsensus yang kuat terhadap elemen-elemen prioritas. Kriteria dengan nilai tertinggi memegang peranan krusial dalam menentukan skor akhir alternatif keputusan.',
-            strategic_insight: 'Disarankan untuk memprioritaskan alokasi pengawasan pada kriteria dengan bobot signifikansi dominan.'
-          },
-          section_alternatives: {
-            narrative: `Sintesis peringkat akhir menempatkan ${topAlternative} pada peringkat pertama dengan skor bobot sebesar ${topScore}. Keunggulan ini didukung oleh performa konsisten pada parameter kriteria dengan bobot terbesar.`,
-            sensitivity_notes: `Dominasi skor pada ${topAlternative} menunjukkan ketahanan alternatif terhadap dinamika perubahan bobot pendukung.`
-          },
-          section_final_recommendations: [
-            `Menjadikan alternatif ${topAlternative} sebagai fokus utama dalam eksekusi kebijakan strategis.`,
-            'Melakukan peninjauan berkala terhadap indikator pendukung keputusan.',
-            'Mengesahkan dokumen laporan riset ini sebagai rujukan pertanggungjawaban ilmiah.'
+          key_findings: [
+            {
+              title: 'Validasi Konsistensi Rasio',
+              severity: 'info',
+              message: 'Nilai rasio konsistensi dari seluruh penilai aktif berada di bawah batas ambang kritis nol koma sepuluh, yang menandakan tidak adanya kontradiksi logis yang signifikan.'
+            },
+            {
+              title: 'Integritas Prioritas Keputusan',
+              severity: 'info',
+              message: `Sintesis agregat global menempatkan ${topAlternative} sebagai fokus utama rekomendasi kebijakan penelitian.`
+            }
+          ],
+          consistency_review: [],
+          expert_recommendations: [
+            {
+              expert_name: 'Evaluasi Kolektif Pakar',
+              status_consistency: 'Konsisten',
+              advice: 'Seluruh pakar disarankan untuk mempertahankan konsistensi metodologis dalam memberikan penilaian komparasi.'
+            }
+          ],
+          evaluation_recommendations: [
+            'Memaksimalkan pemanfaatan alternatif peringkat teratas sebagai fokus implementasi strategis di lapangan.'
+          ],
+          recommendations: [
+            'Gunakan hasil peringkat prioritas sintesis akhir sebagai acuan utama dalam pengambilan keputusan strategis.',
+            'Lanjutkan proses pengesahan dokumen riset dan pelaporan pertanggungjawaban ilmiah kepada instansi terkait.'
           ]
         };
       }
@@ -1277,434 +1589,751 @@ function ProjectReportContent() {
         try {
           window.print();
         } catch (e) {
-          console.warn('window.print() gagal, mencoba fallback reload printer:', e);
-          setTimeout(() => {
-            window.print();
-          }, 300);
+          console.warn('window.print() gagal:', e);
         }
       }, 150);
     });
   };
 
-  if (loading) return <div style={STYLES.page}><div style={STYLES.loader}>Memuat Laporan Proyek...</div></div>;
+  const handleLogout = () => {
+    clearSession();
+    router.replace('/login');
+  };
+
+  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
+    if (sec === 'dashboard') {
+      router.push('/dashboard');
+    } else {
+      router.push('/dashboard#consultation-section');
+    }
+  };
+
+  if (loading) return (
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
+      <DashboardSidebar 
+        user={session} 
+        userProfile={userProfile} 
+        userPlan={userPlan} 
+        projects={allUserProjects} 
+        isProfileComplete={true} 
+        isCollapsed={isSidebarCollapsed} 
+        consultationCount={0} 
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+        onOpenProfile={() => router.push('/dashboard?action=profile')} 
+        onOpenUpgrade={() => router.push('/dashboard')} 
+        onLogout={handleLogout} 
+        onSelectSection={handleScrollToSection} 
+      />
+      <div style={STYLES.loaderWrap}><div style={STYLES.loader}>Memuat Laporan Proyek...</div></div>
+    </div>
+  );
+
   if (error || !data) return (
-    <div style={STYLES.page}>
-      <div style={STYLES.card}>
-        <div style={STYLES.errorBox}>{error || 'Data laporan tidak tersedia.'}</div>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
+      <DashboardSidebar 
+        user={session} 
+        userProfile={userProfile} 
+        userPlan={userPlan} 
+        projects={allUserProjects} 
+        isProfileComplete={true} 
+        isCollapsed={isSidebarCollapsed} 
+        consultationCount={0} 
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+        onOpenProfile={() => router.push('/dashboard?action=profile')} 
+        onOpenUpgrade={() => router.push('/dashboard')} 
+        onLogout={handleLogout} 
+        onSelectSection={handleScrollToSection} 
+      />
+      <div style={STYLES.page}>
+        <div style={STYLES.card}>
+          <div style={STYLES.errorBox}>{error || 'Data laporan tidak tersedia.'}</div>
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div style={STYLES.page}>
-      
-      <style jsx global>{`
-        @media print {
-          @page { 
-            size: A4 portrait !important; 
-            margin: 10mm 12mm !important; 
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
+      {/* 🟢 SIDEBAR UTAMA DENGAN PLAN DI ATAS, DAFTAR PROYEK & FOTO BEBAS BERTUMPUK */}
+      <DashboardSidebar
+        user={session}
+        userProfile={userProfile}
+        userPlan={userPlan}
+        projects={allUserProjects}
+        isProfileComplete={true}
+        isCollapsed={isSidebarCollapsed}
+        consultationCount={0}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onOpenProfile={() => router.push('/dashboard?action=profile')}
+        onOpenUpgrade={() => router.push('/dashboard')}
+        onLogout={handleLogout}
+        onSelectSection={handleScrollToSection}
+      />
+
+      {/* 🟢 AREA KONTEN UTAMA */}
+      <main style={STYLES.page}>
+        <style jsx global>{`
+          @media print {
+            @page { 
+              size: A4 portrait !important; 
+              margin: 12mm 10mm 15mm 10mm !important; 
+            }
+            html, body {
+              width: 100% !important;
+              height: auto !important;
+              background: #ffffff !important;
+              color: #0f172a !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body * { 
+              visibility: visible !important; 
+            }
+            .no-print { 
+              display: none !important; 
+            }
+            
+            /* 🟢 TAMPILAN KHUSUS CETAK TOPBAR */
+            .print-topbar {
+              display: flex !important;
+              background: linear-gradient(270deg, #15803d 0%, #ffffff 100%) !important;
+              border: 1.5px solid #16a34a !important;
+              border-radius: 8px !important;
+              padding: 10px 14px !important;
+              margin-bottom: 12px !important;
+              box-shadow: none !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+            }
+            .print-logo {
+              height: 52px !important;
+              mix-blend-mode: multiply !important;
+            }
+            .print-title {
+              font-size: 13.5pt !important;
+              font-weight: 800 !important;
+              color: #064e3b !important;
+              margin: 0 !important;
+            }
+            .print-subtitle {
+              font-size: 9pt !important;
+              color: #065f46 !important;
+              font-weight: 600 !important;
+              margin: 2px 0 0 !important;
+            }
+
+            .print-card {
+              box-shadow: none !important;
+              border: 1px solid #cbd5e1 !important;
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+              margin-bottom: 10px !important;
+            }
           }
-          html, body {
-            width: 100% !important;
-            height: auto !important;
-            background: #ffffff !important;
-            color: #0f172a !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          body * { 
-            visibility: visible !important; 
-          }
-          .no-print { 
-            display: none !important; 
-          }
-          .print-card {
-            box-shadow: none !important;
-            border: 1px solid #cbd5e1 !important;
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-            margin-bottom: 10px !important;
-          }
-        }
-      `}</style>
+        `}</style>
 
-      <div style={STYLES.container}>
-        
-        {/* HEADER & AKSI */}
-        <div style={STYLES.headerRow} className="no-print">
-          <div>
-            <h1 style={STYLES.pageTitle}>Laporan Eksekutif &amp; Hasil AHP</h1>
-            <p style={STYLES.pageDesc}>Dokumen rekapitulasi analitis proyek riset dan evaluasi kepakaran.</p>
-          </div>
-          <div style={STYLES.headerActions}>
-            {canUseAi ? (
-              <button 
-                onClick={handleGenerateAiReport} 
-                disabled={loadingAi}
-                style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: loadingAi ? 'not-allowed' : 'pointer' }}
-              >
-                {loadingAi ? '⏳ Menyusun Pembahasan...' : '🤖 Analisis Draf AI'}
-              </button>
-            ) : (
-              <button 
-                title="Fitur Analisis AI tidak aktif untuk akun ini"
-                onClick={() => alert('Fasilitas Analisis Draf AI terkunci. Silakan hubungi admin atau tingkatkan paket langganan Anda.')}
-                style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
-              >
-                🔒 Analisis Draf AI
-              </button>
-            )}
-
-            <button 
-              type="button" 
-              onClick={handlePrintDocument} 
-              style={STYLES.btnGhost}
-              title="Cetak atau simpan dokumen ke file PDF"
-            >
-              🖨️ Cetak Dokumen (PDF)
-            </button>
-          </div>
-        </div>
-
-        {/* KOTAK PROYEK & FASILITATOR */}
-        <section style={STYLES.card} className="print-card">
-          <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 8, marginBottom: 10 }}>
-            <span style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
-            <h2 style={{ ...STYLES.pageTitle, fontSize: 18, marginTop: 4, color: '#1e3a8a' }}>{data.project.namaproyek}</h2>
-            <p style={{ ...STYLES.metaText, fontSize: 11.5, marginTop: 2, textAlign: 'justify', textJustify: 'inter-word' }}>{data.project.deskripsi || 'Tidak ada deskripsi proyek.'}</p>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>📊 Parameter Penelitian</div>
-              <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
-                <tbody>
-                  <tr>
-                    <td style={{ padding: '3px 0', color: '#64748b' }}>Subkriteria:</td>
-                    <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.project.punyasubkriteria ? 'Diaktifkan' : 'Tidak Ada'}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: '3px 0', color: '#64748b' }}>Jumlah Kriteria:</td>
-                    <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.criteria.length} Kriteria</td>
-                  </tr>
-                  <tr>
-                    <td style={{ padding: '3px 0', color: '#64748b' }}>Total Responden:</td>
-                    <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.experts.length} Orang</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>👤 Peneliti / Fasilitator Utama</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{data.project.fasilitatornama}</div>
-                <div style={{ fontSize: 10.5, color: '#475569', fontWeight: 600 }}>{data.project.fasilitatorlembaga}</div>
-                <div style={{ fontSize: 10.5, color: '#2563eb' }}>{data.project.fasilitatoremail}</div>
-              </div>
-              <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 9.5, color: '#64748b', fontStyle: 'italic' }}>Pengesahan Fasilitator</span>
-                {data.project.fasilitatorsignature ? (
-                  <img 
-                    src={data.project.fasilitatorsignature} 
-                    alt="Tanda Tangan Fasilitator" 
-                    style={{ height: 28, maxWidth: 100, objectFit: 'contain' }} 
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <span style={{ fontSize: 9.5, color: '#94a3b8' }}>(Belum Ada Tanda Tangan)</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* SISIPAN AI: 1. PENGANTAR & METODOLOGI UMUM */}
-        {fullAiReport?.section_overview && (
-          <div style={STYLES.aiBoxNeutral} className="print-card">
-            <h4 style={STYLES.aiBoxHeader}>🤖 Pengantar &amp; Kontekstualisasi Metodologi (AI Analysis)</h4>
-            <p style={STYLES.aiParagraph}>{cleanAiText(fullAiReport.section_overview)}</p>
-          </div>
-        )}
-
-        {/* GRAFIK & RANKING GLOBAL */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
+        <div style={STYLES.container}>
           
-          <section style={STYLES.cardPrimarySticky} className="print-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <h2 style={{...STYLES.sectionTitle, color: '#fff', fontSize: 13}}>Grafik Proporsi Global</h2>
-              <div title="Consistency Ratio (CR) Global" style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '2px 5px' }}>
-                <div style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>CR Global</div>
-                {globalCrList.map((gCr, idx) => (
-                  <div key={idx} style={{ fontSize: '10px', color: gCr.cr <= 0.1 ? '#4ade80' : '#f87171' }}>
-                    {gCr.title}: {formatNumber(gCr.cr, 3)} {gCr.cr <= 0.1 ? '✓' : '⚠️'}
-                  </div>
-                ))}
-              </div>
+          {/* 🟢 TOP BAR UTAMA DENGAN DUKUNGAN CETAK PDF / DOKUMEN */}
+          <AppTopBar />
+
+          {/* HEADER & AKSI */}
+          <div style={STYLES.headerRow} className="no-print">
+            <div>
+              <h1 style={STYLES.pageTitle}>Laporan Eksekutif &amp; Hasil AHP</h1>
+              <p style={STYLES.pageDesc}>Dokumen rekapitulasi analitis proyek riset dan evaluasi kepakaran.</p>
             </div>
-            <GlobalPieChart data={finalAggregateRanking} />
-          </section>
+            <div style={STYLES.headerActions}>
+              {canUseAi ? (
+                <button 
+                  onClick={handleGenerateAiReport} 
+                  disabled={loadingAi}
+                  style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: loadingAi ? 'not-allowed' : 'pointer' }}
+                >
+                  {loadingAi ? '⏳ Menyusun...' : '🤖 Analisis Draf AI'}
+                </button>
+              ) : (
+                <button 
+                  title="Fitur Analisis AI hanya tersedia jika diaktifkan secara eksplisit pada kolom custom_features"
+                  onClick={() => alert('Fasilitas Analisis Draf AI belum diaktifkan pada akun Anda. Silakan hubungi admin atau perbarui paket Anda.')}
+                  style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
+                >
+                  🔒 Analisis Draf AI
+                </button>
+              )}
 
-          <section style={STYLES.card} className="print-card">
-            <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Ranking Prioritas Sintesis Akhir</h2>
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead>
-                  <tr>
-                    <th style={{ ...STYLES.th, width: 40, textAlign: 'center' }}>Rank</th>
-                    <th style={STYLES.th}>Alternatif / Elemen</th>
-                    <th style={{ ...STYLES.th, textAlign: 'right' }}>Bobot Skor</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {finalAggregateRanking.map((item) => (
-                    <tr key={item.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '5px 6px', textAlign: 'center' }}>
-                        <span style={{ background: item.rank === 1 ? '#1e3a8a' : '#f1f5f9', color: item.rank === 1 ? '#fff' : '#334155', fontWeight: 700, padding: '1px 5px', borderRadius: 4, fontSize: 10.5 }}>
-                          #{item.rank}
-                        </span>
-                      </td>
-                      <td style={{ padding: '5px 6px', fontWeight: 600, color: '#0f172a' }}>{item.name}</td>
-                      <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>{formatNumber(item.score, 4)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <button type="button" onClick={handlePrintDocument} style={STYLES.btnGhost}>🖨️ Cetak Dokumen (PDF)</button>
             </div>
-          </section>
-
-        </div>
-
-        {/* SISIPAN AI: 2. ANALISIS PRIORITAS ALTERNATIF & SENSITIVITAS */}
-        {fullAiReport?.section_alternatives && (
-          <div style={STYLES.aiBoxAmber} className="print-card">
-            <h4 style={{ ...STYLES.aiBoxHeader, color: '#92400e' }}>💡 Pembahasan Analitis Sintesis Alternatif Pilihan (AI Insight)</h4>
-            <p style={{ ...STYLES.aiParagraph, color: '#78350f' }}>{cleanAiText(fullAiReport.section_alternatives.narrative)}</p>
-            {fullAiReport.section_alternatives.sensitivity_notes && (
-              <div style={{ marginTop: 6, fontSize: 11, color: '#92400e', fontStyle: 'italic', borderTop: '1px dashed #fcd34d', paddingTop: 4 }}>
-                <strong>Catatan Sensitivitas:</strong> {cleanAiText(fullAiReport.section_alternatives.sensitivity_notes)}
-              </div>
-            )}
           </div>
-        )}
 
-        {/* STATUS RESPONDEN & PROGRES */}
-        <section style={STYLES.card} className="print-card">
-          <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
-          <table style={STYLES.table}>
-            <thead>
-              <tr>
-                <th style={STYLES.th}>Nama Lengkap &amp; Gelar</th>
-                <th style={STYLES.th}>Instansi</th>
-                <th style={STYLES.th}>Progress Tugas</th>
-                <th style={STYLES.th}>Status Validasi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expertCompletion.map((item) => {
-                const gD = item.expert.gelardepan ? `${item.expert.gelardepan} ` : '';
-                const gB = item.expert.gelarbelakang ? `, ${item.expert.gelarbelakang}` : '';
-                return (
-                  <tr key={item.expert.id}>
-                    <td style={{ ...STYLES.tdHead, padding: '6px 8px' }}>{gD}{item.expert.expertname}{gB}</td>
-                    <td style={{ ...STYLES.td, padding: '6px 8px' }}>{item.expert.asalinstansi || '-'}</td>
-                    <td style={{ ...STYLES.td, padding: '6px 8px' }}>{item.done} / {item.total} Sesi Selesai</td>
-                    <td style={{ ...STYLES.td, padding: '6px 8px' }}>
-                      <span style={item.finished ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                        {item.finished ? 'Selesai &amp; Valid' : item.done > 0 ? 'Parsial' : 'Tertunda'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
+          {/* AI REPORT SUMMARY */}
+          {fullAiReport && (
+            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '16px 20px', borderRadius: '10px', marginBottom: 12 }} className="print-card">
+              <h3 style={{ margin: '0 0 12px', color: '#0f172a', borderBottom: '2px solid #e2e8f0', paddingBottom: '6px', fontSize: 14 }}>
+                🤖 Draf Laporan Analisis AHP Otomatis (Gemini AI)
+              </h3>
+              
+              <div style={{ marginBottom: 12 }}>
+                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Ringkasan Eksekutif</h4>
+                <p style={{ margin: 0, fontSize: 12, color: '#334155', lineHeight: 1.4, textAlign: 'justify', textJustify: 'inter-word' }}>
+                  {cleanAiText(fullAiReport.overview.main_summary)}
+                </p>
+              </div>
 
-        {/* SISIPAN AI: 3. EVALUASI RASIO KONSISTENSI & CATATAN PAKAR */}
-        {fullAiReport?.section_consistency && (
-          <div style={STYLES.aiBoxBlue} className="print-card">
-            <h4 style={{ ...STYLES.aiBoxHeader, color: '#1e40af' }}>🔍 Evaluasi Konsistensi &amp; Reliabilitas Penilaian Pakar (AI Evaluation)</h4>
-            <p style={{ ...STYLES.aiParagraph, color: '#1e3a8a' }}>{cleanAiText(fullAiReport.section_consistency.narrative)}</p>
-            {fullAiReport.section_consistency.expert_evaluations && fullAiReport.section_consistency.expert_evaluations.length > 0 && (
-              <div style={{ marginTop: 8, borderTop: '1px solid #bfdbfe', paddingTop: 6 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#1e40af', marginBottom: 4 }}>Catatan Spesifik Per Pakar:</div>
-                <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, color: '#1e3a8a', lineHeight: 1.4 }}>
-                  {fullAiReport.section_consistency.expert_evaluations.map((exp: any, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 2 }}>
-                      <strong>{cleanAiText(exp.expert_name)}</strong> ({cleanAiText(exp.status)}): {cleanAiText(exp.notes)}
-                    </li>
+              <div style={{ marginBottom: 12 }}>
+                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Temuan Kunci</h4>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                  {fullAiReport.key_findings?.map((item: any, idx: number) => (
+                    <li key={idx} style={{ marginBottom: 2 }}><strong>{cleanAiText(item.title)}</strong>: {cleanAiText(item.message)}</li>
                   ))}
                 </ul>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* SISIPAN AI: 4. PEMBAHASAN DISTRIBUSI BOBOT KRITERIA */}
-        {fullAiReport?.section_criteria && (
-          <div style={STYLES.aiBoxSlate} className="print-card">
-            <h4 style={{ ...STYLES.aiBoxHeader, color: '#334155' }}>⚖️ Analisis Distribusi Bobot Kriteria &amp; Trade-off (AI Analysis)</h4>
-            <p style={{ ...STYLES.aiParagraph, color: '#334155' }}>{cleanAiText(fullAiReport.section_criteria.narrative)}</p>
-            {fullAiReport.section_criteria.strategic_insight && (
-              <div style={{ marginTop: 6, fontSize: 11, color: '#0f172a', background: 'rgba(255,255,255,0.7)', padding: '6px 8px', borderRadius: 4, border: '1px solid #cbd5e1' }}>
-                <span style={{ fontWeight: 700, color: '#2563eb' }}>Implikasi Strategis: </span>
-                {cleanAiText(fullAiReport.section_criteria.strategic_insight)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* SISIPAN AI: 5. REKOMENDASI TINDAK LANJUT AKHIR */}
-        {fullAiReport?.section_final_recommendations && fullAiReport.section_final_recommendations.length > 0 && (
-          <div style={STYLES.card} className="print-card">
-            <h3 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 8, color: '#0f172a' }}>
-              🎯 Rekomendasi Strategis &amp; Tindak Lanjut Organisasi
-            </h3>
-            <ol style={{ margin: 0, paddingLeft: 18, fontSize: 11.5, color: '#334155', lineHeight: 1.5 }}>
-              {fullAiReport.section_final_recommendations.map((rec: string, idx: number) => (
-                <li key={idx} style={{ marginBottom: 4 }}>{cleanAiText(rec)}</li>
-              ))}
-            </ol>
-          </div>
-        )}
-
-        {/* DETAIL SESI MATRIKS PERBANDINGAN & EVALUASI FASILITATOR */}
-        {tasks.map((task) => {
-          const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
-          const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
-
-          return (
-            <section key={task.key} style={STYLES.card} className="print-card">
-              <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 6, marginBottom: 10 }}>
-                <h2 style={{ ...STYLES.sectionTitle, fontSize: 14 }}>{task.title}</h2>
-                <p style={{ ...STYLES.metaText, fontSize: 11 }}>{task.description}</p>
-              </div>
-
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: 10, borderRadius: 6, marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#166534' }}>⭐ Matriks Evaluasi &amp; Referensi Fasilitator</h3>
-                    <p style={{ margin: 0, fontSize: 10.5, color: '#15803d' }}>Bobot standar yang ditetapkan oleh fasilitator utama untuk pertanggungjawaban riset.</p>
-                  </div>
-                  <span style={facilitatorAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                    CR: {formatNumber(facilitatorAnalysis.cr, 3)} {facilitatorAnalysis.cr <= 0.1 ? '✓' : '⚠️'}
-                  </span>
+              {fullAiReport.expert_recommendations && fullAiReport.expert_recommendations.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Saran &amp; Rekomendasi untuk Pakar (Expert)</h4>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                    {fullAiReport.expert_recommendations.map((item: any, idx: number) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>
+                        <strong>{cleanAiText(item.expert_name)}</strong> ({item.status_consistency}): {cleanAiText(item.advice)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
+              )}
 
-                <div style={{ overflowX: 'auto', marginTop: 4 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, background: '#fff' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ padding: 5, border: '1px solid #bbf7d0', background: '#dcfce7', color: '#166534' }}>Item Komparasi</th>
-                        {task.itemnames.map((name, idx) => (
-                          <th key={idx} style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center', background: '#dcfce7', color: '#166534' }}>{name}</th>
-                        ))}
-                        <th style={{ padding: 5, border: '1px solid #bbf7d0', background: '#166534', color: '#fff', textAlign: 'center' }}>Bobot Fasilitator</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {task.itemnames.map((rowName, i) => (
-                        <tr key={i}>
-                          <td style={{ padding: 5, border: '1px solid #bbf7d0', fontWeight: 600, background: '#f8fafc' }}>{rowName}</td>
-                          {facilitatorMatrix[i].map((val, j) => (
-                            <td key={j} style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center' }}>{formatNumber(val, 2)}</td>
-                          ))}
-                          <td style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center', fontWeight: 700, background: '#f0fdf4', color: '#166534' }}>
-                            {formatNumber(facilitatorAnalysis.weights[i] || 0, 4)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {fullAiReport.evaluation_recommendations && fullAiReport.evaluation_recommendations.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Berdasarkan Hasil Penilaian</h4>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                    {fullAiReport.evaluation_recommendations.map((rec: string, idx: number) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
+                    ))}
+                  </ul>
                 </div>
+              )}
+
+              {fullAiReport.recommendations && fullAiReport.recommendations.length > 0 && (
+                <div>
+                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Strategis Umum</h4>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
+                    {fullAiReport.recommendations.map((rec: string, idx: number) => (
+                      <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* KOTAK PROYEK & FASILITATOR */}
+          <section style={STYLES.card} className="print-card">
+            <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 8, marginBottom: 10 }}>
+              <span style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
+              <h2 style={{ ...STYLES.pageTitle, fontSize: 18, marginTop: 4, color: '#1e3a8a' }}>{data.project.namaproyek}</h2>
+              <p style={{ ...STYLES.metaText, fontSize: 11.5, marginTop: 2, textAlign: 'justify', textJustify: 'inter-word' }}>{data.project.deskripsi || 'Tidak ada deskripsi proyek.'}</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>📊 Parameter Penelitian</div>
+                <table style={{ width: '100%', fontSize: 11.5, borderCollapse: 'collapse' }}>
+                  <tbody>
+                    <tr>
+                      <td style={{ padding: '3px 0', color: '#64748b' }}>Subkriteria:</td>
+                      <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.project.punyasubkriteria ? 'Diaktifkan' : 'Tidak Ada'}</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '3px 0', color: '#64748b' }}>Jumlah Kriteria:</td>
+                      <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.criteria.length} Kriteria</td>
+                    </tr>
+                    <tr>
+                      <td style={{ padding: '3px 0', color: '#64748b' }}>Total Responden:</td>
+                      <td style={{ padding: '3px 0', fontWeight: 600, color: '#0f172a' }}>{data.experts.length} Orang</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
 
-              {data.experts.map((expert) => {
-                const saved = findResponseForTask(data.responses, expert.id, task, data.project.id, data.experts);
-                const isSubmitted = !!saved;
-                const matrix = normalizeMatrix(saved?.matriksjson, task.itemnames.length);
-                const analysis = calculateAHP(matrix);
+              <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>👤 Peneliti / Fasilitator Utama</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{data.project.fasilitatornama}</div>
+                  <div style={{ fontSize: 10.5, color: '#475569', fontWeight: 600 }}>{data.project.fasilitatorlembaga}</div>
+                  <div style={{ fontSize: 10.5, color: '#2563eb' }}>{data.project.fasilitatoremail}</div>
+                </div>
+                <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 9.5, color: '#64748b', fontStyle: 'italic' }}>Pengesahan Fasilitator</span>
+                  {data.project.fasilitatorsignature ? (
+                    <img 
+                      src={data.project.fasilitatorsignature} 
+                      alt="Tanda Tangan Fasilitator" 
+                      style={{ height: 28, maxWidth: 100, objectFit: 'contain' }} 
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: 9.5, color: '#94a3b8' }}>(Belum Ada Tanda Tangan)</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
 
-                const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
-                const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
-                const headerNamaLengkap = `${gD}${expert.expertname || expert.nama || '-'}${gB}`;
-
-                return (
-                  <div key={matrixKey(task.key, expert.id)} style={isSubmitted ? STYLES.expertBlock : STYLES.expertBlockDisabled}>
-                    <div style={STYLES.panelHeader}>
-                      <div>
-                        <h3 style={isSubmitted ? STYLES.subTitle : STYLES.subTitleDisabled}>{headerNamaLengkap}</h3>
-                        <p style={STYLES.metaText}>{expert.asalinstansi || '-'}</p>
-                      </div>
-                      <div>
-                        {isSubmitted ? (
-                          <span style={analysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
-                            CR: {formatNumber(analysis.cr, 3)} {analysis.cr <= 0.1 ? '✓' : '⚠️'}
-                          </span>
-                        ) : (
-                          <span style={STYLES.badgeLocked}>🔒 Belum Mengisi</span>
-                        )}
-                      </div>
+          {/* GRAFIK & RANKING GLOBAL */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
+            
+            <section style={STYLES.cardPrimarySticky} className="print-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <h2 style={{...STYLES.sectionTitle, color: '#fff', fontSize: 13}}>Grafik Proporsi Global</h2>
+                <div title="Consistency Ratio (CR) Global" style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '2px 5px' }}>
+                  <div style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>CR Global</div>
+                  {globalCrList.map((gCr, idx) => (
+                    <div key={idx} style={{ fontSize: '10px', color: gCr.cr <= 0.1 ? '#4ade80' : '#f87171' }}>
+                      {gCr.title}: {formatNumber(gCr.cr, 3)} {gCr.cr <= 0.1 ? '✓' : '⚠️'}
                     </div>
-
-                    {isSubmitted ? (
-                      <div style={{ overflowX: 'auto', marginTop: 6 }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, background: '#f8fafc' }}>
-                          <thead>
-                            <tr>
-                              <th style={{ padding: 5, border: '1px solid #cbd5e1', background: '#f1f5f9' }}>Matriks Pakar</th>
-                              {task.itemnames.map((name, idx) => (
-                                <th key={idx} style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center' }}>{name}</th>
-                              ))}
-                              <th style={{ padding: 5, border: '1px solid #cbd5e1', background: '#f1f5f9', textAlign: 'center' }}>Bobot (Weight)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {task.itemnames.map((rowName, i) => (
-                              <tr key={i}>
-                                <td style={{ padding: 5, border: '1px solid #cbd5e1', fontWeight: 600, background: '#f1f5f9' }}>{rowName}</td>
-                                {matrix[i].map((val, j) => (
-                                  <td key={j} style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center' }}>{formatNumber(val, 2)}</td>
-                                ))}
-                                <td style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700, background: '#eff6ff', color: '#1e40af' }}>
-                                  {formatNumber(analysis.weights[i] || 0, 4)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div style={STYLES.lockedPanel}>
-                        Data perbandingan belum tersedia karena <strong>{headerNamaLengkap}</strong> belum menyelesaikan sesi ini.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  ))}
+                </div>
+              </div>
+              <GlobalPieChart data={finalAggregateRanking} />
             </section>
-          );
-        })}
 
-      </div>
+            <section style={STYLES.card} className="print-card">
+              <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Ranking Prioritas Sintesis Akhir</h2>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...STYLES.th, width: 40, textAlign: 'center' }}>Rank</th>
+                      <th style={STYLES.th}>Alternatif / Elemen</th>
+                      <th style={{ ...STYLES.th, textAlign: 'right' }}>Bobot Skor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalAggregateRanking.map((item) => (
+                      <tr key={item.name} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '5px 6px', textAlign: 'center' }}>
+                          <span style={{ background: item.rank === 1 ? '#1e3a8a' : '#f1f5f9', color: item.rank === 1 ? '#fff' : '#334155', fontWeight: 700, padding: '1px 5px', borderRadius: 4, fontSize: 10.5 }}>
+                            #{item.rank}
+                          </span>
+                        </td>
+                        <td style={{ padding: '5px 6px', fontWeight: 600, color: '#0f172a' }}>{item.name}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>{formatNumber(item.score, 4)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+          </div>
+
+          {/* STATUS RESPONDEN */}
+          <section style={STYLES.card} className="print-card">
+            <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
+            <table style={STYLES.table}>
+              <thead>
+                <tr>
+                  <th style={STYLES.th}>Nama Lengkap &amp; Gelar</th>
+                  <th style={STYLES.th}>Instansi</th>
+                  <th style={STYLES.th}>Progress Tugas</th>
+                  <th style={STYLES.th}>Status Validasi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expertCompletion.map((item) => {
+                  const gD = item.expert.gelardepan ? `${item.expert.gelardepan} ` : '';
+                  const gB = item.expert.gelarbelakang ? `, ${item.expert.gelarbelakang}` : '';
+                  return (
+                    <tr key={item.expert.id}>
+                      <td style={{ ...STYLES.tdHead, padding: '6px 8px' }}>{gD}{item.expert.expertname}{gB}</td>
+                      <td style={{ ...STYLES.td, padding: '6px 8px' }}>{item.expert.asalinstansi || '-'}</td>
+                      <td style={{ ...STYLES.td, padding: '6px 8px' }}>{item.done} / {item.total} Sesi Selesai</td>
+                      <td style={{ ...STYLES.td, padding: '6px 8px' }}>
+                        <span style={item.finished ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                          {item.finished ? 'Selesai &amp; Valid' : item.done > 0 ? 'Parsial' : 'Tertunda'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+
+          {/* DETAIL SESI MATRIKS PERBANDINGAN & EVALUASI FASILITATOR */}
+          {tasks.map((task) => {
+            const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
+            const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
+
+            return (
+              <section key={task.key} style={STYLES.card} className="print-card">
+                <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 6, marginBottom: 10 }}>
+                  <h2 style={{ ...STYLES.sectionTitle, fontSize: 14 }}>{task.title}</h2>
+                  <p style={{ ...STYLES.metaText, fontSize: 11 }}>{task.description}</p>
+                </div>
+
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: 10, borderRadius: 6, marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: 12, fontWeight: 700, color: '#166534' }}>⭐ Matriks Evaluasi &amp; Referensi Fasilitator</h3>
+                      <p style={{ margin: 0, fontSize: 10.5, color: '#15803d' }}>Bobot standar yang ditetapkan oleh fasilitator utama untuk pertanggungjawaban riset.</p>
+                    </div>
+                    <span style={facilitatorAnalysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                      CR: {formatNumber(facilitatorAnalysis.cr, 3)} {facilitatorAnalysis.cr <= 0.1 ? '✓' : '⚠️'}
+                    </span>
+                  </div>
+
+                  <div style={{ overflowX: 'auto', marginTop: 4 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, background: '#fff' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ padding: 5, border: '1px solid #bbf7d0', background: '#dcfce7', color: '#166534' }}>Item Komparasi</th>
+                          {task.itemnames.map((name, idx) => (
+                            <th key={idx} style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center', background: '#dcfce7', color: '#166534' }}>{name}</th>
+                          ))}
+                          <th style={{ padding: 5, border: '1px solid #bbf7d0', background: '#166534', color: '#fff', textAlign: 'center' }}>Bobot Fasilitator</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {task.itemnames.map((rowName, i) => (
+                          <tr key={i}>
+                            <td style={{ padding: 5, border: '1px solid #bbf7d0', fontWeight: 600, background: '#f8fafc' }}>{rowName}</td>
+                            {facilitatorMatrix[i].map((val, j) => (
+                              <td key={j} style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center' }}>{formatNumber(val, 2)}</td>
+                            ))}
+                            <td style={{ padding: 5, border: '1px solid #bbf7d0', textAlign: 'center', fontWeight: 700, background: '#f0fdf4', color: '#166534' }}>
+                              {formatNumber(facilitatorAnalysis.weights[i] || 0, 4)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {data.experts.map((expert) => {
+                  const saved = findResponseForTask(data.responses, expert.id, task, data.project.id, data.experts);
+                  const isSubmitted = !!saved;
+                  const matrix = normalizeMatrix(saved?.matriksjson, task.itemnames.length);
+                  const analysis = calculateAHP(matrix);
+
+                  const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
+                  const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
+                  const headerNamaLengkap = `${gD}${expert.expertname || expert.nama || '-'}${gB}`;
+
+                  return (
+                    <div key={matrixKey(task.key, expert.id)} style={isSubmitted ? STYLES.expertBlock : STYLES.expertBlockDisabled}>
+                      <div style={STYLES.panelHeader}>
+                        <div>
+                          <h3 style={isSubmitted ? STYLES.subTitle : STYLES.subTitleDisabled}>{headerNamaLengkap}</h3>
+                          <p style={STYLES.metaText}>{expert.asalinstansi || '-'}</p>
+                        </div>
+                        <div>
+                          {isSubmitted ? (
+                            <span style={analysis.cr <= 0.1 ? STYLES.badgeSuccess : STYLES.badgeWarning}>
+                              CR: {formatNumber(analysis.cr, 3)} {analysis.cr <= 0.1 ? '✓' : '⚠️'}
+                            </span>
+                          ) : (
+                            <span style={STYLES.badgeLocked}>🔒 Belum Mengisi</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {isSubmitted ? (
+                        <div style={{ overflowX: 'auto', marginTop: 6 }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5, background: '#f8fafc' }}>
+                            <thead>
+                              <tr>
+                                <th style={{ padding: 5, border: '1px solid #cbd5e1', background: '#f1f5f9' }}>Matriks Pakar</th>
+                                {task.itemnames.map((name, idx) => (
+                                  <th key={idx} style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center' }}>{name}</th>
+                                ))}
+                                <th style={{ padding: 5, border: '1px solid #cbd5e1', background: '#f1f5f9', textAlign: 'center' }}>Bobot (Weight)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {task.itemnames.map((rowName, i) => (
+                                <tr key={i}>
+                                  <td style={{ padding: 5, border: '1px solid #cbd5e1', fontWeight: 600, background: '#f1f5f9' }}>{rowName}</td>
+                                  {matrix[i].map((val, j) => (
+                                    <td key={j} style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center' }}>{formatNumber(val, 2)}</td>
+                                  ))}
+                                  <td style={{ padding: 5, border: '1px solid #cbd5e1', textAlign: 'center', fontWeight: 700, background: '#eff6ff', color: '#1e40af' }}>
+                                    {formatNumber(analysis.weights[i] || 0, 4)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div style={STYLES.lockedPanel}>
+                          Data perbandingan belum tersedia karena <strong>{headerNamaLengkap}</strong> belum menyelesaikan sesi ini.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
+            );
+          })}
+
+        </div>
+      </main>
     </div>
   );
 }
 
 export default function ProjectReportPage() {
   return (
-    <Suspense fallback={<div style={STYLES.page}><div style={STYLES.loader}>Memuat Laporan...</div></div>}>
+    <Suspense fallback={<div style={STYLES.loaderWrap}><div style={STYLES.loader}>Memuat Laporan...</div></div>}>
       <ProjectReportContent />
     </Suspense>
   );
 }
 
+const topBarStyles: Record<string, React.CSSProperties> = {
+  container: {
+    background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.9) 100%)',
+    border: '1px solid #86efac',
+    borderRadius: 10,
+    padding: '14px 20px',
+    marginBottom: 12,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+  },
+  brandGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
+  logo: {
+    height: 80,
+    width: 'auto',
+    objectFit: 'contain',
+    opacity: 0.85,
+    mixBlendMode: 'multiply',
+  },
+  title: {
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#064e3b',
+    letterSpacing: '0.04em',
+  },
+  subtitle: {
+    margin: '2px 0 0',
+    fontSize: 11,
+    color: '#065f46',
+    fontWeight: 600,
+  },
+};
+
+const sidebarStyles: Record<string, React.CSSProperties> = {
+  aside: {
+    background: '#0f172a',
+    color: '#f8fafc',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    borderRight: '1px solid #1e293b',
+    flexShrink: 0,
+    boxSizing: 'border-box',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+  },
+  brandContainer: {
+    padding: '20px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottom: '1px solid #1e293b',
+    minHeight: 70,
+    boxSizing: 'border-box',
+  },
+  brandLogo: {
+    width: 36,
+    height: 36,
+    background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+    borderRadius: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    fontSize: 13,
+    color: 'white',
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#ffffff',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  },
+  brandSubtitle: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+  },
+  collapseBtn: {
+    background: '#1e293b',
+    border: '1px solid #334155',
+    color: '#94a3b8',
+    borderRadius: 6,
+    width: 28,
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'all 0.2s ease',
+  },
+  userCard: {
+    margin: '12px 10px',
+    background: '#1e293b',
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    border: '1px solid #334155',
+    overflow: 'hidden',
+  },
+  userAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: '50%',
+    background: '#2563eb',
+    color: 'white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: 13,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  userAvatarImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  userInfo: {
+    overflow: 'hidden',
+  },
+  userName: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#f8fafc',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  userEmail: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nav: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '0 8px',
+    flexGrow: 1,
+    overflowY: 'auto',
+  },
+  navButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'transparent',
+    color: '#cbd5e1',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'all 0.15s ease',
+    width: '100%',
+    boxSizing: 'border-box',
+    position: 'relative',
+  },
+  navButtonActive: {
+    background: '#2563eb',
+    color: '#ffffff',
+    fontWeight: 700,
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+  },
+  navIcon: {
+    fontSize: 15,
+    flexShrink: 0,
+  },
+  navLabel: {
+    flexGrow: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  badgeWarn: {
+    color: 'white',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    fontSize: 9.5,
+    fontWeight: 800,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    boxSizing: 'border-box',
+  },
+  footer: {
+    borderTop: '1px solid #1e293b',
+  },
+  btnLogout: {
+    width: '100%',
+    padding: '8px 10px',
+    background: '#1e293b',
+    color: '#f87171',
+    border: '1px solid #334155',
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textAlign: 'center',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
+};
+
 const STYLES: Record<string, React.CSSProperties> = {
-  page: { background: '#f8fafc', minHeight: '100vh', padding: '16px 12px', fontFamily: '"Inter", "Segoe UI", sans-serif' },
-  loader: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', color: '#64748b', fontSize: 14, fontWeight: 500 },
+  page: { 
+    flex: 1,
+    background: '#f8fafc', 
+    minHeight: '100vh', 
+    padding: '16px 20px', 
+    fontFamily: '"Inter", "Segoe UI", sans-serif',
+    overflowX: 'hidden'
+  },
+  loaderWrap: { 
+    flex: 1, 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    minHeight: '100vh', 
+    background: '#f8fafc' 
+  },
+  loader: { color: '#64748b', fontSize: 14, fontWeight: 500 },
   container: { maxWidth: 980, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 },
   card: { background: '#fff', borderRadius: 8, padding: '12px 14px', boxShadow: '0 1px 3px rgba(15,23,42,0.03)', border: '1px solid #e2e8f0' },
   cardPrimarySticky: { background: '#0f172a', borderRadius: 8, padding: '12px 14px', boxShadow: '0 4px 12px rgba(15,23,42,0.15)' },

@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import type { CSSProperties } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { clearSession, getSession } from '@/lib/auth'
 import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
@@ -145,11 +145,9 @@ type RawProject = Record<string, unknown>
 type SubscriptionLike = Subscription & {
   max_projects?: number | string
   max_experts?: number | string
-  maxProjects?: number | string
-  maxprojects?: number | string
-  maxExperts?: number | string
-  maxexperts?: number | string
+  max_experts_directory?: number | string
   max_consultation_per_expert?: number | string
+  custom_features?: string
 }
 
 const FEATURE_EXPLANATIONS = [
@@ -185,7 +183,6 @@ const FEATURE_EXPLANATIONS = [
 
 function toFiniteLimit(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null
-
   const num = Number(value)
   if (!Number.isFinite(num)) return null
   if (num >= 999999) return Number.POSITIVE_INFINITY
@@ -199,6 +196,53 @@ function formatRupiah(amount: number) {
     currency: 'IDR',
     maximumFractionDigits: 0,
   }).format(amount)
+}
+
+function normalizeSubscriptionData(raw: any, targetEmail: string): any {
+  if (!raw) return null;
+  let dataObj = raw.data || raw.result || raw.payload || raw;
+  if (Array.isArray(dataObj)) {
+    dataObj = dataObj.find((item: any) => {
+      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      return em === targetEmail.trim().toLowerCase();
+    }) || dataObj[0] || null;
+  }
+  if (!dataObj || typeof dataObj !== 'object') return null;
+
+  const getField = (keys: string[]) => {
+    for (const k of keys) {
+      for (const objKey of Object.keys(dataObj)) {
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
+          return dataObj[objKey];
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawStatus = getField(['status', 'subscription_status']);
+  const rawExpDate = getField(['expired_date', 'expireddate']);
+  
+  const rawMaxProjects = getField(['max_projects', 'maxprojects']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
+  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
+  const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
+
+  return {
+    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
+    status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
+    expired_date: rawExpDate ? String(rawExpDate) : '',
+    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
+  };
 }
 
 function FeatureComparisonModal({
@@ -1057,6 +1101,266 @@ function normalizeProject(raw: RawProject): Project {
   }
 }
 
+// 🟢 KOMPONEN TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO DIPERBESAR
+function AppTopBar() {
+  return (
+    <div style={topBarStyles.container} className="no-print">
+      <div style={topBarStyles.brandGroup}>
+        <img src="/logo.png" alt="Logo AHP" style={topBarStyles.logo} />
+        <div>
+          <h2 style={topBarStyles.title}>ANALYTIC HIERARCHY PROCESS</h2>
+          <p style={topBarStyles.subtitle}>Sistem Pendukung Keputusan Multi-Kriteria Terintegrasi</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 🟢 KOMPONEN SIDEBAR DENGAN PLAN DI POSISI ATAS & DAFTAR PROYEK
+function DashboardSidebar({
+  user,
+  userProfile,
+  userPlan,
+  projects,
+  isProfileComplete,
+  isCollapsed,
+  consultationCount,
+  onToggleCollapse,
+  onOpenProfile,
+  onOpenUpgrade,
+  onLogout,
+  onSelectSection
+}: {
+  user: UserSession | null
+  userProfile: UserProfileData
+  userPlan: string
+  projects: Project[]
+  isProfileComplete: boolean
+  isCollapsed: boolean
+  consultationCount: number
+  onToggleCollapse: () => void
+  onOpenProfile: () => void
+  onOpenUpgrade: () => void
+  onLogout: () => void
+  onSelectSection: (sec: 'dashboard' | 'consultation') => void
+}) {
+  const router = useRouter()
+  const pathname = usePathname()
+
+  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`
+  const planBadgeColor = 
+    userPlan === 'premium' ? '#9333ea' : 
+    userPlan === 'plus' ? '#2563eb' : 
+    userPlan === 'pro' ? '#16a34a' : '#64748b';
+
+  const navItems = [
+    {
+      label: planLabelFormatted,
+      icon: '⭐',
+      badgeColor: planBadgeColor,
+      onClick: onOpenUpgrade
+    },
+    {
+      label: 'Dashboard Analisis',
+      icon: '📊',
+      active: pathname === '/dashboard',
+      onClick: () => {
+        router.push('/dashboard')
+        onSelectSection('dashboard')
+      }
+    },
+    {
+      label: 'Tiket Konsultasi',
+      icon: '💬',
+      badge: consultationCount > 0 ? String(consultationCount) : undefined,
+      badgeColor: '#10b981',
+      onClick: () => onSelectSection('consultation')
+    },
+    {
+      label: 'Direktori Pakar',
+      icon: '👥',
+      active: pathname === '/expert-directory',
+      onClick: () => router.push('/expert-directory')
+    },
+    {
+      label: 'Profil & Pengesahan',
+      icon: '⚙️',
+      badge: !isProfileComplete ? '!' : undefined,
+      badgeColor: '#ef4444',
+      onClick: onOpenProfile
+    },
+    {
+      label: 'Panduan Sistem',
+      icon: '📖',
+      active: pathname === '/panduan',
+      onClick: () => router.push('/panduan')
+    }
+  ]
+
+  return (
+    <aside style={{
+      ...sidebarStyles.aside,
+      width: isCollapsed ? 76 : 260,
+      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+    }}>
+      <div style={sidebarStyles.brandContainer}>
+        {!isCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <div style={sidebarStyles.brandLogo}>AHP</div>
+            <div>
+              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
+              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
+            </div>
+          </div>
+        )}
+        <button 
+          type="button" 
+          onClick={onToggleCollapse} 
+          style={sidebarStyles.collapseBtn}
+          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
+        >
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2.5" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{
+              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.25s ease'
+            }}
+          >
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div style={{
+        ...sidebarStyles.userCard,
+        justifyContent: isCollapsed ? 'center' : 'flex-start',
+        padding: isCollapsed ? '10px 4px' : '12px'
+      }}>
+        <div style={{
+          ...sidebarStyles.userAvatar,
+          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
+        }}>
+          {userProfile.foto_profil ? (
+            <img 
+              src={userProfile.foto_profil} 
+              alt="Avatar" 
+              style={sidebarStyles.userAvatarImg} 
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
+          )}
+        </div>
+
+        {!isCollapsed && (
+          <div style={sidebarStyles.userInfo}>
+            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
+            <div style={sidebarStyles.userEmail}>{user?.email}</div>
+          </div>
+        )}
+      </div>
+
+      <nav style={sidebarStyles.nav}>
+        {navItems.map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={item.onClick}
+            title={isCollapsed ? item.label : undefined}
+            style={{
+              ...sidebarStyles.navButton,
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              padding: isCollapsed ? '12px 0' : '10px 14px',
+              ...(item.active ? sidebarStyles.navButtonActive : {}),
+              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
+            }}
+          >
+            <span style={sidebarStyles.navIcon}>{item.icon}</span>
+            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
+            {item.badge && (
+              <span style={{
+                ...sidebarStyles.badgeWarn,
+                background: item.badgeColor || '#ef4444',
+                position: isCollapsed ? 'absolute' : 'relative',
+                top: isCollapsed ? 4 : 'auto',
+                right: isCollapsed ? 12 : 'auto'
+              }}>
+                {item.badge}
+              </span>
+            )}
+            {idx === 0 && !isCollapsed && (
+              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
+                Upgrade
+              </span>
+            )}
+          </button>
+        ))}
+
+        {!isCollapsed && projects.length > 0 && (
+          <div style={{ marginTop: 12, paddingBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
+              📁 Proyek Anda ({projects.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: 'transparent',
+                    color: '#cbd5e1',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: 11.5,
+                    padding: '6px 14px',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    width: '100%',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                  title={p.nama_proyek}
+                >
+                  <span style={{ fontSize: 10 }}>🔹</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nama_proyek}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </nav>
+
+      <div style={{
+        ...sidebarStyles.footer,
+        padding: isCollapsed ? '12px 6px' : '16px'
+      }}>
+        <button 
+          type="button" 
+          onClick={onLogout} 
+          style={sidebarStyles.btnLogout}
+          title={isCollapsed ? "Logout" : undefined}
+        >
+          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
+        </button>
+      </div>
+    </aside>
+  )
+}
+
 // 🟢 Komponen isi utama dashboard
 function DashboardContent() {
   const router = useRouter()
@@ -1074,6 +1378,7 @@ function DashboardContent() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [showUpgrade, setShowUpgrade] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   // State Konfirmasi Pembayaran
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -1090,7 +1395,6 @@ function DashboardContent() {
   })
   const [showProfileModal, setShowProfileModal] = useState(false)
 
-  // 🟢 Otomatis buka modal profil jika ada parameter ?action=profile dari Sidebar
   useEffect(() => {
     if (searchParams.get('action') === 'profile') {
       setShowProfileModal(true)
@@ -1116,7 +1420,7 @@ function DashboardContent() {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
 
       const [subRes, projRes, consultRes, userRes, statsRes, planRes] = await Promise.all([
-        fetch(`${API_URL}?action=getsubscription&user_email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
+        fetch(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         fetch(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }),
         fetch(`${API_URL}?action=getconsultationrequests&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         fetch(`${API_URL}?action=getuserprofile&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
@@ -1145,27 +1449,17 @@ function DashboardContent() {
         }
       }
 
+      // Normalisasi akurat dengan parsing kolom spesifik
       if (subRes && typeof subRes.json === 'function') {
         const subJson = await subRes.json().catch(() => ({}))
-        if (subJson.success && subJson.data) {
-          const subData = subJson.data
-          const subPlan = String(subData.plan || '').toLowerCase().trim()
-
-          if (['pro', 'plus', 'premium'].includes(subPlan)) {
-            currentSub = subData
-          } else if (fallbackPlanFromUser !== 'free') {
-            currentSub = {
-              ...subData,
-              plan: fallbackPlanFromUser,
-              status: 'active'
-            }
-          } else {
-            currentSub = subData
-          }
+        const parsed = normalizeSubscriptionData(subJson, cleanUserEmail)
+        if (parsed) {
+          currentSub = parsed
         }
       }
 
-      if (!currentSub && fallbackPlanFromUser !== 'free') {
+      // Fallback ke tabel users HANYA jika baris di sheet subscriptions tidak ditemukan
+      if (!currentSub) {
         currentSub = {
           plan: fallbackPlanFromUser,
           status: 'active',
@@ -1387,17 +1681,17 @@ function DashboardContent() {
   const subscriptionLike = subscription as SubscriptionLike | null
   const globalDynamicPlan = dynamicPlans[currentPlan]
 
-  const maxProjects =
-    toFiniteLimit(subscriptionLike?.max_projects) ??
-    toFiniteLimit(subscriptionLike?.maxProjects) ??
-    (globalDynamicPlan ? toFiniteLimit(globalDynamicPlan.max_projects) : null) ??
-    planConfig.maxProjects
-
-  const maxExperts =
-    toFiniteLimit(subscriptionLike?.max_experts) ??
-    toFiniteLimit(subscriptionLike?.maxExperts) ??
-    (globalDynamicPlan ? toFiniteLimit(globalDynamicPlan.max_experts_manual) : null) ??
-    planConfig.maxExperts
+  // Aturan Hierarki Ketat: Jika subscription ada, kuota mengacu HANYA pada nilai eksplisit di baris tersebut
+  const maxProjects = useMemo(() => {
+    if (subscriptionLike && (subscriptionLike.max_projects !== undefined && subscriptionLike.max_projects !== null)) {
+      const explicitLimit = toFiniteLimit(subscriptionLike.max_projects)
+      return explicitLimit !== null ? explicitLimit : 0
+    }
+    return (
+      (globalDynamicPlan ? toFiniteLimit(globalDynamicPlan.max_projects) : null) ??
+      planConfig.maxProjects
+    )
+  }, [subscriptionLike, globalDynamicPlan, planConfig])
 
   const totalProjects = projects.length
   const projectUsageText =
@@ -1447,6 +1741,17 @@ function DashboardContent() {
     router.push('/buat-proyek/baru')
   }
 
+  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
+    if (sec === 'dashboard') {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      const el = document.getElementById('consultation-section')
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
+  }
+
   const S = styles
 
   if (loading) {
@@ -1460,442 +1765,437 @@ function DashboardContent() {
   }
 
   return (
-    <div style={S.page}>
-      {showUpgrade && (
-        <UpgradeModal
-          currentPlan={currentPlan}
-          onClose={() => setShowUpgrade(false)}
-        />
-      )}
+    <div style={S.layoutWrapper}>
+      {/* 🟢 SIDEBAR DENGAN PLAN DI ATAS & DAFTAR PROYEK */}
+      <DashboardSidebar
+        user={session}
+        userProfile={userProfile}
+        userPlan={currentPlan}
+        projects={projects}
+        isProfileComplete={isProfileComplete}
+        isCollapsed={isSidebarCollapsed}
+        consultationCount={consultations.length}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onOpenProfile={() => setShowProfileModal(true)}
+        onOpenUpgrade={() => setShowUpgrade(true)}
+        onLogout={handleLogout}
+        onSelectSection={handleScrollToSection}
+      />
 
-      {showProfileModal && session && (
-        <ProfileModal
-          user={session}
-          profile={userProfile}
-          onClose={() => setShowProfileModal(false)}
-          onSaveSuccess={(updated) => setUserProfile(updated)}
-        />
-      )}
+      {/* 🟢 KONTEN UTAMA */}
+      <main style={S.mainContent}>
+        {showUpgrade && (
+          <UpgradeModal
+            currentPlan={currentPlan}
+            onClose={() => setShowUpgrade(false)}
+          />
+        )}
 
-      <div style={S.container}>
-        <div style={S.topbar}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={S.avatarContainer}>
-              {userProfile.foto_profil ? (
-                <img 
-                  src={userProfile.foto_profil} 
-                  alt="Foto Profil" 
-                  style={S.avatarImg} 
-                  onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                />
-              ) : (
-                <div style={S.avatarPlaceholder}>
-                  {(userProfile.nama || session?.nama || session?.email || 'U').charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
+        {showProfileModal && session && (
+          <ProfileModal
+            user={session}
+            profile={userProfile}
+            onClose={() => setShowProfileModal(false)}
+            onSaveSuccess={(updated) => setUserProfile(updated)}
+          />
+        )}
 
-            <div>
-              <span style={S.academicTag}>AHP Decision Support System</span>
-              <h1 style={S.pageTitle}>Dashboard Analisis</h1>
-            </div>
-          </div>
+        <div style={S.container}>
+          
+          {/* 🟢 TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO TRANSPARAN */}
+          <AppTopBar />
 
-          <div style={S.topbarActions}>
-            <button
-              onClick={() => setShowProfileModal(true)}
-              style={S.btnProfile}
-              type="button"
-            >
-              ⚙️ Profil Saya {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
-            </button>
-            <button
-              onClick={() => router.push('/expert-directory')}
-              style={S.btnSecondary}
-              type="button"
-            >
-              📂 Direktori Pakar
-            </button>
-            <button onClick={handleRefresh} style={S.btnGhost} type="button">
-              {refreshing ? 'Memuat...' : 'Refresh'}
-            </button>
-            <button onClick={handleLogout} style={S.btnDanger} type="button">
-              Logout
-            </button>
-          </div>
-        </div>
+          <div style={S.topbar}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={S.avatarContainer}>
+                {userProfile.foto_profil ? (
+                  <img 
+                    src={userProfile.foto_profil} 
+                    alt="Foto Profil" 
+                    style={S.avatarImg} 
+                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                  />
+                ) : (
+                  <div style={S.avatarPlaceholder}>
+                    {(userProfile.nama || session?.nama || session?.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
 
-        {!isProfileComplete && (
-          <div style={S.profileWarningBanner}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 20 }}>⚠️</span>
               <div>
-                <strong style={{ fontSize: 13, color: '#92400e' }}>Profil Belum Lengkap:</strong>
-                <span style={{ fontSize: 12.5, color: '#b45309', marginLeft: 6 }}>
-                  Harap lengkapi nama institusi, kota, dan tanda tangan digital untuk pengesahan sertifikat.
-                </span>
+                <span style={S.academicTag}>AHP Decision Support System</span>
+                <h1 style={S.pageTitle}>Dashboard Analisis</h1>
               </div>
             </div>
-            <button
-              onClick={() => setShowProfileModal(true)}
-              style={S.btnWarningFix}
-              type="button"
-            >
-              Lengkapi Sekarang
-            </button>
-          </div>
-        )}
 
-        <div style={S.heroCard}>
-          <div style={S.heroLeft}>
-            <div style={S.userBadge}>Halo, {userProfile.nama || session?.nama || session?.email}</div>
-            <h2 style={S.heroTitle}>
-              Siap Melakukan Sintesis Keputusan Hari Ini
-            </h2>
-            <p style={S.heroDesc}>
-              Kelola hirarki kriteria, distribusikan kuesioner token pakar, dan evaluasi hasil agregat geometric mean dalam satu platform terintegrasi.
-            </p>
-
-            <div style={S.guideLinkContainer}>
+            <div style={S.topbarActions}>
               <button
+                onClick={() => setShowProfileModal(true)}
+                style={S.btnProfile}
                 type="button"
-                onClick={() => {
-                  alert(
-                    '📖 PANDUAN PENGGUNAAN AHP PLATFORM:\n\n' +
-                    '1. Pengaturan Profil & Pengesahan:\n' +
-                    '   Lengkapi nama, institusi, kota, foto, dan tanda tangan digital (.png) pada menu "Profil Saya" sebagai pengesah dokumen proyek.\n\n' +
-                    '2. Pembuatan & Pengelolaan Proyek:\n' +
-                    '   Klik "+ Buat Proyek" untuk menyusun struktur kriteria, subkriteria, serta alternatif sesuai kebutuhan riset Anda.\n\n' +
-                    '3. Distribusi Kuesioner & Direktori Pakar:\n' +
-                    '   Bagikan tautan token ke pakar manual atau undang pakar terverifikasi langsung melalui menu "Direktori Pakar".\n\n' +
-                    '4. Konsultasi & Layanan Upgrade Paket:\n' +
-                    '   Ajukan pertanyaan riset atau permintaan upgrade paket melalui tiket konsultasi. Untuk pembayaran manual, unggah bukti transfer melalui tombol "Konfirmasi Telah Bayar" pada tiket terkait.\n\n' +
-                    '5. Evaluasi Hasil & Penerbitan Sertifikat Pakar:\n' +
-                    '   Pantau nilai Consistency Ratio (CR < 0.10), lihat hasil agregasi geometric mean, dan terbitkan serta unduh Sertifikat Apresiasi resmi khusus untuk Pakar/Responden yang telah berpartisipasi.'
-                  );
-                }}
-                style={S.guideLinkButton}
               >
-                📖 Panduan Penggunaan
+                ⚙️ Profil Saya {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
+              </button>
+              <button
+                onClick={() => router.push('/expert-directory')}
+                style={S.btnSecondary}
+                type="button"
+              >
+                👥 Direktori Pakar
+              </button>
+              <button onClick={handleRefresh} style={S.btnGhost} type="button">
+                {refreshing ? 'Memuat...' : '🔄 Refresh'}
               </button>
             </div>
           </div>
 
-          <div style={S.heroRight}>
-            <div style={S.planSummaryCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span
-                  style={{
-                    ...S.planPill,
-                    color: planConfig.color,
-                    background: planConfig.bg,
-                    border: `1px solid ${planConfig.border}`,
-                  }}
-                >
-                  {planConfig.label}
-                </span>
-                <span style={S.planPrice}>{planConfig.price}</span>
+          {!isProfileComplete && (
+            <div style={S.profileWarningBanner}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>⚠️</span>
+                <div>
+                  <strong style={{ fontSize: 13, color: '#92400e' }}>Profil Belum Lengkap:</strong>
+                  <span style={{ fontSize: 12.5, color: '#b45309', marginLeft: 6 }}>
+                    Harap lengkapi nama institusi, kota, dan tanda tangan digital untuk pengesahan sertifikat.
+                  </span>
+                </div>
               </div>
-              <div style={S.planMeta}>Proyek: <strong>{projectUsageText}</strong></div>
-              <button onClick={handleCreateProject} style={S.btnPrimary} type="button">
-                {canCreateProject ? '+ Buat Proyek' : 'Upgrade Paket'}
+              <button
+                onClick={() => setShowProfileModal(true)}
+                style={S.btnWarningFix}
+                type="button"
+              >
+                Lengkapi Sekarang
               </button>
-              {currentPlan === 'free' && (
-                <button onClick={() => setShowUpgrade(true)} style={{ ...S.btnSecondary, marginTop: 4, width: '100%', textAlign: 'center' }} type="button">
-                  🚀 Menu Upgrade Paket
+            </div>
+          )}
+
+          <div style={S.heroCard}>
+            <div style={S.heroLeft}>
+              <div style={S.userBadge}>Halo, {userProfile.nama || session?.nama || session?.email}</div>
+              <h2 style={S.heroTitle}>
+                Siap Melakukan Sintesis Keputusan Hari Ini
+              </h2>
+              <p style={S.heroDesc}>
+                Kelola hirarki kriteria, distribusikan kuesioner token pakar, dan evaluasi hasil agregat geometric mean dalam satu platform terintegrasi.
+              </p>
+            </div>
+
+            <div style={S.heroRight}>
+              <div style={S.planSummaryCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span
+                    style={{
+                      ...S.planPill,
+                      color: planConfig.color,
+                      background: planConfig.bg,
+                      border: `1px solid ${planConfig.border}`,
+                    }}
+                  >
+                    {planConfig.label}
+                  </span>
+                  <span style={S.planPrice}>{planConfig.price}</span>
+                </div>
+                <div style={S.planMeta}>Proyek: <strong>{projectUsageText}</strong></div>
+                <button onClick={handleCreateProject} style={S.btnPrimary} type="button">
+                  {canCreateProject ? '+ Buat Proyek' : 'Upgrade Paket'}
                 </button>
-              )}
+                {currentPlan === 'free' && (
+                  <button onClick={() => setShowUpgrade(true)} style={{ ...S.btnSecondary, marginTop: 4, width: '100%', textAlign: 'center' }} type="button">
+                    🚀 Menu Upgrade Paket
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {error && <div style={S.errorBox}>{error}</div>}
+          {error && <div style={S.errorBox}>{error}</div>}
 
-        <div style={{ ...S.statsGrid, gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
-          <div style={S.statCard}>
-            <div style={S.statLabel}>Proyek</div>
-            <div style={S.statValue}>{totalProjects}</div>
+          <div style={{ ...S.statsGrid, gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
+            <div style={S.statCard}>
+              <div style={S.statLabel}>Proyek</div>
+              <div style={S.statValue}>{totalProjects}</div>
+            </div>
+
+            <div style={S.statCard}>
+              <div style={S.statLabel}>Expert</div>
+              <div style={S.statValue}>{totalExperts}</div>
+            </div>
+
+            <div style={S.statCard}>
+              <div style={S.statLabel}>Kriteria</div>
+              <div style={S.statValue}>{totalCriteria}</div>
+            </div>
+
+            <div style={S.statCard}>
+              <div style={S.statLabel}>Alternatif</div>
+              <div style={S.statValue}>{totalAlternatif}</div>
+            </div>
+
+            <div style={S.statCard}>
+              <div style={S.statLabel}>Total Kunjungan</div>
+              <div style={S.statValue}>{visitorStats}</div>
+            </div>
           </div>
 
-          <div style={S.statCard}>
-            <div style={S.statLabel}>Expert</div>
-            <div style={S.statValue}>{totalExperts}</div>
+          <div style={S.sectionHeader}>
+            <h3 style={S.sectionTitle}>Daftar Proyek</h3>
           </div>
 
-          <div style={S.statCard}>
-            <div style={S.statLabel}>Kriteria</div>
-            <div style={S.statValue}>{totalCriteria}</div>
-          </div>
-
-          <div style={S.statCard}>
-            <div style={S.statLabel}>Alternatif</div>
-            <div style={S.statValue}>{totalAlternatif}</div>
-          </div>
-
-          <div style={S.statCard}>
-            <div style={S.statLabel}>Total Kunjungan</div>
-            <div style={S.statValue}>{visitorStats}</div>
-          </div>
-        </div>
-
-        <div style={S.sectionHeader}>
-          <h3 style={S.sectionTitle}>Daftar Proyek</h3>
-        </div>
-
-        {projects.length === 0 ? (
-          <div style={S.emptyState}>
-            <div style={S.emptyIcon}>📂</div>
-            <h3 style={S.emptyTitle}>Belum ada proyek</h3>
-            <p style={S.emptyDesc}>
-              Klik <strong>Buat Proyek</strong> untuk mulai menyusun model analisis.
-            </p>
-          </div>
-        ) : (
-          <div style={S.projectList}>
-            {projects.map((project) => (
-              <div key={project.id} style={S.projectCard}>
-                <div style={S.projectCardTop}>
-                  <div>
-                    <div style={S.projectTitleRow}>
-                      <h4 style={S.projectTitle}>{project.nama_proyek}</h4>
-                      <span style={S.projectId}>ID: {project.id}</span>
-                    </div>
-
-                    <div style={S.projectMetaRow}>
-                      <span style={S.metaChip}>{methodLabel(project.metode)}</span>
-                      <span style={S.metaChip}>
-                        {project.punya_subkriteria ? 'Subkriteria' : 'Tanpa Subkriteria'}
-                      </span>
-                      <span style={S.metaChip}>
-                        {project.jumlah_expert_responden} expert
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={S.actionGroup}>
-                    <button
-                      style={S.btnSecondarySmall}
-                      type="button"
-                      onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          localStorage.setItem('activeProjectId', project.id)
-                        }
-                        router.push('/expert-directory')
-                      }}
-                    >
-                      💬 Konsultasi
-                    </button>
-                    <button
-                      style={S.btnPrimarySmall}
-                      type="button"
-                      onClick={() =>
-                        router.push(`/proyek/kelola?id=${encodeURIComponent(project.id)}`)
-                      }
-                    >
-                      Kelola Proyek
-                    </button>
-                  </div>
-                </div>
-
-                <p style={S.projectDesc}>
-                  {project.deskripsi?.trim()
-                    ? project.deskripsi
-                    : 'Tidak ada deskripsi.'}
-                </p>
-
-                <div style={S.projectStats}>
-                  <div style={S.projectStatBox}>
-                    <div style={S.projectStatLabel}>Kriteria</div>
-                    <div style={S.projectStatValue}>{project.criteria_count}</div>
-                  </div>
-                  <div style={S.projectStatBox}>
-                    <div style={S.projectStatLabel}>Subkriteria</div>
-                    <div style={S.projectStatValue}>{project.subcriteria_count}</div>
-                  </div>
-                  <div style={S.projectStatBox}>
-                    <div style={S.projectStatLabel}>Alternatif</div>
-                    <div style={S.projectStatValue}>{project.alternatif_count}</div>
-                  </div>
-                </div>
-
-                <div style={S.projectFooter}>
-                  <span style={S.footerMeta}>
-                    Fasilitator: {project.fasilitator_email || '-'}
-                  </span>
-                  <span style={S.footerMeta}>
-                    Diperbarui: {formatDate(project.updated_at)}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div style={{ ...S.sectionHeader, marginTop: 32 }}>
-          <h3 style={S.sectionTitle}>💬 Riwayat Permintaan Konsultasi Saya</h3>
-        </div>
-
-        {consultations.length === 0 ? (
-          <div style={S.emptyState}>
-            <div style={S.emptyIcon}>💬</div>
-            <h3 style={S.emptyTitle}>Belum ada pengajuan konsultasi</h3>
-            <p style={S.emptyDesc}>
-              Buka menu <strong>Direktori Pakar</strong> untuk mengajukan diskusi atau konsultasi riset resmi.
-            </p>
-          </div>
-        ) : (
-          <div style={S.projectList}>
-            {consultations.map((ticket, idx) => {
-              const jawabanLower = (ticket.jawabanExpert || '').toLowerCase()
-              const topikLower = (ticket.topikPesan || '').toLowerCase()
-              const idLower = (ticket.idTiket || '').toLowerCase()
-              const tujuanLower = (ticket.expertTujuan || '').toLowerCase()
-
-              const isBillingTicket = tujuanLower.includes('layanan') || 
-                                      tujuanLower.includes('admin') || 
-                                      topikLower.includes('plan') || 
-                                      idLower.includes('pricing-sup') ||
-                                      jawabanLower.includes('pembayaran') || 
-                                      jawabanLower.includes('transfer')
-
-              const statusLower = (ticket.status || '').toLowerCase()
-              const isVerifying = statusLower.includes('verifikasi')
-              const isSelesai = statusLower.includes('selesai')
-              const isPendingAdmin = statusLower.includes('pending admin')
-
-              return (
-                <div key={idx} style={S.projectCard}>
+          {projects.length === 0 ? (
+            <div style={S.emptyState}>
+              <div style={S.emptyIcon}>📂</div>
+              <h3 style={S.emptyTitle}>Belum ada proyek</h3>
+              <p style={S.emptyDesc}>
+                Klik <strong>Buat Proyek</strong> untuk mulai menyusun model analisis.
+              </p>
+            </div>
+          ) : (
+            <div style={S.projectList}>
+              {projects.map((project) => (
+                <div key={project.id} style={S.projectCard}>
                   <div style={S.projectCardTop}>
                     <div>
                       <div style={S.projectTitleRow}>
-                        <h4 style={S.projectTitle}>Tiket Konsultasi #{ticket.idTiket}</h4>
-                        <span style={{
-                          ...S.metaChip,
-                          fontWeight: 700,
-                          background: isSelesai ? '#dcfce7' : isVerifying ? '#e0e7ff' : statusLower.includes('diteruskan') ? '#dbeafe' : '#fef9c3',
-                          color: isSelesai ? '#166534' : isVerifying ? '#3730a3' : statusLower.includes('diteruskan') ? '#1e40af' : '#854d0e',
-                        }}>
-                          {ticket.status}
-                        </span>
+                        <h4 style={S.projectTitle}>{project.nama_proyek}</h4>
+                        <span style={S.projectId}>ID: {project.id}</span>
                       </div>
 
                       <div style={S.projectMetaRow}>
-                        <span style={S.metaChip}>Pakar Tujuan: <strong>{isBillingTicket ? 'Tim Layanan Pelanggan & Billing' : ticket.expertTujuan}</strong></span>
-                        <span style={S.metaChip}>ID Proyek: <strong>{ticket.projectId}</strong></span>
+                        <span style={S.metaChip}>{methodLabel(project.metode)}</span>
+                        <span style={S.metaChip}>
+                          {project.punya_subkriteria ? 'Subkriteria' : 'Tanpa Subkriteria'}
+                        </span>
+                        <span style={S.metaChip}>
+                          {project.jumlah_expert_responden} expert
+                        </span>
                       </div>
+                    </div>
+
+                    <div style={S.actionGroup}>
+                      <button
+                        style={S.btnSecondarySmall}
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            localStorage.setItem('activeProjectId', project.id)
+                          }
+                          router.push('/expert-directory')
+                        }}
+                      >
+                        💬 Konsultasi
+                      </button>
+                      <button
+                        style={S.btnPrimarySmall}
+                        type="button"
+                        onClick={() =>
+                          router.push(`/proyek/kelola?id=${encodeURIComponent(project.id)}`)
+                        }
+                      >
+                        Kelola Proyek
+                      </button>
                     </div>
                   </div>
 
                   <p style={S.projectDesc}>
-                    <strong>Topik / Pertanyaan Anda:</strong><br />
-                    &quot;{ticket.topikPesan}&quot;
-                    {ticket.pertanyaan && (
-                      <span style={{ display: 'block', marginTop: 4, color: '#475569' }}>
-                        {ticket.pertanyaan}
-                      </span>
-                    )}
+                    {project.deskripsi?.trim()
+                      ? project.deskripsi
+                      : 'Tidak ada deskripsi.'}
                   </p>
 
-                  {ticket.jawabanExpert ? (
-                    <div style={{
-                      marginTop: 14,
-                      background: '#f0fdf4',
-                      border: '1px solid #bbf7d0',
-                      borderRadius: 10,
-                      padding: '12px 16px',
-                    }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 4 }}>
-                        💬 Tanggapan / Jawaban dari {isBillingTicket ? 'Admin' : ticket.expertTujuan}:
-                      </div>
-                      <p style={{ margin: 0, fontSize: 13.5, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                        {ticket.jawabanExpert}
-                      </p>
-
-                      {ticket.fileUrl && (
-                        <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #bbf7d0' }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', display: 'block', marginBottom: 4 }}>📎 Bukti Pembayaran / Lampiran Diunggah:</span>
-                          <a href={ticket.fileUrl} target="_blank" rel="noreferrer">
-                            <img src={ticket.fileUrl} alt="Bukti Lampiran" style={{ maxHeight: 100, borderRadius: 6, border: '1px solid #cbd5e1' }} />
-                          </a>
-                        </div>
-                      )}
-
-                      {isBillingTicket && (isSelesai || isPendingAdmin) && !isVerifying && !ticket.fileUrl && (
-                        <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #86efac' }}>
-                          <button 
-                            onClick={() => { setPaymentTicket(ticket); setPaymentReceiptUrl(''); setShowPaymentModal(true); }}
-                            style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 6px rgba(22,163,74,0.2)' }}
-                            type="button"
-                          >
-                            💸 Konfirmasi Telah Bayar (Upload Bukti)
-                          </button>
-                        </div>
-                      )}
+                  <div style={S.projectStats}>
+                    <div style={S.projectStatBox}>
+                      <div style={S.projectStatLabel}>Kriteria</div>
+                      <div style={S.projectStatValue}>{project.criteria_count}</div>
                     </div>
-                  ) : (
-                    <div style={{ marginTop: 12, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
-                      ⏳ Menunggu tanggapan dari Pakar / Admin...
+                    <div style={S.projectStatBox}>
+                      <div style={S.projectStatLabel}>Subkriteria</div>
+                      <div style={S.projectStatValue}>{project.subcriteria_count}</div>
                     </div>
-                  )}
+                    <div style={S.projectStatBox}>
+                      <div style={S.projectStatLabel}>Alternatif</div>
+                      <div style={S.projectStatValue}>{project.alternatif_count}</div>
+                    </div>
+                  </div>
+
+                  <div style={S.projectFooter}>
+                    <span style={S.footerMeta}>
+                      Fasilitator: {project.fasilitator_email || '-'}
+                    </span>
+                    <span style={S.footerMeta}>
+                      Diperbarui: {formatDate(project.updated_at)}
+                    </span>
+                  </div>
                 </div>
-              )
-            })}
+              ))}
+            </div>
+          )}
+
+          <div id="consultation-section" style={{ ...S.sectionHeader, marginTop: 32 }}>
+            <h3 style={S.sectionTitle}>💬 Riwayat Permintaan Konsultasi Saya</h3>
+          </div>
+
+          {consultations.length === 0 ? (
+            <div style={S.emptyState}>
+              <div style={S.emptyIcon}>💬</div>
+              <h3 style={S.emptyTitle}>Belum ada pengajuan konsultasi</h3>
+              <p style={S.emptyDesc}>
+                Buka menu <strong>Direktori Pakar</strong> untuk mengajukan diskusi atau konsultasi riset resmi.
+              </p>
+            </div>
+          ) : (
+            <div style={S.projectList}>
+              {consultations.map((ticket, idx) => {
+                const jawabanLower = (ticket.jawabanExpert || '').toLowerCase()
+                const topikLower = (ticket.topikPesan || '').toLowerCase()
+                const idLower = (ticket.idTiket || '').toLowerCase()
+                const tujuanLower = (ticket.expertTujuan || '').toLowerCase()
+
+                const isBillingTicket = tujuanLower.includes('layanan') || 
+                                        tujuanLower.includes('admin') || 
+                                        topikLower.includes('plan') || 
+                                        idLower.includes('pricing-sup') ||
+                                        jawabanLower.includes('pembayaran') || 
+                                        jawabanLower.includes('transfer')
+
+                const statusLower = (ticket.status || '').toLowerCase()
+                const isVerifying = statusLower.includes('verifikasi')
+                const isSelesai = statusLower.includes('selesai')
+                const isPendingAdmin = statusLower.includes('pending admin')
+
+                return (
+                  <div key={idx} style={S.projectCard}>
+                    <div style={S.projectCardTop}>
+                      <div>
+                        <div style={S.projectTitleRow}>
+                          <h4 style={S.projectTitle}>Tiket Konsultasi #{ticket.idTiket}</h4>
+                          <span style={{
+                            ...S.metaChip,
+                            fontWeight: 700,
+                            background: isSelesai ? '#dcfce7' : isVerifying ? '#e0e7ff' : statusLower.includes('diteruskan') ? '#dbeafe' : '#fef9c3',
+                            color: isSelesai ? '#166534' : isVerifying ? '#3730a3' : statusLower.includes('diteruskan') ? '#1e40af' : '#854d0e',
+                          }}>
+                            {ticket.status}
+                          </span>
+                        </div>
+
+                        <div style={S.projectMetaRow}>
+                          <span style={S.metaChip}>Pakar Tujuan: <strong>{isBillingTicket ? 'Tim Layanan Pelanggan & Billing' : ticket.expertTujuan}</strong></span>
+                          <span style={S.metaChip}>ID Proyek: <strong>{ticket.projectId}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p style={S.projectDesc}>
+                      <strong>Topik / Pertanyaan Anda:</strong><br />
+                      &quot;{ticket.topikPesan}&quot;
+                      {ticket.pertanyaan && (
+                        <span style={{ display: 'block', marginTop: 4, color: '#475569' }}>
+                          {ticket.pertanyaan}
+                        </span>
+                      )}
+                    </p>
+
+                    {ticket.jawabanExpert ? (
+                      <div style={{
+                        marginTop: 14,
+                        background: '#f0fdf4',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: 10,
+                        padding: '12px 16px',
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 4 }}>
+                          💬 Tanggapan / Jawaban dari {isBillingTicket ? 'Admin' : ticket.expertTujuan}:
+                        </div>
+                        <p style={{ margin: 0, fontSize: 13.5, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                          {ticket.jawabanExpert}
+                        </p>
+
+                        {ticket.fileUrl && (
+                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #bbf7d0' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', display: 'block', marginBottom: 4 }}>📎 Bukti Pembayaran / Lampiran Diunggah:</span>
+                            <a href={ticket.fileUrl} target="_blank" rel="noreferrer">
+                              <img src={ticket.fileUrl} alt="Bukti Lampiran" style={{ maxHeight: 100, borderRadius: 6, border: '1px solid #cbd5e1' }} />
+                            </a>
+                          </div>
+                        )}
+
+                        {isBillingTicket && (isSelesai || isPendingAdmin) && !isVerifying && !ticket.fileUrl && (
+                          <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #86efac' }}>
+                            <button 
+                              onClick={() => { setPaymentTicket(ticket); setPaymentReceiptUrl(''); setShowPaymentModal(true); }}
+                              style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 6px rgba(22,163,74,0.2)' }}
+                              type="button"
+                            >
+                              💸 Konfirmasi Telah Bayar (Upload Bukti)
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 12, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
+                        ⏳ Menunggu tanggapan dari Pakar / Admin...
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+        </div>
+
+        {showPaymentModal && paymentTicket && (
+          <div style={modalStyles.overlay} onClick={() => setShowPaymentModal(false)}>
+            <div style={{ ...modalStyles.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+              <div style={modalStyles.header}>
+                <h3 style={modalStyles.title}>💸 Konfirmasi Pembayaran</h3>
+                <button onClick={() => setShowPaymentModal(false)} style={modalStyles.closeBtn} type="button">✕</button>
+              </div>
+              
+              <p style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14, lineHeight: 1.4 }}>
+                Unggah foto/struk bukti transfer Anda untuk tiket <strong>#{paymentTicket.idTiket}</strong>. Admin akan memverifikasi dan mengaktifkan paket Anda.
+              </p>
+
+              <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label style={formStyles.label}>Unggah Bukti Transfer (Maks 500 KB) *</label>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleReceiptUpload} 
+                    style={{ fontSize: 12, marginBottom: 8, cursor: 'pointer' }} 
+                    required={!paymentReceiptUrl} 
+                  />
+                  
+                  <div style={{ height: 150, border: '1px dashed #cbd5e1', borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {paymentReceiptUrl ? (
+                      <img src={paymentReceiptUrl} alt="Pratinjau Bukti" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    ) : (
+                      <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Belum ada foto yang dipilih</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                  <button type="button" onClick={() => setShowPaymentModal(false)} style={modalStyles.btnClose}>
+                    Batal
+                  </button>
+                  <button type="submit" disabled={submittingPayment} style={{ ...modalStyles.btnClose, background: '#16a34a', color: 'white', fontWeight: 700 }}>
+                    {submittingPayment ? 'Mengunggah...' : 'Kirim Bukti Pembayaran →'}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
-
-      </div>
-
-      {showPaymentModal && paymentTicket && (
-        <div style={modalStyles.overlay} onClick={() => setShowPaymentModal(false)}>
-          <div style={{ ...modalStyles.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-            <div style={modalStyles.header}>
-              <h3 style={modalStyles.title}>💸 Konfirmasi Pembayaran</h3>
-              <button onClick={() => setShowPaymentModal(false)} style={modalStyles.closeBtn} type="button">✕</button>
-            </div>
-            
-            <p style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14, lineHeight: 1.4 }}>
-              Unggah foto/struk bukti transfer Anda untuk tiket <strong>#{paymentTicket.idTiket}</strong>. Admin akan memverifikasi dan mengaktifkan paket Anda.
-            </p>
-
-            <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div>
-                <label style={formStyles.label}>Unggah Bukti Transfer (Maks 500 KB) *</label>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={handleReceiptUpload} 
-                  style={{ fontSize: 12, marginBottom: 8, cursor: 'pointer' }} 
-                  required={!paymentReceiptUrl} 
-                />
-                
-                <div style={{ height: 150, border: '1px dashed #cbd5e1', borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {paymentReceiptUrl ? (
-                    <img src={paymentReceiptUrl} alt="Pratinjau Bukti" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                  ) : (
-                    <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Belum ada foto yang dipilih</span>
-                  )}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-                <button type="button" onClick={() => setShowPaymentModal(false)} style={modalStyles.btnClose}>
-                  Batal
-                </button>
-                <button type="submit" disabled={submittingPayment} style={{ ...modalStyles.btnClose, background: '#16a34a', color: 'white', fontWeight: 700 }}>
-                  {submittingPayment ? 'Mengunggah...' : 'Kirim Bukti Pembayaran →'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      </main>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   )
 }
 
-// 🟢 Komponen utama yang dibungkus Suspense (Wajib untuk Next.js production build)
 export default function DashboardPage() {
   return (
     <Suspense fallback={
@@ -1908,6 +2208,228 @@ export default function DashboardPage() {
       <DashboardContent />
     </Suspense>
   )
+}
+
+const topBarStyles: Record<string, CSSProperties> = {
+  container: {
+    background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.9) 100%)',
+    border: '1px solid #86efac',
+    borderRadius: 10,
+    padding: '14px 20px',
+    marginBottom: 16,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
+  },
+  brandGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+  },
+  logo: {
+    height: 80,
+    width: 'auto',
+    objectFit: 'contain',
+    opacity: 0.85,
+    mixBlendMode: 'multiply',
+  },
+  title: {
+    margin: 0,
+    fontSize: 16,
+    fontWeight: 800,
+    color: '#064e3b',
+    letterSpacing: '0.04em',
+  },
+  subtitle: {
+    margin: '2px 0 0',
+    fontSize: 11,
+    color: '#065f46',
+    fontWeight: 600,
+  },
+}
+
+const sidebarStyles: Record<string, CSSProperties> = {
+  aside: {
+    background: '#0f172a',
+    color: '#f8fafc',
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: '100vh',
+    borderRight: '1px solid #1e293b',
+    flexShrink: 0,
+    boxSizing: 'border-box',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+  },
+  brandContainer: {
+    padding: '20px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottom: '1px solid #1e293b',
+    minHeight: 70,
+    boxSizing: 'border-box',
+  },
+  brandLogo: {
+    width: 36,
+    height: 36,
+    background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
+    borderRadius: 8,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 900,
+    fontSize: 13,
+    color: 'white',
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontSize: 15,
+    fontWeight: 800,
+    color: '#ffffff',
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  },
+  brandSubtitle: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+  },
+  collapseBtn: {
+    background: '#1e293b',
+    border: '1px solid #334155',
+    color: '#94a3b8',
+    borderRadius: 6,
+    width: 28,
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+    transition: 'all 0.2s ease',
+  },
+  userCard: {
+    margin: '12px 10px',
+    background: '#1e293b',
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    border: '1px solid #334155',
+    overflow: 'hidden',
+  },
+  userAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: '50%',
+    background: '#2563eb',
+    color: 'white',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: 13,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  userAvatarImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  userInfo: {
+    overflow: 'hidden',
+  },
+  userName: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: '#f8fafc',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  userEmail: {
+    fontSize: 10,
+    color: '#94a3b8',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nav: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '0 8px',
+    flexGrow: 1,
+    overflowY: 'auto',
+  },
+  navButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    background: 'transparent',
+    color: '#cbd5e1',
+    border: 'none',
+    borderRadius: 8,
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'all 0.15s ease',
+    width: '100%',
+    boxSizing: 'border-box',
+    position: 'relative',
+  },
+  navButtonActive: {
+    background: '#2563eb',
+    color: '#ffffff',
+    fontWeight: 700,
+    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+  },
+  navIcon: {
+    fontSize: 15,
+    flexShrink: 0,
+  },
+  navLabel: {
+    flexGrow: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  badgeWarn: {
+    color: 'white',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    fontSize: 9.5,
+    fontWeight: 800,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0 4px',
+    boxSizing: 'border-box',
+  },
+  footer: {
+    borderTop: '1px solid #1e293b',
+  },
+  btnLogout: {
+    width: '100%',
+    padding: '8px 10px',
+    background: '#1e293b',
+    color: '#f87171',
+    border: '1px solid #334155',
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    textAlign: 'center',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
 }
 
 const formStyles: Record<string, CSSProperties> = {
@@ -1941,7 +2463,13 @@ const formStyles: Record<string, CSSProperties> = {
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: {
+  layoutWrapper: {
+    display: 'flex',
+    minHeight: '100vh',
+    width: '100%',
+  },
+  mainContent: {
+    flex: 1,
     minHeight: '100vh',
     backgroundImage: 'linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.55)), url("/bg-academic.jpg")',
     backgroundSize: 'cover',
@@ -1950,6 +2478,7 @@ const styles: Record<string, CSSProperties> = {
     backgroundAttachment: 'fixed',
     fontFamily: 'Segoe UI, system-ui, sans-serif',
     paddingBottom: 40,
+    overflowX: 'hidden',
   },
   loadingPage: {
     display: 'flex',
@@ -1973,7 +2502,7 @@ const styles: Record<string, CSSProperties> = {
   container: {
     maxWidth: 1060,
     margin: '0 auto',
-    padding: '24px 16px',
+    padding: '24px 20px',
   },
   topbar: {
     display: 'flex',
@@ -2068,18 +2597,6 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: 6,
   },
-  badgeWarn: {
-    background: '#ef4444',
-    color: 'white',
-    width: 16,
-    height: 16,
-    borderRadius: '50%',
-    fontSize: 10,
-    fontWeight: 800,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   heroCard: {
     display: 'grid',
     gridTemplateColumns: '1.5fr 1fr',
@@ -2126,22 +2643,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     lineHeight: 1.6,
     color: '#334155',
-  },
-  guideLinkContainer: {
-    marginTop: 2,
-  },
-  guideLinkButton: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#1d4ed8',
-    background: '#eff6ff',
-    border: '1px solid #bfdbfe',
-    padding: '6px 12px',
-    borderRadius: 8,
-    cursor: 'pointer',
   },
   planSummaryCard: {
     background: 'rgba(255, 255, 255, 0.95)',
@@ -2392,16 +2893,6 @@ const styles: Record<string, CSSProperties> = {
     color: '#1e293b',
     border: '1px solid #cbd5e1',
     borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: 12.5,
-    fontWeight: 700,
-  },
-  btnDanger: {
-    padding: '8px 12px',
-    background: '#fee2e2',
-    color: '#b91c1c',
-    border: '1px solid #fecaca',
-    borderRadius: 8,
     cursor: 'pointer',
     fontSize: 12.5,
     fontWeight: 700,
