@@ -1,7 +1,7 @@
 // app/buat-proyek/page.tsx
 'use client'
 
-import { useEffect, useState, useMemo, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, Suspense } from 'react'
 import type { CSSProperties } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getSession, clearSession } from '@/lib/auth'
@@ -63,31 +63,6 @@ function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
   return 'free';
 }
 
-function checkCustomAiPrivilege(rawCustom: any): boolean {
-  if (!rawCustom) return false;
-  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
-    return true;
-  }
-  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
-    return Boolean(rawCustom.ai || rawCustom.ai_analysis || rawCustom.enable_ai || rawCustom.gemini);
-  }
-  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
-  return /\b(ai|ai_analysis|analisis_ai|gemini|enable_ai)\b/i.test(str);
-}
-
-function checkCustomFeature(rawCustom: any, featureKeyword: string): boolean {
-  if (!rawCustom) return false;
-  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
-    return true;
-  }
-  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
-    return Boolean(rawCustom[featureKeyword]);
-  }
-  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
-  const regex = new RegExp(`\\b(${featureKeyword})\\b`, 'i');
-  return regex.test(str);
-}
-
 function extractRowData(res: any, targetEmail: string): any {
   if (!res) return null;
   let dataTarget = res.data || res.result || res.payload;
@@ -105,7 +80,6 @@ function extractRowData(res: any, targetEmail: string): any {
   return null;
 }
 
-// 🟢 NORMALISASI KETAT KOLOM SUBSCRIPTIONS (MENCEGAH KOLOM TERTUKAR/BERGESER)
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
   let dataObj = raw.data || raw.result || raw.payload || raw;
@@ -134,7 +108,6 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   const rawStatus = getField(['status', 'subscription_status']);
   const rawExpDate = getField(['expired_date', 'expireddate']);
   
-  // Memastikan kolom dibaca presisi sesuai header sheet
   const rawMaxProjects = getField(['max_projects', 'maxprojects']);
   const rawMaxExperts = getField(['max_experts', 'maxexperts']);
   const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
@@ -384,10 +357,10 @@ function DashboardSidebar({
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}
-                  title={p.nama_proyek || p.namaproyek}
+                  title={p.namaproyek || p.nama_proyek}
                 >
                   <span style={{ fontSize: 10 }}>🔹</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nama_proyek || p.namaproyek}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
                 </button>
               ))}
             </div>
@@ -451,7 +424,7 @@ function BuatProyekContent() {
   const [userProfile, setUserProfile] = useState<UserProfileData>({ nama: '', institusi: '', city: '', digital_signature: '', foto_profil: '' })
   const [userPlan, setUserPlan] = useState<string>('free')
   
-  // State hak akses independen
+  // State hak akses
   const [hasSubcriteriaAccess, setHasSubcriteriaAccess] = useState(false)
   const [hasAlternativesAccess, setHasAlternativesAccess] = useState(false)
   const [hasAiAccess, setHasAiAccess] = useState(false)
@@ -462,7 +435,6 @@ function BuatProyekContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   const [subscription, setSubscription] = useState<Subscription | null>(null)
-  const [dynamicPlans, setDynamicPlans] = useState<Record<string, DynamicPlanSetting>>({})
   const [projectCount, setProjectCount] = useState(0)
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [initLoading, setInitLoading] = useState(true)
@@ -492,7 +464,7 @@ function BuatProyekContent() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  // 🟢 HIERARKI KETAT: SUBSCRIPTIONS DIUTAMAKAN, USERS SEBAGAI FALLBACK JIKA DATA SUBSCRIPTION TIDAK ADA
+  // 🟢 PENGATURAN SINGLE SOURCE OF TRUTH (PRIORITAS SUBSCRIPTIONS -> FALLBACK USERS) DENGAN OVERRIDE MUTLAK
   const loadInitialData = useCallback(async () => {
     const s = getSession()
     if (!s || !s.email) {
@@ -507,11 +479,11 @@ function BuatProyekContent() {
 
     setFasilitatorEmail(cleanEmail)
     setUserProfile({ 
-      nama: s.nama || s.email || 'Pengguna', 
+      nama: String(s.nama || s.email || 'Pengguna'), 
       institusi: '', 
       city: '', 
       digital_signature: '', 
-      foto_profil: s.foto_profil || s.fotoprofil || '' 
+      foto_profil: String(s.foto_profil || s.fotoprofil || '') 
     })
 
     try {
@@ -537,26 +509,28 @@ function BuatProyekContent() {
               dynMap[String(p.plan_key).toLowerCase().trim()] = p
             }
           })
-          setDynamicPlans(dynMap)
         }
       }
 
-      let currentSub: any = null
-      let fallbackPlanFromUser: PlanType = 'free'
       let isSubscriptionRowFound = false
-      let userCustomFeaturesStr = ''
+      let finalSourcePlan = 'free'
+      let finalSourceCustomFeatures = ''
+      let finalSourceMaxProj: number | null = null
+      let finalSourceMaxExpDir: number | null = null
 
-      // 1. Ekstraksi dari tabel users (profil & fallback jika subscriptions tidak ada)
+      let fallbackPlanFromUser: PlanType = 'free'
+      let fallbackCustomFeaturesUser = ''
+      
       if (userRes) {
         const uJson = await userRes.json().catch(() => ({}))
         const uData = extractRowData(uJson, cleanEmail)
         if (uData) {
           setUserProfile({
-            nama: uData.nama || s.nama || 'Pengguna',
-            institusi: uData.institusi || '',
-            city: uData.city || uData.kota || '',
-            digital_signature: uData.digital_signature || uData.tandatangan || '',
-            foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
+            nama: String(uData.nama || s.nama || 'Pengguna'),
+            institusi: String(uData.institusi || ''),
+            city: String(uData.city || uData.kota || ''),
+            digital_signature: String(uData.digital_signature || uData.tandatangan || ''),
+            foto_profil: String(uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || '')
           })
 
           const userRawPlan = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim()
@@ -567,45 +541,40 @@ function BuatProyekContent() {
           for (const key of Object.keys(uData)) {
             const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
             if (['customfeatures', 'customfeature', 'features', 'privileges', 'akses'].includes(lowerKey)) {
-              userCustomFeaturesStr = String(uData[key] || '');
+              fallbackCustomFeaturesUser = String(uData[key] || '');
               break;
             }
           }
         }
       }
 
-      // 2. Ekstraksi dari tabel subscriptions via fungsi normalisasi presisi
-      let subCustomFeaturesStr = ''
-      let subMaxProj: number | null = null
-      let subMaxExpDir: number | null = null
-
       if (subRes && typeof subRes.json === 'function') {
         const subJson = await subRes.json().catch(() => ({}))
         const parsed = normalizeSubscriptionData(subJson, cleanEmail)
         if (parsed) {
           isSubscriptionRowFound = true
-          currentSub = parsed
-          subCustomFeaturesStr = String(parsed.custom_features || '')
-          subMaxProj = parsed.max_projects
-          subMaxExpDir = parsed.max_experts_directory
+          setSubscription(parsed)
+          finalSourcePlan = parsed.plan
+          finalSourceCustomFeatures = String(parsed.custom_features || '')
+          finalSourceMaxProj = parsed.max_projects !== undefined && parsed.max_projects !== null ? parsed.max_projects : null
+          finalSourceMaxExpDir = parsed.max_experts_directory !== undefined && parsed.max_experts_directory !== null ? parsed.max_experts_directory : null
         }
       }
 
-      if (!currentSub && fallbackPlanFromUser !== 'free') {
-        currentSub = {
+      if (!isSubscriptionRowFound) {
+        finalSourcePlan = fallbackPlanFromUser
+        finalSourceCustomFeatures = fallbackCustomFeaturesUser
+        setSubscription({
           plan: fallbackPlanFromUser,
           status: 'active',
           user_email: cleanEmail,
           user_id: cleanId
-        }
+        })
       }
 
-      setSubscription(currentSub)
-      const resolvedPlan = currentSub?.plan || fallbackPlanFromUser || 'free'
-      const finalCleanPlan = cleanPlanType(resolvedPlan)
+      const finalCleanPlan = cleanPlanType(finalSourcePlan)
       setUserPlan(finalCleanPlan)
 
-      // 🟢 PENERAPAN ATURAN HIERARKI KETAT:
       let finalAllowAi = false
       let finalAllowSub = false
       let finalAllowAlt = false
@@ -615,35 +584,56 @@ function BuatProyekContent() {
       const activeDynPlan = dynMap[finalCleanPlan]
       const activeCfg = PLAN_CONFIG[finalCleanPlan] || PLAN_CONFIG['free']
 
+      const planDefaultAllowSub = activeDynPlan ? (String(activeDynPlan.allow_subcriteria).toUpperCase() === 'TRUE' || activeDynPlan.allow_subcriteria === true) : (finalCleanPlan !== 'free')
+      const planDefaultAllowAlt = activeDynPlan ? (String(activeDynPlan.allow_alternative_method).toUpperCase() === 'TRUE' || activeDynPlan.allow_alternative_method === true) : (finalCleanPlan !== 'free')
+      const planDefaultAllowAi = activeDynPlan ? (String(activeDynPlan.allow_ai_features).toUpperCase() === 'TRUE' || activeDynPlan.allow_ai_features === true) : (finalCleanPlan === 'plus' || finalCleanPlan === 'premium')
+      
+      const planDefaultMaxProj = activeDynPlan?.max_projects ?? activeCfg.maxProjects ?? 3
+      const planDefaultMaxExpDir = activeDynPlan?.max_experts_directory ?? (finalCleanPlan === 'pro' ? 5 : finalCleanPlan === 'plus' ? 10 : finalCleanPlan === 'premium' ? 99999 : 0)
+
       if (isSubscriptionRowFound) {
-        // JIKA BARIS SUBSCRIPTION ADA: Fasilitas HANYA AKTIF bila terisi eksplisit pada custom_features
-        if (subCustomFeaturesStr.trim() !== '') {
-          finalAllowAi = checkCustomAiPrivilege(subCustomFeaturesStr) || checkCustomFeature(subCustomFeaturesStr, 'ai') || checkCustomFeature(subCustomFeaturesStr, 'gemini');
-          finalAllowSub = checkCustomFeature(subCustomFeaturesStr, 'subcriteria');
-          finalAllowAlt = checkCustomFeature(subCustomFeaturesStr, 'alternative');
+        const rawFeatureText = finalSourceCustomFeatures.toLowerCase();
+        const customList = rawFeatureText.split(',').map(f => f.trim().replace(/[^a-z0-9_]/g, ''));
+
+        const hasCustomSub = customList.some(k => ['subcriteria', 'subkriteria', 'sub'].includes(k));
+        const hasCustomAlt = customList.some(k => ['alternative', 'alternatif', 'alternatives', 'alt'].includes(k));
+        const hasCustomAi = customList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
+
+        if (finalSourceCustomFeatures.trim() !== '') {
+          // 🟢 OVERRIDE MUTLAK: Jika diisi, hak bawaan plan DIABAIKAN.
+          finalAllowSub = hasCustomSub;
+          finalAllowAlt = hasCustomAlt;
+          finalAllowAi = hasCustomAi;
         } else {
-          // custom_features kosong = Fasilitas NONAKTIF (tanpa fallback)
-          finalAllowAi = false;
-          finalAllowSub = false;
-          finalAllowAlt = false;
+          // Jika kosong, gunakan bawaan
+          finalAllowSub = planDefaultAllowSub;
+          finalAllowAlt = planDefaultAllowAlt;
+          finalAllowAi = planDefaultAllowAi;
         }
 
-        // Kuota numerik dibaca langsung dari kolom spesifik
-        finalMaxProjects = subMaxProj !== null ? subMaxProj : (activeDynPlan?.max_projects ?? activeCfg.maxProjects ?? 3);
-        finalMaxExpertsDir = subMaxExpDir !== null ? subMaxExpDir : (activeDynPlan?.max_experts_directory ?? (finalCleanPlan === 'pro' ? 5 : finalCleanPlan === 'plus' ? 10 : finalCleanPlan === 'premium' ? 99999 : 0));
+        finalMaxProjects = finalSourceMaxProj !== null ? finalSourceMaxProj : planDefaultMaxProj;
+        finalMaxExpertsDir = finalSourceMaxExpDir !== null ? finalSourceMaxExpDir : planDefaultMaxExpDir;
 
       } else {
-        // FALLBACK HANYA JIKA TIDAK ADA BARIS SUBSCRIPTIONS SAMA SEKALI
-        const customAiFromUser = userCustomFeaturesStr.trim() !== '' && (checkCustomAiPrivilege(userCustomFeaturesStr) || checkCustomFeature(userCustomFeaturesStr, 'ai') || checkCustomFeature(userCustomFeaturesStr, 'gemini'));
-        const customSubFromUser = userCustomFeaturesStr.trim() !== '' && checkCustomFeature(userCustomFeaturesStr, 'subcriteria');
-        const customAltFromUser = userCustomFeaturesStr.trim() !== '' && checkCustomFeature(userCustomFeaturesStr, 'alternative');
+        const rawUserFeatureText = finalSourceCustomFeatures.toLowerCase();
+        const customUserList = rawUserFeatureText.split(',').map(f => f.trim().replace(/[^a-z0-9_]/g, ''));
+        
+        const hasUserCustomSub = customUserList.some(k => ['subcriteria', 'subkriteria', 'sub'].includes(k));
+        const hasUserCustomAlt = customUserList.some(k => ['alternative', 'alternatif', 'alternatives', 'alt'].includes(k));
+        const hasUserCustomAi = customUserList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
 
-        finalAllowAi = customAiFromUser || (activeDynPlan ? (String(activeDynPlan.allow_ai_features).toUpperCase() === 'TRUE' || activeDynPlan.allow_ai_features === true) : (finalCleanPlan === 'plus' || finalCleanPlan === 'premium'));
-        finalAllowSub = customSubFromUser || (activeDynPlan ? (String(activeDynPlan.allow_subcriteria).toUpperCase() === 'TRUE' || activeDynPlan.allow_subcriteria === true) : (finalCleanPlan !== 'free'));
-        finalAllowAlt = customAltFromUser || (activeDynPlan ? (String(activeDynPlan.allow_alternative_method).toUpperCase() === 'TRUE' || activeDynPlan.allow_alternative_method === true) : (finalCleanPlan !== 'free'));
-
-        finalMaxProjects = activeDynPlan?.max_projects ?? activeCfg.maxProjects ?? 3;
-        finalMaxExpertsDir = activeDynPlan?.max_experts_directory ?? (finalCleanPlan === 'pro' ? 5 : finalCleanPlan === 'plus' ? 10 : finalCleanPlan === 'premium' ? 99999 : 0);
+        if (finalSourceCustomFeatures.trim() !== '') {
+          finalAllowSub = hasUserCustomSub;
+          finalAllowAlt = hasUserCustomAlt;
+          finalAllowAi = hasUserCustomAi;
+        } else {
+          finalAllowSub = planDefaultAllowSub;
+          finalAllowAlt = planDefaultAllowAlt;
+          finalAllowAi = planDefaultAllowAi;
+        }
+        
+        finalMaxProjects = planDefaultMaxProj;
+        finalMaxExpertsDir = planDefaultMaxExpDir;
       }
 
       setHasAiAccess(finalAllowAi)
@@ -704,20 +694,20 @@ function BuatProyekContent() {
   const updateExpertField = (index: number, field: keyof ExpertFormItem, value: string) => {
     setExperts((prev) => {
       const newExperts = [...prev]
-      newExperts[index] = { ...newExperts[index], [field]: value, fieldError: '' }
+      newExperts[index] = { ...newExperts[index], [field]: String(value), fieldError: '' }
       return newExperts
     })
   }
 
   const handleSelectExpertFromDirectory = (index: number, selected: ExpertDirectoryItem) => {
-    const rawFullName = selected.expert_name || selected.expertname || selected.nama || ''
-    const gDepan = selected.gelar_depan || selected.gelardepan || ''
-    const gBelakang = selected.gelar_belakang || selected.gelarbelakang || ''
-    const email = selected.expert_email || selected.expertemail || selected.email || ''
-    const wa = selected.expert_whatsapp || selected.expertwhatsapp || selected.whatsapp || ''
-    const expId = selected.expert_id || selected.expertid || selected.id || '' 
+    const rawFullName = String(selected.expert_name || selected.expertname || selected.nama || '')
+    const gDepan = String(selected.gelar_depan || selected.gelardepan || '')
+    const gBelakang = String(selected.gelar_belakang || selected.gelarbelakang || '')
+    const email = String(selected.expert_email || selected.expertemail || selected.email || '')
+    const wa = String(selected.expert_whatsapp || selected.expertwhatsapp || selected.whatsapp || '')
+    const expId = String(selected.expert_id || selected.expertid || selected.id || '') 
 
-    const isAlreadyAdded = experts.some((e, i) => i !== index && e.expertId === expId && expId !== '')
+    const isAlreadyAdded = experts.some((e, i) => i !== index && String(e.expertId) === expId && expId !== '')
     if (isAlreadyAdded) {
       setExperts(prev => {
         const updated = [...prev]
@@ -737,15 +727,13 @@ function BuatProyekContent() {
 
   const handleGenerateAiCriteria = async () => {
     if (!isAiAllowed) {
-      alert(
-        `Fitur AI Analisis belum diaktifkan pada sheet subscription Anda.\n\nSilakan lengkapi kolom custom_features pada akun Anda atau hubungi admin.`
-      );
+      alert(`Fitur Analisis Otomatis belum diaktifkan pada akun Anda.\n\nSilakan hubungi admin untuk mengaktifkan akses.`);
       setShowUpgrade(true);
       return;
     }
 
     if (!namaProyek.trim()) {
-      alert("Harap isikan 'Nama Proyek' (Topik/Tujuan) terlebih dahulu agar AI memahami konteksnya.");
+      alert("Harap isikan 'Nama Proyek' (Topik/Tujuan) terlebih dahulu agar sistem memahami konteksnya.");
       return;
     }
     
@@ -766,8 +754,7 @@ function BuatProyekContent() {
       const json = await res.json();
       if (json.success && json.data) {
         const aiCriteria = json.data.criteria;
-        
-        const crNames = aiCriteria.map((c: any) => c.name);
+        const crNames = aiCriteria.map((c: any) => String(c.name));
         setKriteriaText(crNames.join('\n'));
 
         if (canUseSubcriteria && gunakanSubkriteria) {
@@ -780,10 +767,10 @@ function BuatProyekContent() {
           setSubkriteriaTextMap(newSubMap);
         }
       } else {
-        alert('Gagal menyusun kriteria dengan AI: ' + json.message);
+        alert('Gagal menyusun kriteria otomatis: ' + (json.message || 'Respons kosong.'));
       }
     } catch (err) {
-      alert('Koneksi ke AI gagal. Pastikan API Route tersedia.');
+      alert('Koneksi sistem otomatis gagal. Pastikan API Route tersedia.');
     } finally {
       setLoadingAi(false);
     }
@@ -791,15 +778,13 @@ function BuatProyekContent() {
 
   const handleGenerateSingleSubcriteria = async (critName: string) => {
     if (!isAiAllowed) {
-      alert(
-        `Fitur AI Subkriteria belum diaktifkan pada sheet subscription Anda.\n\nSilakan lengkapi kolom custom_features pada akun Anda atau hubungi admin.`
-      );
+      alert(`Fitur Subkriteria Otomatis belum diaktifkan pada akun Anda.\n\nSilakan hubungi admin untuk mengaktifkan akses.`);
       setShowUpgrade(true);
       return;
     }
 
     if (!namaProyek.trim()) {
-      alert("Harap isikan 'Nama Proyek' terlebih dahulu agar AI memahami konteksnya.");
+      alert("Harap isikan 'Nama Proyek' terlebih dahulu agar sistem memahami konteksnya.");
       return;
     }
 
@@ -823,10 +808,10 @@ function BuatProyekContent() {
           [critName]: subs.join('\n'),
         }));
       } else {
-        alert('Gagal menyusun subkriteria: ' + (json.message || 'Terjadi kesalahan.'));
+        alert('Gagal menyusun subkriteria otomatis: ' + (json.message || 'Terjadi kesalahan.'));
       }
     } catch (err) {
-      alert('Koneksi ke AI gagal. Pastikan API route /api/ai/generate-subcriteria tersedia.');
+      alert('Koneksi ke sistem otomatis gagal. Pastikan API route tersedia.');
     } finally {
       setLoadingSubAi((prev) => ({ ...prev, [critName]: false }));
     }
@@ -836,10 +821,9 @@ function BuatProyekContent() {
     setError('')
     if (!namaProyek.trim()) return setError('Nama proyek wajib diisi.')
     if (kriteriaArray.length < 2) return setError('Minimal 2 kriteria harus diisi.')
-    if (gunakanSubkriteria && !canUseSubcriteria) return setError('Fitur subkriteria belum diaktifkan pada data langganan Anda.')
 
     const formattedSubkriteriaMap: Record<string, string[]> = {}
-    if (gunakanSubkriteria) {
+    if (gunakanSubkriteria && canUseSubcriteria) {
       for (const critName of kriteriaArray) {
         const subs = (subkriteriaTextMap[critName] || '').split('\n').map(s => s.trim()).filter(Boolean)
         if (subs.length < 2) return setError(`Kriteria "${critName}" wajib memiliki minimal 2 subkriteria.`)
@@ -848,53 +832,38 @@ function BuatProyekContent() {
     }
 
     if (metode === 'Bobot alternatif') {
-      if (!canUseAlternatives) return setError('Fitur pembobotan alternatif belum diaktifkan pada data langganan Anda.')
-      if (alternatifArray.length < 2) return setError('Minimal 2 alternatif harus diisi.')
+      if (!canUseAlternatives) return setError('Fitur pembobotan alternatif belum diaktifkan pada paket Anda.')
+      if (alternatifArray.length < 2) return setError('Minimal 2 alternatif harus diisi jika memilih metode Kombinasi Alternatif.')
     }
 
-    const validExperts = experts.filter((e) => e.name.trim() !== '')
-    if (validExperts.length < 1) return setError('Minimal 1 nama expert harus diisi.')
+    const validExperts = experts.filter((e) => String(e.name || '').trim() !== '')
+    if (validExperts.length < 1) return setError('Minimal 1 nama pakar/responden harus diisi.')
 
     let hasValidationError = false;
     const updatedExpertsState = [...experts];
 
     updatedExpertsState.forEach((exp) => {
-      if (exp.name.trim() !== '') {
-        if (!exp.expertId && (exp.email.trim() === '' || exp.whatsapp.trim() === '')) {
+      const expNameStr = String(exp.name || '');
+      const expEmailStr = String(exp.email || '');
+      const expWaStr = String(exp.whatsapp || '');
+
+      if (expNameStr.trim() !== '') {
+        if (!exp.expertId && (expEmailStr.trim() === '' || expWaStr.trim() === '')) {
           exp.fieldError = 'Email dan No. WhatsApp wajib diisi untuk input manual.';
           hasValidationError = true;
-        }
-        if (!exp.expertId) {
-          const cleanInputCoreName = exp.name.trim().toLowerCase(); 
-          const cleanInputEmail = exp.email.trim().toLowerCase();
-          const cleanInputWa = exp.whatsapp.replace(/[^0-9]/g, '');
-
-          for (const dirExp of directoryExperts) {
-            const dirNama = dirExp.expert_name || dirExp.expertname || dirExp.nama || '';
-            const existingCoreName = dirNama.trim().toLowerCase();
-            const existingEmail = String(dirExp.expert_email || dirExp.expertemail || dirExp.email || '').trim().toLowerCase();
-            const existingWa = String(dirExp.expert_whatsapp || dirExp.expertwhatsapp || dirExp.whatsapp || '').replace(/[^0-9]/g, '');
-
-            if (cleanInputCoreName === existingCoreName && cleanInputCoreName !== "") {
-              if (cleanInputEmail === existingEmail || cleanInputWa === existingWa) {
-                exp.fieldError = `Pakar "${dirExp.expert_name || dirNama}" sudah ada di direktori. Silakan pilih dari dropdown.`;
-                hasValidationError = true; break;
-              } else {
-                exp.fieldError = `Nama inti "${dirExp.expert_name || dirNama}" sudah terdaftar dengan kontak berbeda.`;
-                hasValidationError = true; break;
-              }
-            }
-          }
         }
       }
     });
 
     if (hasValidationError) {
       setExperts(updatedExpertsState);
-      return setError('Terdapat kesalahan pada form pakar. Periksa tanda merah.');
+      return setError('Terdapat kesalahan pada formulir pakar. Periksa tanda merah.');
     }
 
-    if (!fasilitatorEmail.trim() || !fasilitatorWhatsapp.trim()) return setError('Kontak fasilitator wajib diisi.')
+    const emailFas = String(fasilitatorEmail || '').trim()
+    const waFas = String(fasilitatorWhatsapp || '').trim()
+
+    if (!emailFas || !waFas) return setError('Kontak fasilitator wajib diisi.')
     if (isQuotaFull) return setShowUpgrade(true)
 
     const s = getSession()
@@ -910,58 +879,70 @@ function BuatProyekContent() {
     const emailToSave = String(s.email || '').trim().toLowerCase()
     const finalUserId = String(sessionObj.user_id || sessionObj.userId || sessionObj.id || '').trim()
 
-    const waFormatted = fasilitatorWhatsapp.replace(/\D/g, '').replace(/^0/, '62')
+    const waFormatted = waFas.replace(/\D/g, '').replace(/^0/, '62')
 
-    const normalizedExperts = validExperts.map(exp => ({
-      expert_id: exp.expertId || ('EXP-' + Date.now() + Math.floor(Math.random() * 1000)), 
-      gelar_depan: exp.gelarDepan.trim(),
-      expert_name: exp.name.trim(),
-      gelar_belakang: exp.gelarBelakang.trim(),
-      fullName: `${exp.gelarDepan.trim() ? exp.gelarDepan.trim()+' ' : ''}${exp.name.trim()}${exp.gelarBelakang.trim() ? ', '+exp.gelarBelakang.trim() : ''}`,
-      expert_email: exp.email ? exp.email.trim() : '',
-      expert_whatsapp: exp.whatsapp ? exp.whatsapp.replace(/\D/g, '').replace(/^0/, '62') : '',
-      is_public: 'PRIVAT',
-      source: 'facilitator_update',
-      status: 'Aktif'
-    }))
+    const normalizedExperts = validExperts.map(exp => {
+      const expNameStr = String(exp.name || '');
+      const expGelarDepanStr = String(exp.gelarDepan || '');
+      const expGelarBelakangStr = String(exp.gelarBelakang || '');
+      const expEmailStr = String(exp.email || '');
+      const expWaStr = String(exp.whatsapp || '');
+
+      return {
+        expert_id: exp.expertId || ('EXP-' + Date.now() + Math.floor(Math.random() * 1000)), 
+        gelar_depan: expGelarDepanStr.trim(),
+        expert_name: expNameStr.trim(),
+        gelar_belakang: expGelarBelakangStr.trim(),
+        fullName: `${expGelarDepanStr.trim() ? expGelarDepanStr.trim()+' ' : ''}${expNameStr.trim()}${expGelarBelakangStr.trim() ? ', '+expGelarBelakangStr.trim() : ''}`,
+        expert_email: expEmailStr ? expEmailStr.trim() : '',
+        expert_whatsapp: expWaStr ? expWaStr.replace(/\D/g, '').replace(/^0/, '62') : '',
+        is_public: 'PRIVAT',
+        source: 'facilitator_update',
+        status: 'Aktif'
+      }
+    })
 
     const generateId = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
     
-    const formattedCriteriaArray = kriteriaArray.map((nama, idx) => ({ id: generateId('crit'), nama, urutan: idx + 1 }));
+    const formattedCriteriaArray = kriteriaArray.map((nama, idx) => ({ id: generateId('crit'), nama: String(nama), urutan: idx + 1 }));
     const formattedSubcriteriaArray: any[] = [];
     
     if (gunakanSubkriteria && canUseSubcriteria) {
       formattedCriteriaArray.forEach((crit) => {
         const subs = formattedSubkriteriaMap[crit.nama] || [];
         subs.forEach((subName, sIdx) => {
-          formattedSubcriteriaArray.push({ id: generateId('sub'), criteria_id: crit.id, nama: subName, urutan: sIdx + 1 });
+          formattedSubcriteriaArray.push({ id: generateId('sub'), criteria_id: crit.id, nama: String(subName), urutan: sIdx + 1 });
         });
       });
     }
 
     const formattedAlternatifArray = (metode === 'Bobot alternatif' && canUseAlternatives)
-      ? alternatifArray.map((nama, idx) => ({ id: generateId('alt'), nama, urutan: idx + 1 }))
+      ? alternatifArray.map((nama, idx) => ({ id: generateId('alt'), nama: String(nama), urutan: idx + 1 }))
       : [];
 
     setLoading(true)
     try {
       const payload = {
-        action: 'createproject', user_id: finalUserId, email: emailToSave,
-        nama_proyek: namaProyek.trim(), deskripsi: deskripsi.trim(),
-        metode: canUseAlternatives ? metode : 'Bobot saja',
+        action: 'createproject', 
+        user_id: finalUserId, 
+        email: emailToSave,
+        nama_proyek: String(namaProyek || '').trim(), 
+        deskripsi: String(deskripsi || '').trim(),
+        metode: (metode === 'Bobot alternatif' && canUseAlternatives) ? 'Bobot alternatif' : 'Bobot saja',
         jumlah_expert: validExperts.length,
         kriteria: formattedCriteriaArray,
-        punya_subkriteria: gunakanSubkriteria && canUseSubcriteria,
+        punya_subkriteria: Boolean(gunakanSubkriteria && canUseSubcriteria),
         subkriteria: formattedSubcriteriaArray,
         alternatif: formattedAlternatifArray,
         experts_data: normalizedExperts, 
-        fasilitator_email: fasilitatorEmail.trim() || emailToSave,
+        fasilitator_email: emailFas || emailToSave,
         fasilitator_whatsapp: waFormatted,
         fasilitator_nama: String(sessionObj.nama || 'Fasilitator').trim(),
       }
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload),
       })
 
@@ -1001,7 +982,6 @@ function BuatProyekContent() {
 
   return (
     <div style={S.layoutWrapper}>
-      {/* 🟢 SIDEBAR UTAMA DENGAN PLAN DI ATAS, DAFTAR PROYEK & FOTO AVATAR BEBAS BERTUMPUK */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
@@ -1017,12 +997,10 @@ function BuatProyekContent() {
         onSelectSection={handleScrollToSection}
       />
 
-      {/* 🟢 KONTEN UTAMA */}
       <main style={S.mainContent}>
         {showUpgrade && <UpgradeModal currentPlan={currentPlan} onClose={() => setShowUpgrade(false)} />}
         
         <div style={S.container}>
-          {/* 🟢 TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO TRANSPARAN */}
           <AppTopBar />
 
           <div style={S.pageHeader}>
@@ -1064,19 +1042,17 @@ function BuatProyekContent() {
                 </div>
               </div>
               <div style={{ ...S.fieldGroup, gridColumn: '1 / -1' }}>
-                <label style={S.label}>Deskripsi Proyek (Konteks untuk AI)</label>
-                <textarea style={{ ...S.input, minHeight: 64, resize: 'vertical' }} value={deskripsi} onChange={(e) => setDeskripsi(e.target.value)} placeholder="Jelaskan latar belakang, tujuan, atau konteks analisis untuk membantu AI memahami proyek..." />
+                <label style={S.label}>Deskripsi Proyek (Konteks untuk Analisis Otomatis)</label>
+                <textarea style={{ ...S.input, minHeight: 64, resize: 'vertical' }} value={deskripsi} onChange={(e) => setDeskripsi(e.target.value)} placeholder="Jelaskan latar belakang, tujuan, atau konteks analisis untuk membantu sistem menyusun struktur secara otomatis..." />
               </div>
             </div>
           </div>
 
-          {/* 2. DAFTAR KRITERIA UTAMA */}
           <div style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
               <h3 style={{...S.cardTitle, margin: 0}}>
                 2. Daftar Kriteria Utama <span style={S.badge}>{kriteriaArray.length} aktif</span>
               </h3>
-              {/* 🟢 TOMBOL GENERATE AI GLOBAL DENGAN DETEKSI KETAT SUBSCRIPTIONS */}
               <button 
                 type="button" 
                 onClick={handleGenerateAiCriteria}
@@ -1093,14 +1069,14 @@ function BuatProyekContent() {
                   boxShadow: isAiAllowed ? '0 2px 8px rgba(37,99,235,0.2)' : 'none'
                 }}
               >
-                {loadingAi ? '🤖 Menyusun Struktur...' : isAiAllowed ? '🪄 Susun Kriteria & Subkriteria dengan AI' : '🔒 AI Analisis (Perlu Izin custom_features)'}
+                {loadingAi ? 'Menyusun Struktur...' : isAiAllowed ? '🪄 Susun Kriteria Otomatis' : '🔒 Analisis Otomatis (Perlu Izin custom_features)'}
               </button>
             </div>
             
             <p style={S.cardDesc}>
               {loadingAi 
-                ? <span style={{ color: '#2563eb', fontWeight: 600 }}>Gemini AI sedang membaca konteks penelitian dan merumuskan kriteria MECE...</span> 
-                : 'Ketik nama kriteria ke bawah (pisahkan dengan Enter). AI akan menimpa isian ini jika digunakan.'}
+                ? <span style={{ color: '#2563eb', fontWeight: 600 }}>Sistem sedang membaca konteks penelitian dan merumuskan kriteria MECE...</span> 
+                : 'Ketik nama kriteria ke bawah (pisahkan dengan Enter). Generator otomatis akan menimpa isian ini jika digunakan.'}
             </p>
 
             <div style={S.fieldGroup}>
@@ -1126,11 +1102,10 @@ function BuatProyekContent() {
               </label>
             </div>
 
-            {/* 🟢 AREA SUBKRITERIA DILENGKAPI TOMBOL GENERATE AI INDIVIDUAL */}
             {canUseSubcriteria && gunakanSubkriteria && kriteriaArray.length > 0 && (
               <div style={{ marginTop: 16 }}>
                 <h4 style={{ fontSize: 14, fontWeight: 700, color: '#1e3a8a', marginBottom: 12 }}>
-                  Rincian Subkriteria (Dapat dibuat per kriteria dengan AI)
+                  Rincian Subkriteria
                 </h4>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
                   {kriteriaArray.map((crit) => {
@@ -1161,7 +1136,7 @@ function BuatProyekContent() {
                               flexShrink: 0
                             }}
                           >
-                            {isCritLoading ? '⏳ Menyusun...' : isAiAllowed ? '🪄 AI Sub' : '🔒 AI Sub'}
+                            {isCritLoading ? '⏳ Menyusun...' : isAiAllowed ? '🪄 Susun Sub' : '🔒 Susun Sub'}
                           </button>
                         </div>
 
@@ -1174,7 +1149,7 @@ function BuatProyekContent() {
                             background: isCritLoading ? '#f1f5f9' : '#fff',
                             color: isCritLoading ? '#94a3b8' : '#111827',
                           }}
-                          value={isCritLoading ? 'AI sedang merumuskan subkriteria...' : (subkriteriaTextMap[crit] || '')}
+                          value={isCritLoading ? 'Sistem sedang merumuskan subkriteria...' : (subkriteriaTextMap[crit] || '')}
                           disabled={isCritLoading}
                           onChange={(e) => setSubkriteriaTextMap((prev) => ({ ...prev, [crit]: e.target.value }))}
                           placeholder={"Subkriteria 1\nSubkriteria 2\nSubkriteria 3"}
@@ -1187,7 +1162,6 @@ function BuatProyekContent() {
             )}
           </div>
 
-          {/* 3. DAFTAR ALTERNATIF */}
           {metode === 'Bobot alternatif' && canUseAlternatives && (
             <div style={S.card}>
               <h3 style={S.cardTitle}>3. Daftar Alternatif Pilihan <span style={S.badge}>{alternatifArray.length} aktif</span></h3>
@@ -1198,7 +1172,6 @@ function BuatProyekContent() {
             </div>
           )}
 
-          {/* 4. EXPERT */}
           <div style={S.card}>
             <h3 style={S.cardTitle}>
               <span>4. Tim Pakar (Expert Responden)</span>
@@ -1222,15 +1195,15 @@ function BuatProyekContent() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16 }}>
               {experts.map((exp, i) => {
-                const filteredSuggestions = resolvedMaxExpertsDirectory > 0 && exp.name.trim().length > 1
+                const expNameStr = String(exp.name || '').toLowerCase().trim();
+                const filteredSuggestions = resolvedMaxExpertsDirectory > 0 && expNameStr.length > 1
                   ? directoryExperts.filter(item => {
-                      const search = exp.name.toLowerCase().trim()
-                      const pName = (item.expert_name || item.expertname || item.nama || '').toLowerCase()
-                      const pEmail = (item.expert_email || item.expertemail || item.email || '').toLowerCase()
-                      return pName.includes(search) || pEmail.includes(search)
+                      const pName = String(item.expert_name || item.expertname || item.nama || '').toLowerCase()
+                      const pEmail = String(item.expert_email || item.expertemail || item.email || '').toLowerCase()
+                      return pName.includes(expNameStr) || pEmail.includes(expNameStr)
                     })
                   : []
-                const isFromDirectory = Boolean(exp.expertId && exp.expertId.trim() !== '')
+                const isFromDirectory = Boolean(exp.expertId && String(exp.expertId).trim() !== '')
 
                 return (
                   <div key={i} style={{ background: '#f8fafc', border: exp.fieldError ? '1.5px solid #dc2626' : '1.5px solid #e2e8f0', borderRadius: 10, padding: 16 }}>
@@ -1255,8 +1228,8 @@ function BuatProyekContent() {
                         <div style={{ maxHeight: 160, overflowY: 'auto' }}>
                           {filteredSuggestions.map((item, idx) => (
                             <div key={idx} style={S.suggestionItem} onClick={() => handleSelectExpertFromDirectory(i, item)}>
-                              <div style={{ fontWeight: 700, fontSize: 12.5, color: '#0f172a' }}>{item.expert_name || item.expertname || item.nama || 'Pakar'}</div>
-                              <div style={{ fontSize: 11, color: '#64748b' }}>🏢 Instansi: {item.asal_instansi || item.instansi || '-'}</div>
+                              <div style={{ fontWeight: 700, fontSize: 12.5, color: '#0f172a' }}>{String(item.expert_name || item.expertname || item.nama || 'Pakar')}</div>
+                              <div style={{ fontSize: 11, color: '#64748b' }}>🏢 Instansi: {String(item.asal_instansi || item.instansi || '-')}</div>
                             </div>
                           ))}
                         </div>
@@ -1277,7 +1250,6 @@ function BuatProyekContent() {
             </div>
           </div>
 
-          {/* 5. KONTAK FASILITATOR */}
           <div style={S.card}>
             <h3 style={S.cardTitle}>5. Kontak Fasilitator <span style={{ ...S.optBadge, background: '#fef2f2', color: '#dc2626' }}>Wajib</span></h3>
             <div style={S.grid2}>
@@ -1307,9 +1279,14 @@ export default function BuatProyekPage() {
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     }>
-      <BuatProyekContent />
+      <BuatProyekPageContent />
     </Suspense>
   )
+}
+
+// Komponen penengah yang mengatasi export error Suspense
+function BuatProyekPageContent() {
+  return <BuatProyekContent />
 }
 
 const topBarStyles: Record<string, CSSProperties> = {

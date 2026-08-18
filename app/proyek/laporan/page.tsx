@@ -18,9 +18,10 @@ function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
   return 'free';
 }
 
-function cleanAiText(rawText: string): string {
+function cleanAiText(rawText: any): string {
   if (!rawText) return '';
-  return rawText
+  const str = typeof rawText === 'string' ? rawText : String(rawText);
+  return str
     .replace(/[*#$]/g, '')
     .replace(/%/g, ' persen')
     .trim();
@@ -68,7 +69,6 @@ function extractRowData(res: any, targetEmail: string): any {
   return null;
 }
 
-// 🟢 NORMALISASI KETAT KOLOM SUBSCRIPTIONS (MENCEGAH KOLOM BERGESER / TERTUKAR)
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
   let dataObj = raw.data || raw.result || raw.payload || raw;
@@ -902,17 +902,17 @@ function GlobalPieChart({ data }: { data: FinalAggregateRankingItem[] }) {
 
   if (data.length === 1) {
     return (
-      <div title="Distribusi bobot global (100% untuk kategori tunggal)" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)' }}>
+      <div title="Distribusi bobot global (100% untuk kategori tunggal)" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center', background: '#fff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={center} cy={center} r={radius} fill={PIE_COLORS[0]} stroke="#0f172a" strokeWidth="1" />
+          <circle cx={center} cy={center} r={radius} fill={PIE_COLORS[0]} stroke="#fff" strokeWidth="1.5" />
         </svg>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 120 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10.5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: PIE_COLORS[0], display: 'inline-block' }} />
-              <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{data[0].name}</span>
+              <span style={{ color: '#334155', fontWeight: 600 }}>{data[0].name}</span>
             </div>
-            <span style={{ color: '#38bdf8', fontWeight: 700 }}>100.0%</span>
+            <span style={{ color: '#2563eb', fontWeight: 700 }}>100.0%</span>
           </div>
         </div>
       </div>
@@ -940,10 +940,10 @@ function GlobalPieChart({ data }: { data: FinalAggregateRankingItem[] }) {
   });
 
   return (
-    <div title="Grafik Proporsi Bobot Prioritas Global AHP" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)' }}>
+    <div title="Grafik Proporsi Bobot Prioritas Global AHP" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center', background: '#fff', padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {slices.map((slice, i) => (
-          <path key={i} d={slice.pathData} fill={slice.color} stroke="#0f172a" strokeWidth="1" />
+          <path key={i} d={slice.pathData} fill={slice.color} stroke="#fff" strokeWidth="1.5" />
         ))}
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 120 }}>
@@ -951,9 +951,9 @@ function GlobalPieChart({ data }: { data: FinalAggregateRankingItem[] }) {
           <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 10.5 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: slice.color, display: 'inline-block' }} />
-              <span style={{ color: '#e2e8f0', fontWeight: 500 }}>{slice.name}</span>
+              <span style={{ color: '#334155', fontWeight: 600 }}>{slice.name}</span>
             </div>
-            <span style={{ color: '#38bdf8', fontWeight: 700 }}>{slice.percentage}%</span>
+            <span style={{ color: '#2563eb', fontWeight: 700 }}>{slice.percentage}%</span>
           </div>
         ))}
       </div>
@@ -966,7 +966,6 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
   return res.json();
 }
 
-// 🟢 KOMPONEN TOP BAR UTAMA DENGAN DUKUNGAN CETAK PDF YANG RAPI
 function AppTopBar() {
   return (
     <div style={topBarStyles.container} className="print-topbar">
@@ -981,7 +980,6 @@ function AppTopBar() {
   );
 }
 
-// 🟢 KOMPONEN SIDEBAR DENGAN PLAN DI POSISI ATAS & DAFTAR PROYEK
 function DashboardSidebar({
   user,
   userProfile,
@@ -1108,7 +1106,6 @@ function DashboardSidebar({
         justifyContent: isCollapsed ? 'center' : 'flex-start',
         padding: isCollapsed ? '10px 4px' : '12px'
       }}>
-        {/* 🟢 AVATAR KONDISIONAL BEBAS BERTUMPUK */}
         <div style={{
           ...sidebarStyles.userAvatar,
           background: userProfile.foto_profil ? 'transparent' : '#2563eb'
@@ -1199,10 +1196,10 @@ function DashboardSidebar({
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}
-                  title={p.namaproyek || p.nama_proyek}
+                  title={p.nama_proyek || p.namaproyek}
                 >
                   <span style={{ fontSize: 10 }}>🔹</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nama_proyek || p.namaproyek}</span>
                 </button>
               ))}
             </div>
@@ -1270,7 +1267,6 @@ function ProjectReportContent() {
         let isSubscriptionRowFound = false;
 
         if (rawEmail || rawUserId) {
-          // 🟢 1. Ambil data profil dari sheet users (sebagai fallback jika sheet subscriptions kosong)
           try {
             const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
             const userRes = await fetchJson<any>(userUrl);
@@ -1287,7 +1283,6 @@ function ProjectReportContent() {
                 resolvedPlan = userPlanDirect;
               }
 
-              // Fallback AI dari users jika nanti subscription tidak ada barisnya
               let userCustomVal = '';
               for (const key of Object.keys(uData)) {
                 const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1304,8 +1299,6 @@ function ProjectReportContent() {
             console.warn('Gagal membaca profil pengguna:', errUser);
           }
 
-          // 🟢 2. Ambil dari sheet subscriptions via fungsi normalisasi presisi
-          // ATURAN HIERARKI KETAT: Jika baris ditemukan, izin fasilitas HANYA AKTIF jika kolom custom_features diisi eksplisit
           try {
             const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
             const subRes = await fetchJson<any>(subUrl);
@@ -1319,12 +1312,10 @@ function ProjectReportContent() {
                 resolvedPlan = cleanP;
               }
 
-              // Periksa kolom custom_features eksplisit
               const subCustomVal = String(parsed.custom_features || '');
               if (subCustomVal.trim() !== '') {
                 customAiDetected = checkCustomAiPrivilege(subCustomVal) || checkCustomFeature(subCustomVal, 'ai') || checkCustomFeature(subCustomVal, 'gemini');
               } else {
-                // Kolom kosong = tidak aktif (tanpa fallback ke default plan)
                 customAiDetected = false;
               }
             }
@@ -1340,14 +1331,12 @@ function ProjectReportContent() {
         const finalCleanPlan = cleanPlanType(resolvedPlan);
         setUserPlan(finalCleanPlan);
 
-        // Jika subscription row ada, gunakan izin custom_features murni. Jika tidak ada row, gunakan default tier plan.
         const isAiEnabled = isSubscriptionRowFound 
           ? customAiDetected 
           : (customAiDetected || finalCleanPlan === 'plus' || finalCleanPlan === 'premium');
 
         setCanUseAi(isAiEnabled);
 
-        // 🟢 3. Ambil daftar seluruh proyek user untuk ditampilkan di sidebar
         try {
           const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
           if (projRes?.success && Array.isArray(projRes.data)) {
@@ -1509,10 +1498,11 @@ function ProjectReportContent() {
           status: completedExpertsCount >= data.experts.length ? ('lengkap' as const) : (completedExpertsCount > 0 ? ('parsial' as const) : ('belum_lengkap' as const))
         },
         tasks: payloadTasks,
-        alternatives: finalAggregateRanking 
+        alternatives: finalAggregateRanking,
+        userPlan: userPlan
       };
 
-      let jsonResult = null;
+      let jsonResult: any = null;
 
       try {
         const res = await fetch('/api/report-analysis', {
@@ -1524,18 +1514,23 @@ function ProjectReportContent() {
         const contentType = res.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
           const json = await res.json();
-          if (json.success && json.data) {
+          if (json?.success && json?.data) {
             jsonResult = json.data;
+          } else if (json?.data) {
+            jsonResult = json.data;
+          } else if (json?.overview || json?.main_summary || json?.summary || json?.analysis || json?.text) {
+            jsonResult = json;
           }
         }
       } catch (apiErr) {
-        console.warn('API Route gagal, beralih ke generator draf lokal.', apiErr);
+        console.warn('API Route fetch gagal, beralih ke generator draf lokal.', apiErr);
       }
 
       if (!jsonResult) {
         const topAlternative = finalAggregateRanking[0]?.name || 'Elemen Utama';
         const topScore = formatNumber(finalAggregateRanking[0]?.score || 0, 4);
 
+        // Fallback local report
         jsonResult = {
           overview: {
             project_name: data.project.namaproyek,
@@ -1574,8 +1569,16 @@ function ProjectReportContent() {
       }
 
       setFullAiReport(jsonResult);
+
+      setTimeout(() => {
+        const aiCard = document.getElementById('ai-report-section');
+        if (aiCard) {
+          aiCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 100);
+
     } catch(err: any) {
-      alert('Terjadi kesalahan saat memproses laporan: ' + err.message);
+      alert('Terjadi kesalahan saat memproses laporan: ' + (err?.message || err.toString()));
     } finally {
       setLoadingAi(false);
     }
@@ -1654,7 +1657,6 @@ function ProjectReportContent() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
-      {/* 🟢 SIDEBAR UTAMA DENGAN PLAN DI ATAS, DAFTAR PROYEK & FOTO BEBAS BERTUMPUK */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
@@ -1670,13 +1672,24 @@ function ProjectReportContent() {
         onSelectSection={handleScrollToSection}
       />
 
-      {/* 🟢 AREA KONTEN UTAMA */}
       <main style={STYLES.page}>
         <style jsx global>{`
           @media print {
             @page { 
               size: A4 portrait !important; 
-              margin: 12mm 10mm 15mm 10mm !important; 
+              margin: 22mm 12mm 15mm 12mm !important; 
+              @top-center {
+                content: "PLATFORM ANALISIS DATA DIGITAL • AHP AVITECH";
+                font-family: 'Arial', sans-serif;
+                font-size: 8.5pt;
+                font-weight: bold;
+                color: #0284c7;
+                letter-spacing: 1.5px;
+                text-transform: uppercase;
+                border-bottom: 1.5px solid #1e3a8a;
+                padding-bottom: 4px;
+                width: 100%;
+              }
             }
             html, body {
               width: 100% !important;
@@ -1693,7 +1706,6 @@ function ProjectReportContent() {
               display: none !important; 
             }
             
-            /* 🟢 TAMPILAN KHUSUS CETAK TOPBAR */
             .print-topbar {
               display: flex !important;
               background: linear-gradient(270deg, #15803d 0%, #ffffff 100%) !important;
@@ -1734,10 +1746,8 @@ function ProjectReportContent() {
 
         <div style={STYLES.container}>
           
-          {/* 🟢 TOP BAR UTAMA DENGAN DUKUNGAN CETAK PDF / DOKUMEN */}
           <AppTopBar />
 
-          {/* HEADER & AKSI */}
           <div style={STYLES.headerRow} className="no-print">
             <div>
               <h1 style={STYLES.pageTitle}>Laporan Eksekutif &amp; Hasil AHP</h1>
@@ -1750,15 +1760,15 @@ function ProjectReportContent() {
                   disabled={loadingAi}
                   style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: loadingAi ? 'not-allowed' : 'pointer' }}
                 >
-                  {loadingAi ? '⏳ Menyusun...' : '🤖 Analisis Draf AI'}
+                  {loadingAi ? '⏳ Menyusun...' : 'Analisis Draf Otomatis'}
                 </button>
               ) : (
                 <button 
-                  title="Fitur Analisis AI hanya tersedia jika diaktifkan secara eksplisit pada kolom custom_features"
-                  onClick={() => alert('Fasilitas Analisis Draf AI belum diaktifkan pada akun Anda. Silakan hubungi admin atau perbarui paket Anda.')}
+                  title="Fitur Analisis Otomatis hanya tersedia untuk paket PLUS dan PREMIUM atau akun dengan akses kustom"
+                  onClick={() => alert('Fasilitas Analisis Draf Otomatis terkunci. Silakan tingkatkan paket langganan Anda ke PLUS atau PREMIUM.')}
                   style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
                 >
-                  🔒 Analisis Draf AI
+                  🔒 Analisis Draf Otomatis
                 </button>
               )}
 
@@ -1766,63 +1776,25 @@ function ProjectReportContent() {
             </div>
           </div>
 
-          {/* AI REPORT SUMMARY */}
-          {fullAiReport && (
-            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', padding: '16px 20px', borderRadius: '10px', marginBottom: 12 }} className="print-card">
-              <h3 style={{ margin: '0 0 12px', color: '#0f172a', borderBottom: '2px solid #e2e8f0', paddingBottom: '6px', fontSize: 14 }}>
-                🤖 Draf Laporan Analisis AHP Otomatis (Gemini AI)
+          {/* 1. RINGKASAN EKSEKUTIF (Ditempatkan di Atas) */}
+          {fullAiReport && (fullAiReport.section_overview || fullAiReport.overview || fullAiReport.main_summary) && (
+            <div id="ai-report-section" style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginBottom: 12 }} className="print-card">
+              <h3 style={{ margin: '0 0 10px', color: '#1e40af', borderBottom: '2px solid #bfdbfe', paddingBottom: '6px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Draf Laporan Analisis AHP Otomatis
               </h3>
-              
-              <div style={{ marginBottom: 12 }}>
-                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Ringkasan Eksekutif</h4>
-                <p style={{ margin: 0, fontSize: 12, color: '#334155', lineHeight: 1.4, textAlign: 'justify', textJustify: 'inter-word' }}>
-                  {cleanAiText(fullAiReport.overview.main_summary)}
-                </p>
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Temuan Kunci</h4>
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                  {fullAiReport.key_findings?.map((item: any, idx: number) => (
-                    <li key={idx} style={{ marginBottom: 2 }}><strong>{cleanAiText(item.title)}</strong>: {cleanAiText(item.message)}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {fullAiReport.expert_recommendations && fullAiReport.expert_recommendations.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Saran &amp; Rekomendasi untuk Pakar (Expert)</h4>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                    {fullAiReport.expert_recommendations.map((item: any, idx: number) => (
-                      <li key={idx} style={{ marginBottom: 2 }}>
-                        <strong>{cleanAiText(item.expert_name)}</strong> ({item.status_consistency}): {cleanAiText(item.advice)}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {fullAiReport.evaluation_recommendations && fullAiReport.evaluation_recommendations.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Berdasarkan Hasil Penilaian</h4>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                    {fullAiReport.evaluation_recommendations.map((rec: string, idx: number) => (
-                      <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {fullAiReport.recommendations && fullAiReport.recommendations.length > 0 && (
-                <div>
-                  <h4 style={{ margin: '0 0 4px', color: '#1e3a8a', fontSize: 12 }}>Rekomendasi Strategis Umum</h4>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.4 }}>
-                    {fullAiReport.recommendations.map((rec: string, idx: number) => (
-                      <li key={idx} style={{ marginBottom: 2 }}>{cleanAiText(rec)}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <p style={{ margin: 0, fontSize: 12, color: '#334155', lineHeight: 1.5, textAlign: 'justify' }}>
+                {cleanAiText(
+                  fullAiReport.section_overview || 
+                  fullAiReport.overview?.main_summary || 
+                  fullAiReport.overview?.summary || 
+                  (typeof fullAiReport.overview === 'string' ? fullAiReport.overview : '') || 
+                  fullAiReport.main_summary || 
+                  fullAiReport.summary || 
+                  fullAiReport.analysis || 
+                  fullAiReport.text || 
+                  (typeof fullAiReport === 'string' ? fullAiReport : 'Ringkasan analisis berhasil disusun berdasarkan agregasi bobot prioritas.')
+                )}
+              </p>
             </div>
           )}
 
@@ -1884,13 +1856,13 @@ function ProjectReportContent() {
           {/* GRAFIK & RANKING GLOBAL */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
             
-            <section style={STYLES.cardPrimarySticky} className="print-card">
+            <section style={STYLES.card} className="print-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <h2 style={{...STYLES.sectionTitle, color: '#fff', fontSize: 13}}>Grafik Proporsi Global</h2>
-                <div title="Consistency Ratio (CR) Global" style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 6, padding: '2px 5px' }}>
-                  <div style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>CR Global</div>
+                <h2 style={{...STYLES.sectionTitle, fontSize: 13}}>Grafik Proporsi Global</h2>
+                <div title="Consistency Ratio (CR) Global" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '2px 5px' }}>
+                  <div style={{ color: '#64748b', fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }}>CR Global</div>
                   {globalCrList.map((gCr, idx) => (
-                    <div key={idx} style={{ fontSize: '10px', color: gCr.cr <= 0.1 ? '#4ade80' : '#f87171' }}>
+                    <div key={idx} style={{ fontSize: '10px', color: gCr.cr <= 0.1 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
                       {gCr.title}: {formatNumber(gCr.cr, 3)} {gCr.cr <= 0.1 ? '✓' : '⚠️'}
                     </div>
                   ))}
@@ -1901,6 +1873,7 @@ function ProjectReportContent() {
 
             <section style={STYLES.card} className="print-card">
               <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Ranking Prioritas Sintesis Akhir</h2>
+              
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead>
@@ -1925,6 +1898,31 @@ function ProjectReportContent() {
                   </tbody>
                 </table>
               </div>
+
+              {/* 2. ANALISIS KRITERIA & ALTERNATIF (Ditempatkan di dalam Ranking Card) */}
+              {fullAiReport && (fullAiReport.section_criteria || fullAiReport.section_alternatives || fullAiReport.key_findings) && (
+                <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', padding: '10px 12px', borderRadius: '6px' }}>
+                  <h4 style={{ margin: '0 0 6px', color: '#1e40af', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span>Analisis Sintesis Otomatis</span>
+                  </h4>
+                  
+                  {fullAiReport.section_criteria?.narrative && (
+                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4, textAlign: 'justify' }}>
+                      {cleanAiText(fullAiReport.section_criteria.narrative)}
+                    </p>
+                  )}
+                  {fullAiReport.section_alternatives?.narrative && (
+                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4, textAlign: 'justify' }}>
+                      {cleanAiText(fullAiReport.section_alternatives.narrative)}
+                    </p>
+                  )}
+                  {fullAiReport.key_findings?.map((item: any, idx: number) => (
+                    <p key={`kf-${idx}`} style={{ margin: '0 0 4px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4 }}>
+                      <strong>{cleanAiText(item.title || item.kunci || `Temuan #${idx + 1}`)}:</strong> {cleanAiText(item.message || item.pesan || item.desc || JSON.stringify(item))}
+                    </p>
+                  ))}
+                </div>
+              )}
             </section>
 
           </div>
@@ -1932,6 +1930,14 @@ function ProjectReportContent() {
           {/* STATUS RESPONDEN */}
           <section style={STYLES.card} className="print-card">
             <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
+            
+            {/* 3. NARASI KONSISTENSI GLOBAL (Ditempatkan di atas tabel responden) */}
+            {fullAiReport && fullAiReport.section_consistency?.narrative && (
+              <div style={{ marginBottom: 10, background: '#f8fafc', borderLeft: '3px solid #2563eb', padding: '8px 12px', fontSize: 11.5, color: '#334155', lineHeight: 1.4 }}>
+                <strong style={{ color: '#1e40af' }}>Evaluasi Konsistensi:</strong> {cleanAiText(fullAiReport.section_consistency.narrative)}
+              </div>
+            )}
+
             <table style={STYLES.table}>
               <thead>
                 <tr>
@@ -2023,6 +2029,15 @@ function ProjectReportContent() {
                   const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
                   const headerNamaLengkap = `${gD}${expert.expertname || expert.nama || '-'}${gB}`;
 
+                  // 4. CATATAN KHUSUS UNTUK MASING-MASING PAKAR (Di dalam matriks pakar)
+                  const aiExpertData = fullAiReport?.section_consistency?.expert_evaluations?.find((ev: any) => 
+                    cleanAiText(ev.expert_name).toLowerCase().includes(cleanAiText(expert.expertname).toLowerCase()) || 
+                    cleanAiText(expert.expertname).toLowerCase().includes(cleanAiText(ev.expert_name).toLowerCase())
+                  ) || fullAiReport?.expert_recommendations?.find((ev: any) => 
+                    cleanAiText(ev.expert_name || ev.name).toLowerCase().includes(cleanAiText(expert.expertname).toLowerCase()) || 
+                    cleanAiText(expert.expertname).toLowerCase().includes(cleanAiText(ev.expert_name || ev.name).toLowerCase())
+                  );
+
                   return (
                     <div key={matrixKey(task.key, expert.id)} style={isSubmitted ? STYLES.expertBlock : STYLES.expertBlockDisabled}>
                       <div style={STYLES.panelHeader}>
@@ -2040,6 +2055,13 @@ function ProjectReportContent() {
                           )}
                         </div>
                       </div>
+
+                      {/* Render Catatan Khusus untuk Pakar ini */}
+                      {isSubmitted && aiExpertData && (
+                        <div style={{ background: '#eff6ff', borderLeft: '3px solid #3b82f6', padding: '6px 10px', marginTop: 8, marginBottom: 8, fontSize: 11, color: '#1e3a8a' }}>
+                           <strong>Catatan Evaluasi:</strong> {cleanAiText(aiExpertData.notes || aiExpertData.advice)}
+                        </div>
+                      )}
 
                       {isSubmitted ? (
                         <div style={{ overflowX: 'auto', marginTop: 6 }}>
@@ -2079,6 +2101,30 @@ function ProjectReportContent() {
               </section>
             );
           })}
+
+          {/* 5. REKOMENDASI STRATEGIS AKHIR (Ditempatkan Paling Bawah) */}
+          {fullAiReport && ((fullAiReport.section_final_recommendations && fullAiReport.section_final_recommendations.length > 0) || (fullAiReport.recommendations && fullAiReport.recommendations.length > 0)) && (
+            <div style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginTop: 12, marginBottom: 20 }} className="print-card">
+              <h3 style={{ margin: '0 0 10px', color: '#1e40af', borderBottom: '2px solid #bfdbfe', paddingBottom: '6px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Rekomendasi Strategis Implementatif
+              </h3>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: '#334155', lineHeight: 1.5 }}>
+                {fullAiReport.section_final_recommendations?.map((rec: string, idx: number) => (
+                  <li key={`sfr-${idx}`} style={{ marginBottom: 4 }}>{cleanAiText(rec)}</li>
+                ))}
+                {fullAiReport.recommendations?.map((rec: any, idx: number) => (
+                  <li key={`r-${idx}`} style={{ marginBottom: 4 }}>
+                    {cleanAiText(typeof rec === 'object' && rec !== null ? (rec.message || rec.text || JSON.stringify(rec)) : String(rec))}
+                  </li>
+                ))}
+                {fullAiReport.evaluation_recommendations?.map((rec: any, idx: number) => (
+                  <li key={`evr-${idx}`} style={{ marginBottom: 4 }}>
+                    {cleanAiText(typeof rec === 'object' && rec !== null ? (rec.message || rec.text || JSON.stringify(rec)) : String(rec))}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
         </div>
       </main>

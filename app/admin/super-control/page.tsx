@@ -182,39 +182,57 @@ export default function SuperAdminControlPage() {
         fetchWithCatch('getdiditsettings'),
         fetchWithCatch('getplansettings'),
         fetchWithCatch('getallusersubscriptions'),
-        fetchWithCatch('get_system_assets')
+        fetchWithCatch('get_system_assets') // 👈 Menarik data aset dari GET
       ]);
 
       setAdmins(Array.isArray(admData) ? admData : []);
       setAdminLogsList(Array.isArray(logsData) ? logsData : []);
       setUserSubscriptions(Array.isArray(userSubsData) ? userSubsData : []);
 
-      // 🟢 Sinkronisasi data Aset Sistem dari Sheet system_assets / app_settings
-      if (systemAssetsData && typeof systemAssetsData === 'object' && !Array.isArray(systemAssetsData)) {
-        if (systemAssetsData.active_signer_type) {
-          setActiveSignerType(systemAssetsData.active_signer_type as 'main' | 'backup');
-          localStorage.setItem('active_signer_type', systemAssetsData.active_signer_type);
+      // 🟢 Sinkronisasi data Aset Sistem yang Lebih Fleksibel
+      let assetsMap: Record<string, string> = {};
+      if (systemAssetsData) {
+        if (Array.isArray(systemAssetsData)) {
+          // Jika backend mengirim dalam bentuk Array
+          systemAssetsData.forEach((row: any) => {
+            if (row.setting_key && row.setting_value !== undefined) {
+              assetsMap[row.setting_key] = row.setting_value;
+            } else if (Array.isArray(row) && row.length >= 2) {
+              assetsMap[row[0]] = row[1];
+            }
+          });
+        } else if (typeof systemAssetsData === 'object') {
+          // Jika backend mengirim dalam bentuk Object { key: value }
+          assetsMap = systemAssetsData;
         }
-        if (systemAssetsData.admin_signature || systemAssetsData.superadmin_signature_url) {
-          const sig = systemAssetsData.admin_signature || systemAssetsData.superadmin_signature_url;
+      }
+
+      // Masukkan ke dalam State dan LocalStorage
+      if (Object.keys(assetsMap).length > 0) {
+        if (assetsMap.active_signer_type) {
+          setActiveSignerType(assetsMap.active_signer_type as 'main' | 'backup');
+          localStorage.setItem('active_signer_type', assetsMap.active_signer_type);
+        }
+        if (assetsMap.admin_signature || assetsMap.superadmin_signature_url) {
+          const sig = assetsMap.admin_signature || assetsMap.superadmin_signature_url;
           setSuperAdminSignatureUrl(sig);
           localStorage.setItem('superadmin_signature_url', sig);
         }
-        if (systemAssetsData.backup_signer_name) {
-          setBackupSignerName(systemAssetsData.backup_signer_name);
-          localStorage.setItem('backup_signer_name', systemAssetsData.backup_signer_name);
+        if (assetsMap.backup_signer_name) {
+          setBackupSignerName(assetsMap.backup_signer_name);
+          localStorage.setItem('backup_signer_name', assetsMap.backup_signer_name);
         }
-        if (systemAssetsData.backup_signer_title) {
-          setBackupSignerTitle(systemAssetsData.backup_signer_title);
-          localStorage.setItem('backup_signer_title', systemAssetsData.backup_signer_title);
+        if (assetsMap.backup_signer_title) {
+          setBackupSignerTitle(assetsMap.backup_signer_title);
+          localStorage.setItem('backup_signer_title', assetsMap.backup_signer_title);
         }
-        if (systemAssetsData.co_admin_signature || systemAssetsData.backup_signer_signature_url) {
-          const coSig = systemAssetsData.co_admin_signature || systemAssetsData.backup_signer_signature_url;
+        if (assetsMap.co_admin_signature || assetsMap.backup_signer_signature_url) {
+          const coSig = assetsMap.co_admin_signature || assetsMap.backup_signer_signature_url;
           setBackupSignerSignatureUrl(coSig);
           localStorage.setItem('backup_signer_signature_url', coSig);
         }
-        if (systemAssetsData.platform_logo || systemAssetsData.app_system_stamp_url) {
-          const logo = systemAssetsData.platform_logo || systemAssetsData.app_system_stamp_url;
+        if (assetsMap.platform_logo || assetsMap.app_system_stamp_url) {
+          const logo = assetsMap.platform_logo || assetsMap.app_system_stamp_url;
           setAppSystemStampUrl(logo);
           localStorage.setItem('app_system_stamp_url', logo);
         }
@@ -274,6 +292,7 @@ export default function SuperAdminControlPage() {
     setAdminEmail(email);
     setAdminRole(role);
 
+    // Initial load dari cache localStorage agar UI cepat muncul
     setSuperAdminSignatureUrl(localStorage.getItem('superadmin_signature_url') || '');
     setActiveSignerType((localStorage.getItem('active_signer_type') as 'main' | 'backup') || 'main');
     setBackupSignerName(localStorage.getItem('backup_signer_name') || '');
@@ -286,10 +305,10 @@ export default function SuperAdminControlPage() {
     const storedDidit = localStorage.getItem('diditme_active');
     if (storedDidit !== null) setDiditMeActive(storedDidit === 'true');
 
+    // Fetch pembaruan dari server
     fetchSuperData();
   }, [router, fetchSuperData]);
 
-  // Statistik Kinerja Admin Pembantu
   const adminPerformanceStats = useMemo(() => {
     const statsByAdmin: Record<string, { name: string; role: string; email: string; totalActions: number; expertsManaged: number; notesSent: number; lastActive: string }> = {};
 
@@ -313,7 +332,6 @@ export default function SuperAdminControlPage() {
     return Object.values(statsByAdmin);
   }, [adminLogsList]);
 
-  // 🟢 Filter User Subscription: HANYA USER KOMERSIAL UMUM (Data Pakar Disembunyikan)
   const filteredUserSubs = useMemo(() => {
     const q = subSearchQuery.toLowerCase().trim();
 
@@ -375,15 +393,32 @@ export default function SuperAdminControlPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 500 * 1024) {
-      alert('⚠️ Ukuran gambar terlalu besar (>500 KB).');
+    if (file.size > 35 * 1024) {
+      alert('⚠️ Ukuran gambar terlalu besar! Batas maksimal database adalah 35 KB. Harap kompres gambar Anda hingga di bawah 35 KB atau gunakan Link URL langsung.');
+      e.target.value = '';
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      alert('⚠️ Format file tidak didukung! Harap unggah file gambar (JPG, PNG, atau WEBP).');
+      e.target.value = '';
       return;
     }
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setter(String(reader.result));
+      if (typeof reader.result === 'string') {
+        const cleanBase64 = reader.result.replace(/(\r\n|\n|\r)/gm, "");
+        setter(cleanBase64);
+      } else {
+        alert('Gagal membaca file gambar. Coba gunakan gambar lain.');
+      }
     };
+    
+    reader.onerror = () => {
+      alert('Terjadi kesalahan saat membaca file gambar.');
+    };
+
     reader.readAsDataURL(file);
   };
 
@@ -606,7 +641,7 @@ export default function SuperAdminControlPage() {
     }
   };
 
-  // 🟢 SIMPAN TANDA TANGAN & LOGO LANGSUNG KE SHEET SYSTEM_ASSETS
+  // 🟢 SIMPAN TANDA TANGAN, LOGO, XENDIT & DIDIT.ME DENGAN AMAN
   const handleSaveSignatureSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -621,54 +656,68 @@ export default function SuperAdminControlPage() {
       localStorage.setItem('diditme_active', String(diditMeActive));
 
       if (GOOGLE_SCRIPT_URL) {
-        await Promise.all([
-          // 🟢 Simpan batch ke sheet system_assets / app_settings
-          fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'save_system_assets',
-              assets: {
-                active_signer_type: activeSignerType,
-                admin_signature: superAdminSignatureUrl,
-                superadmin_signature_url: superAdminSignatureUrl,
-                backup_signer_name: backupSignerName,
-                backup_signer_title: backupSignerTitle,
-                co_admin_signature: backupSignerSignatureUrl,
-                backup_signer_signature_url: backupSignerSignatureUrl,
-                platform_logo: appSystemStampUrl,
-                app_system_stamp_url: appSystemStampUrl
-              },
-              adminEmail, adminName, adminRole
-            })
+        const resAsset = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'save_system_assets',
+            assets: {
+              active_signer_type: activeSignerType,
+              admin_signature: superAdminSignatureUrl,
+              superadmin_signature_url: superAdminSignatureUrl,
+              backup_signer_name: backupSignerName,
+              backup_signer_title: backupSignerTitle,
+              co_admin_signature: backupSignerSignatureUrl,
+              backup_signer_signature_url: backupSignerSignatureUrl,
+              platform_logo: appSystemStampUrl,
+              app_system_stamp_url: appSystemStampUrl
+            },
+            adminEmail, adminName, adminRole
           }),
-          fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'updatepaymentsettings',
-              xendit: xenditActive,
-              is_xendit_active: xenditActive,
-              xendit_mode: xenditMode,
-              xendit_public_key: xenditPublicKey,
-              xendit_secret_key: xenditSecretKey,
-              adminName, adminEmail, adminRole
-            })
+          redirect: 'follow'
+        });
+        
+        const txtAsset = await resAsset.text();
+        try {
+          const jsonAsset = JSON.parse(txtAsset);
+          if (jsonAsset.success === false) {
+             throw new Error('Gagal dari Server: ' + jsonAsset.message);
+          }
+        } catch (err: any) {
+          if (err.message && err.message.includes('Gagal')) throw err;
+        }
+
+        const resPay = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'updatepaymentsettings',
+            xendit: xenditActive,
+            is_xendit_active: xenditActive,
+            xendit_mode: xenditMode,
+            xendit_public_key: xenditPublicKey,
+            xendit_secret_key: xenditSecretKey,
+            adminName, adminEmail, adminRole
           }),
-          fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'updateditsettings',
-              diditme: diditMeActive,
-              diditme_apikey: diditApiKey,
-              adminName, adminEmail, adminRole
-            })
-          })
-        ]);
+          redirect: 'follow'
+        });
+        await resPay.text(); 
+
+        const resDidit = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'updateditsettings',
+            diditme: diditMeActive,
+            diditme_apikey: diditApiKey,
+            adminName, adminEmail, adminRole
+          }),
+          redirect: 'follow'
+        });
+        await resDidit.text(); 
       }
 
-      alert('✅ Pengaturan Tanda Tangan, Logo (Tersimpan ke Sheets), Xendit & Didit.me berhasil disimpan!');
+      alert('✅ Pengaturan Tanda Tangan, Logo, Xendit & Didit.me berhasil disimpan!');
     } catch (err: any) {
       alert(`Gagal menyimpan: ${err.message}`);
     } finally {
@@ -1080,7 +1129,7 @@ export default function SuperAdminControlPage() {
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <input type="text" placeholder="URL TTD atau Base64..." value={superAdminSignatureUrl} onChange={e => setSuperAdminSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
                     <label style={STYLES.btnUpload}>
-                      Upload PNG
+                      Upload File
                       <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setSuperAdminSignatureUrl)} style={{ display: 'none' }} />
                     </label>
                   </div>
@@ -1098,7 +1147,7 @@ export default function SuperAdminControlPage() {
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <input type="text" placeholder="URL TTD Cadangan..." value={backupSignerSignatureUrl} onChange={e => setBackupSignerSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
                     <label style={STYLES.btnUpload}>
-                      Upload PNG
+                      Upload File
                       <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setBackupSignerSignatureUrl)} style={{ display: 'none' }} />
                     </label>
                   </div>
