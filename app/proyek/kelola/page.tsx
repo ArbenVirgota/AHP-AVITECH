@@ -2,12 +2,14 @@
 
 'use client';
 
-import React, { useEffect, useMemo, useState, Suspense } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, Suspense } from 'react';
+import type { CSSProperties } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { getSession, clearSession } from '@/lib/auth';
 import type { UserSession } from '@/lib/auth';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
+  process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL ||
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
 
 function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
@@ -16,31 +18,6 @@ function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
   if (str.includes('PLUS')) return 'plus';
   if (str.includes('PRO')) return 'pro';
   return 'free';
-}
-
-function checkCustomAiPrivilege(rawCustom: any): boolean {
-  if (!rawCustom) return false;
-  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
-    return true;
-  }
-  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
-    return Boolean(rawCustom.ai || rawCustom.ai_analysis || rawCustom.enable_ai || rawCustom.gemini);
-  }
-  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
-  return /\b(ai|ai_analysis|analisis_ai|gemini|enable_ai)\b/i.test(str);
-}
-
-function checkCustomFeature(rawCustom: any, featureKeyword: string): boolean {
-  if (!rawCustom) return false;
-  if (rawCustom === true || rawCustom === 1 || rawCustom === '1' || rawCustom === 'true') {
-    return true;
-  }
-  if (typeof rawCustom === 'object' && !Array.isArray(rawCustom)) {
-    return Boolean(rawCustom[featureKeyword]);
-  }
-  const str = Array.isArray(rawCustom) ? rawCustom.join(',') : String(rawCustom);
-  const regex = new RegExp(`\\b(${featureKeyword})\\b`, 'i');
-  return regex.test(str);
 }
 
 function extractRowData(res: any, targetEmail: string): any {
@@ -60,7 +37,6 @@ function extractRowData(res: any, targetEmail: string): any {
   return null;
 }
 
-// 🟢 NORMALISASI KETAT KOLOM SUBSCRIPTIONS (MENCEGAH KOLOM BERGESER / TERTUKAR)
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
   let dataObj = raw.data || raw.result || raw.payload || raw;
@@ -106,6 +82,14 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
+}
+
+interface UserProfileData {
+  nama: string;
+  institusi: string;
+  city: string;
+  digital_signature: string;
+  foto_profil?: string;
 }
 
 interface ProjectDetail {
@@ -687,7 +671,7 @@ function findResponseForTask(
   responses: SavedResponse[], expertId: string, task: MatrixTask, projectId?: string,
 ): SavedResponse | null {
   return (
-    responses.find((item) => {
+    responses.find((item: SavedResponse) => {
       const itemExpert = String(item.expertid || '').trim();
       const targetExpert = String(expertId || '').trim();
       if (itemExpert !== targetExpert) return false;
@@ -739,7 +723,7 @@ function buildFinalAggregateRanking(
     
     const matrices: number[][][] = [];
 
-    responses.forEach((r) => {
+    responses.forEach((r: SavedResponse) => {
       const sameType = normalizeMethod(r.matrixtype) === normalizeMethod(task.matrixtype);
       if (!sameType) return;
       
@@ -952,13 +936,11 @@ function PairwiseSliderList({
   matrix, 
   onChange, 
   disabled = false,
-  parentName
 }: { 
   labels: string[]; 
   matrix: number[][]; 
   onChange: (i: number, j: number, val: number, dir: 'left' | 'right' | 'center') => void; 
   disabled?: boolean;
-  parentName?: string;
 }) {
   const pairs: Array<{ i: number; j: number; left: string; right: string }> = [];
   for (let i = 0; i < labels.length; i += 1) {
@@ -1058,7 +1040,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
   return res.json();
 }
 
-// 🟢 KOMPONEN TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO TRANSPARAN
+// 🟢 KOMPONEN TOP BAR UTAMA DENGAN GRADASI HIJAU TUA (80PX)[cite: 5]
 function AppTopBar() {
   return (
     <div style={topBarStyles.container} className="no-print">
@@ -1073,12 +1055,12 @@ function AppTopBar() {
   );
 }
 
-// 🟢 KOMPONEN SIDEBAR KELOLA DENGAN PLAN DI ATAS & DAFTAR PROYEK (FOTO PROFIL OPTIMAL)
+// 🟢 SIDEBAR BERSIH TANPA DAFTAR PROYEK DI BAWAH[cite: 8]
 function DashboardSidebar({
   user,
   userProfile,
   userPlan,
-  projects,
+  projectsCount,
   isProfileComplete,
   isCollapsed,
   consultationCount,
@@ -1086,12 +1068,11 @@ function DashboardSidebar({
   onOpenProfile,
   onOpenUpgrade,
   onLogout,
-  onSelectSection
 }: {
   user: UserSession | null;
   userProfile: { nama: string; foto_profil?: string };
   userPlan: string;
-  projects: ProjectDetail[];
+  projectsCount: number;
   isProfileComplete: boolean;
   isCollapsed: boolean;
   consultationCount: number;
@@ -1099,7 +1080,6 @@ function DashboardSidebar({
   onOpenProfile: () => void;
   onOpenUpgrade: () => void;
   onLogout: () => void;
-  onSelectSection: (sec: 'dashboard' | 'consultation') => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1115,23 +1095,30 @@ function DashboardSidebar({
       label: planLabelFormatted,
       icon: '⭐',
       badgeColor: planBadgeColor,
+      isPlan: true,
       onClick: onOpenUpgrade
     },
     {
-      label: 'Dashboard Analisis',
+      label: 'Dashboard Utama',
       icon: '📊',
       active: pathname === '/dashboard',
-      onClick: () => {
-        router.push('/dashboard');
-        onSelectSection('dashboard');
-      }
+      onClick: () => router.push('/dashboard')
     },
     {
-      label: 'Tiket Konsultasi',
+      label: 'Proyek AHP Saya',
+      icon: '📁',
+      active: pathname === '/user/projects' || pathname.startsWith('/proyek/'),
+      badge: projectsCount > 0 ? String(projectsCount) : undefined,
+      badgeColor: '#2563eb',
+      onClick: () => router.push('/user/projects')
+    },
+    {
+      label: 'Pusat Konsultasi',
       icon: '💬',
+      active: pathname === '/user/consultations',
       badge: consultationCount > 0 ? String(consultationCount) : undefined,
       badgeColor: '#10b981',
-      onClick: () => onSelectSection('consultation')
+      onClick: () => router.push('/user/consultations')
     },
     {
       label: 'Direktori Pakar',
@@ -1200,7 +1187,7 @@ function DashboardSidebar({
         justifyContent: isCollapsed ? 'center' : 'flex-start',
         padding: isCollapsed ? '10px 4px' : '12px'
       }}>
-        {/* 🟢 AVATAR KONDISIONAL: FOTO USER DITAMPILKAN TANPA OVERLAY INISIAL */}
+        {/* AVATAR FOTO PROFIL */}
         <div style={{
           ...sidebarStyles.userAvatar,
           background: userProfile.foto_profil ? 'transparent' : '#2563eb'
@@ -1262,44 +1249,6 @@ function DashboardSidebar({
             )}
           </button>
         ))}
-
-        {!isCollapsed && projects.length > 0 && (
-          <div style={{ marginTop: 12, paddingBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
-              📁 Proyek Anda ({projects.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: 'transparent',
-                    color: '#cbd5e1',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: 11.5,
-                    padding: '6px 14px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    width: '100%',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={p.namaproyek || p.nama_proyek}
-                >
-                  <span style={{ fontSize: 10 }}>🔹</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </nav>
 
       <div style={{
@@ -1319,15 +1268,273 @@ function DashboardSidebar({
   );
 }
 
+// 🟢 MODAL PROFIL & PENGESAHAN
+function ProfileModal({
+  user,
+  profile,
+  onClose,
+  onSaveSuccess,
+}: {
+  user: UserSession;
+  profile: UserProfileData;
+  onClose: () => void;
+  onSaveSuccess: (updated: UserProfileData) => void;
+}) {
+  const [formData, setFormData] = useState<UserProfileData>({
+    nama: profile.nama || user?.nama || '',
+    institusi: profile.institusi || '',
+    city: profile.city || '',
+    digital_signature: profile.digital_signature || '',
+    foto_profil: profile.foto_profil || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [previewSig, setPreviewSig] = useState(profile.digital_signature || '');
+  const [previewFoto, setPreviewFoto] = useState(profile.foto_profil || '');
+
+  const handleFotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar (JPG/PNG).');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setPreviewFoto(base64);
+        setFormData((prev) => ({ ...prev, foto_profil: base64 }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSigFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar tanda tangan (PNG/JPG).');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setPreviewSig(base64);
+        setFormData((prev) => ({ ...prev, digital_signature: base64 }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErrorMsg('');
+
+    try {
+      const payload = {
+        action: 'updateuserprofile',
+        email: user.email,
+        user_id: user.id || '',
+        nama: formData.nama,
+        institusi: formData.institusi,
+        city: formData.city,
+        digital_signature: formData.digital_signature || '',
+        foto_profil: formData.foto_profil || '',
+      };
+
+      const response = await fetch(GOOGLESCRIPTURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        redirect: 'follow',
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        onSaveSuccess({ 
+          ...formData, 
+          digital_signature: formData.digital_signature || '',
+          foto_profil: formData.foto_profil || '' 
+        });
+        alert('✅ ' + result.message);
+        onClose();
+      } else {
+        alert('❌ Gagal dari Server: ' + result.message);
+        setErrorMsg(result.message);
+      }
+    } catch (err: any) {
+      setErrorMsg('Gagal menyambung ke server: ' + err.toString());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div 
+        style={{ 
+          ...modalStyles.modal, 
+          maxWidth: 540, 
+          maxHeight: '90vh', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          padding: '24px 28px'
+        }} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ ...modalStyles.header, marginBottom: 12, flexShrink: 0 }}>
+          <h2 style={modalStyles.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
+          <button onClick={onClose} style={modalStyles.closeBtn} type="button">✕</button>
+        </div>
+
+        <p style={{ ...modalStyles.desc, flexShrink: 0, marginBottom: 12 }}>
+          Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
+        </p>
+
+        {errorMsg && (
+          <div style={{ ...modalStyles.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626', flexShrink: 0 }}>
+            {errorMsg}
+          </div>
+        )}
+
+        <form 
+          onSubmit={handleSubmit} 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 12, 
+            overflowY: 'auto', 
+            paddingRight: 4,
+            flexGrow: 1,
+            marginBottom: 12
+          }}
+        >
+          <div>
+            <label style={formStyles.label}>Nama Lengkap &amp; Gelar *</label>
+            <input
+              type="text"
+              required
+              value={formData.nama}
+              onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+              placeholder="Contoh: Dr. Arben Virgota, S.Pi., M.Si"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Nama Institusi / Afiliasi *</label>
+            <input
+              type="text"
+              required
+              value={formData.institusi}
+              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
+              placeholder="Contoh: Universitas Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Kota *</label>
+            <input
+              type="text"
+              required
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              placeholder="Contoh: Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Foto Profil (Upload File Gambar)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFotoFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewFoto ? (
+                <img 
+                  src={previewFoto} 
+                  alt="Pratinjau Foto Profil" 
+                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada foto yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Tanda Tangan Digital (.png Transparan)</label>
+            <input
+              type="file"
+              accept="image/*"
+              required={!previewSig}
+              onChange={handleSigFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewSig ? (
+                <img 
+                  src={previewSig} 
+                  alt="Pratinjau Tanda Tangan" 
+                  style={{ maxHeight: 45, objectFit: 'contain' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada tanda tangan yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+        </form>
+
+        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <button onClick={onClose} style={modalStyles.btnClose} type="button">
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              ...modalStyles.btnClose,
+              background: '#2563eb',
+              color: 'white',
+              fontWeight: 700,
+            }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Profil'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProjectKelolaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('id');
 
   const [session, setSession] = useState<UserSession | null>(null);
-  const [userProfile, setUserProfile] = useState<{ nama: string; foto_profil?: string }>({ nama: '', foto_profil: '' });
+  const [userProfile, setUserProfile] = useState<UserProfileData>({
+    nama: '',
+    institusi: '',
+    city: '',
+    digital_signature: '',
+    foto_profil: '',
+  });
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const [userPlan, setUserPlan] = useState<string>('free');
-  const [allUserProjects, setAllUserProjects] = useState<ProjectDetail[]>([]);
+  const [totalProjectsCount, setTotalProjectsCount] = useState<number>(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [data, setData] = useState<BundleState | null>(null);
@@ -1360,6 +1567,15 @@ function ProjectKelolaContent() {
   
   const [dismissWarning, setDismissWarning] = useState(false);
 
+  const isProfileComplete = useMemo(() => {
+    return Boolean(
+      userProfile.nama?.trim() &&
+      userProfile.institusi?.trim() &&
+      userProfile.city?.trim() &&
+      userProfile.digital_signature?.trim()
+    );
+  }, [userProfile]);
+
   useEffect(() => {
     const s = getSession();
     if (!s) {
@@ -1367,7 +1583,13 @@ function ProjectKelolaContent() {
       return;
     }
     setSession(s);
-    setUserProfile({ nama: s.nama || s.email || 'Pengguna', foto_profil: s.foto_profil || s.fotoprofil || '' });
+    setUserProfile({
+      nama: s.nama || s.email || 'Pengguna',
+      institusi: '',
+      city: '',
+      digital_signature: '',
+      foto_profil: s.foto_profil || s.fotoprofil || ''
+    });
 
     const checkSubscriptionAndLoad = async () => {
       try {
@@ -1381,7 +1603,7 @@ function ProjectKelolaContent() {
         let resolvedPlan = '';
 
         if (rawEmail || rawUserId) {
-          // 🟢 1. Ambil data profil dari sheet users (fallback jika subscriptions tidak ada barisnya)
+          // 1. Profil pengguna
           try {
             const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
             const userRes = await fetchJson<any>(userUrl);
@@ -1390,6 +1612,9 @@ function ProjectKelolaContent() {
             if (uData && Object.keys(uData).length > 0) {
               setUserProfile({
                 nama: uData.nama || s.nama || 'Pengguna',
+                institusi: uData.institusi || '',
+                city: uData.city || uData.kota || '',
+                digital_signature: uData.digital_signature || uData.tandatangan || '',
                 foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
               });
 
@@ -1402,7 +1627,7 @@ function ProjectKelolaContent() {
             console.warn('Gagal membaca profil pengguna:', errUser);
           }
 
-          // 🟢 2. Ambil dari sheet subscriptions via fungsi normalisasi presisi
+          // 2. Data subscriptions
           try {
             const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
             const subRes = await fetchJson<any>(subUrl);
@@ -1425,31 +1650,78 @@ function ProjectKelolaContent() {
 
         setUserPlan(cleanPlanType(resolvedPlan));
 
-        // 🟢 3. Ambil daftar seluruh proyek user untuk ditampilkan di sidebar
+        // 3. Jumlah total proyek
         try {
           const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
           if (projRes?.success && Array.isArray(projRes.data)) {
-            setAllUserProjects(projRes.data.map(normalizeProject));
+            setTotalProjectsCount(projRes.data.length);
           }
         } catch (e) {
-          console.warn('Gagal memuat daftar proyek sidebar:', e);
+          console.warn('Gagal memuat total proyek:', e);
         }
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
-        let bundleRes: any;
-        let responsesRes: any;
+        // 4. Fetching Bundle Proyek dengan Multi-Key & Resilient Fallback
+        let bundleRes: any = null;
+        let responsesRes: any = null;
 
         try {
-          bundleRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
-        } catch (e) { console.error('Gagal fetch bundle'); }
-        
-        try {
-          responsesRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
-        } catch (e) { console.error('Gagal fetch responses'); }
+          const bundleUrl = `${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(projectId)}&projectId=${encodeURIComponent(projectId)}&project_id=${encodeURIComponent(projectId)}&id=${encodeURIComponent(projectId)}&_t=${Date.now()}`;
+          bundleRes = await fetchJson<any>(bundleUrl);
+        } catch (e) { 
+          console.warn('Gagal fetch get_project_bundle:', e); 
+        }
 
         if (!bundleRes?.success || !bundleRes?.data?.project) {
-          throw new Error(bundleRes?.message || 'Bundle proyek tidak ditemukan.');
+          try {
+            const singleProjUrl = `${GOOGLESCRIPTURL}?action=getproject&id=${encodeURIComponent(projectId)}&projectid=${encodeURIComponent(projectId)}&_t=${Date.now()}`;
+            const singleRes = await fetchJson<any>(singleProjUrl);
+            
+            if (singleRes?.success && singleRes?.data) {
+              bundleRes = {
+                success: true,
+                data: {
+                  project: singleRes.data.project || singleRes.data,
+                  criteria: singleRes.data.criteria || singleRes.data.kriteria || [],
+                  subcriteria: singleRes.data.subcriteria || singleRes.data.subkriteria || [],
+                  alternatif: singleRes.data.alternatif || singleRes.data.alternatives || [],
+                  experts: singleRes.data.experts || singleRes.data.experts_data || []
+                }
+              };
+            } else {
+              const allProjUrl = `${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
+              const allRes = await fetchJson<any>(allProjUrl);
+              const list = allRes?.data || (Array.isArray(allRes) ? allRes : []);
+              const matched = list.find((p: any) => String(p.id || p.project_id || p.projectid) === String(projectId));
+              
+              if (matched) {
+                bundleRes = {
+                  success: true,
+                  data: {
+                    project: matched,
+                    criteria: matched.criteria || matched.kriteria || [],
+                    subcriteria: matched.subcriteria || matched.subkriteria || [],
+                    alternatif: matched.alternatif || matched.alternatives || [],
+                    experts: matched.experts || matched.experts_data || []
+                  }
+                };
+              }
+            }
+          } catch (errFallback) {
+            console.error('Fallback fetch project gagal:', errFallback);
+          }
+        }
+        
+        try {
+          const respUrl = `${GOOGLESCRIPTURL}?action=get_all_project_responses&projectid=${encodeURIComponent(projectId)}&projectId=${encodeURIComponent(projectId)}&_t=${Date.now()}`;
+          responsesRes = await fetchJson<any>(respUrl);
+        } catch (e) { 
+          console.warn('Gagal fetch responses:', e); 
+        }
+
+        if (!bundleRes?.success || !bundleRes?.data?.project) {
+          throw new Error(bundleRes?.message || `Proyek dengan ID #${projectId} tidak ditemukan pada sistem.`);
         }
 
         const finalProject = normalizeProject(bundleRes.data.project);
@@ -1669,7 +1941,7 @@ function ProjectKelolaContent() {
       });
       if (!res?.success) throw new Error(res?.message || 'Gagal menyimpan matriks fasilitator.');
 
-      const existingFacilitator = data.responses.find(r => {
+      const existingFacilitator = data.responses.find((r: SavedResponse) => {
         const rExpertId = String(r.expertid || '').trim();
         const rMatrixType = normalizeMethod(r.matrixtype);
         const tMatrixType = normalizeMethod(task.matrixtype);
@@ -1827,15 +2099,9 @@ function ProjectKelolaContent() {
   };
 
   const handleLogout = () => {
-    clearSession();
-    router.replace('/login');
-  };
-
-  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
-    if (sec === 'dashboard') {
-      router.push('/dashboard');
-    } else {
-      router.push('/dashboard#consultation-section');
+    if (confirm('Apakah Anda yakin ingin keluar dari akun?')) {
+      clearSession();
+      router.replace('/login');
     }
   };
 
@@ -1857,27 +2123,37 @@ function ProjectKelolaContent() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
-      {/* 🟢 SIDEBAR UTAMA DENGAN PLAN DI ATAS & DAFTAR PROYEK */}
+      
+      {/* 🟢 MODAL PROFIL & PENGESAHAN */}
+      {showProfileModal && session && (
+        <ProfileModal
+          user={session}
+          profile={userProfile}
+          onClose={() => setShowProfileModal(false)}
+          onSaveSuccess={(updated) => setUserProfile(updated)}
+        />
+      )}
+
+      {/* 🟢 SIDEBAR UTAMA (TANPA LIST DAFTAR PROYEK DI BAWAH) */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
         userPlan={userPlan}
-        projects={allUserProjects}
-        isProfileComplete={true}
+        projectsCount={totalProjectsCount}
+        isProfileComplete={isProfileComplete}
         isCollapsed={isSidebarCollapsed}
         consultationCount={0}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onOpenProfile={() => router.push('/dashboard?action=profile')}
+        onOpenProfile={() => setShowProfileModal(true)}
         onOpenUpgrade={() => router.push('/dashboard')}
         onLogout={handleLogout}
-        onSelectSection={handleScrollToSection}
       />
 
       {/* 🟢 AREA KONTEN UTAMA */}
       <main style={STYLES.page}>
         
         <div style={{ position: 'sticky', top: 0, zIndex: 100, background: '#f8fafc', paddingBottom: 8, paddingTop: 4 }}>
-          {/* 🟢 TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO DIPERBESAR */}
+          {/* 🟢 TOP BAR UTAMA DENGAN LOGO RESMI 80PX[cite: 5] */}
           <AppTopBar />
 
           <section style={STYLES.cardPrimarySticky} className="print-card">
@@ -2206,7 +2482,6 @@ function ProjectKelolaContent() {
                         labels={task.itemnames} 
                         matrix={facilitatorMatrix} 
                         onChange={(i, j, val, dir) => updateFacilitatorMatrix(task.key, i, j, val, dir)} 
-                        parentName={task.parentname}
                       />
                     </div>
                     <div style={STYLES.compactWeightPanel}>
@@ -2271,7 +2546,6 @@ function ProjectKelolaContent() {
                               labels={task.itemnames} 
                               matrix={currentMatrix} 
                               onChange={(i, j, val, dir) => updateExpertMatrix(task.key, expert.id, i, j, val, dir)} 
-                              parentName={task.parentname}
                             />
                           </div>
                           <div style={STYLES.compactWeightPanel}>
@@ -2309,7 +2583,7 @@ export default function ProjectKelolaPage() {
   );
 }
 
-const topBarStyles: Record<string, React.CSSProperties> = {
+const topBarStyles: Record<string, CSSProperties> = {
   container: {
     background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.9) 100%)',
     border: '1px solid #86efac',
@@ -2348,7 +2622,7 @@ const topBarStyles: Record<string, React.CSSProperties> = {
   },
 };
 
-const sidebarStyles: Record<string, React.CSSProperties> = {
+const sidebarStyles: Record<string, CSSProperties> = {
   aside: {
     background: '#0f172a',
     color: '#f8fafc',
@@ -2361,6 +2635,7 @@ const sidebarStyles: Record<string, React.CSSProperties> = {
     position: 'sticky',
     top: 0,
     height: '100vh',
+    zIndex: 10,
   },
   brandContainer: {
     padding: '20px 16px',
@@ -2531,7 +2806,103 @@ const sidebarStyles: Record<string, React.CSSProperties> = {
   },
 };
 
-const STYLES: Record<string, React.CSSProperties> = {
+const formStyles: Record<string, CSSProperties> = {
+  label: {
+    display: 'block',
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#334155',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  input: {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: 13,
+    borderRadius: 8,
+    border: '1px solid #cbd5e1',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  previewBox: {
+    height: 50,
+    border: '1px dashed #cbd5e1',
+    borderRadius: 8,
+    background: '#f8fafc',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+};
+
+const modalStyles: Record<string, CSSProperties> = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+    padding: 16,
+  },
+  modal: {
+    background: 'white',
+    borderRadius: 16,
+    padding: '28px 32px',
+    maxWidth: 480,
+    width: '100%',
+    boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: '#1e293b',
+    margin: 0,
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 18,
+    color: '#94a3b8',
+    padding: 0,
+  },
+  desc: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 20,
+  },
+  infoBox: {
+    background: '#fffbeb',
+    border: '1px solid #fcd34d',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 12,
+    color: '#92400e',
+    marginBottom: 16,
+  },
+  btnClose: {
+    width: '100%',
+    padding: 11,
+    background: '#f1f5f9',
+    border: 'none',
+    borderRadius: 9,
+    cursor: 'pointer',
+    fontWeight: 600,
+    color: '#374151',
+    fontSize: 14,
+  },
+};
+
+const STYLES: Record<string, CSSProperties> = {
   page: { 
     flex: 1,
     background: 'linear-gradient(rgba(248, 250, 252, 0.90), rgba(248, 250, 252, 0.60)), url("/bg-kelola.jpg")',
@@ -2543,7 +2914,6 @@ const STYLES: Record<string, React.CSSProperties> = {
     fontFamily: '"Inter", "Segoe UI", sans-serif',
     overflowX: 'hidden'
   },
-  loaderWrap: { flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#f8fafc' },
   loader: { color: '#64748b', fontSize: 14, fontWeight: 500 },
   container: { maxWidth: 980, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 },
   card: { background: '#fff', borderRadius: 10, padding: '14px 16px', boxShadow: '0 2px 8px rgba(15,23,42,0.02)', border: '1px solid #f1f5f9' },

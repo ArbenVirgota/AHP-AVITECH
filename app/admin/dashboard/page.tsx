@@ -201,7 +201,7 @@ export default function AdminDashboardPage() {
 
   const generateRandomExpPass = () => `EXP-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  // HELPER FORMAT TANGGAL
+  // 🟢 HELPER FORMAT TANGGAL
   const formatDisplayDate = (val: any) => {
     if (!val) return '-';
     try {
@@ -215,42 +215,36 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const buildSmartReplyTemplate = (ticket: any) => {
-    const existingJawaban = ticket.jawaban_expert || ticket['Isi_Email'] || ticket.isi_email || '';
-    if (existingJawaban && existingJawaban !== '-') {
-      return existingJawaban;
+  // 🟢 TEMPLATE JAWABAN CEPAT 1 - 4
+  const applyTemplate = (templateIndex: number) => {
+    if (!selectedTicket) return;
+    const userName = selectedTicket.user_name || selectedTicket['Nama User'] || selectedTicket.nama_user || selectedTicket.namaUser || selectedTicket[3] || 'Pengguna';
+    const ticketId = selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket.id || selectedTicket[0] || '';
+
+    let text = '';
+
+    if (templateIndex === 1) {
+      text = `Halo ${userName},\n\nTerima kasih atas minat Anda untuk meningkatkan layanan ke Paket [PRO / PLUS / PREMIUM - Semester Pass].\n\nBerikut adalah rincian tagihan dan rekening resmi pembayaran:\n• Paket Langganan : Paket [PRO / PLUS / PREMIUM] (6 Bulan)\n• Total Nominal    : Rp [Contoh: 350.000]\n• Bank Tujuan      : Bank [BCA / Mandiri / BNI / BRI]\n• Nomor Rekening   : [1234-5678-9000]\n• Atas Nama        : [Nama Pemilik Rekening / Instansi]\n\nPetunjuk Konfirmasi:\nSetelah transfer berhasil dilakukan, silakan klik tombol "💸 Konfirmasi Telah Bayar (Upload Bukti)" di bawah pesan ini untuk mengunggah foto struk/bukti transfer Anda. Tim admin akan segera memverifikasi dan mengaktifkan hak akses akun Anda.\n\nSalam hangat,\nTim Layanan Pelanggan & Billing AHP`;
+      setReplyStatus('Menunggu');
+    } else if (templateIndex === 2) {
+      text = `Halo ${userName},\n\nKabar baik! Pembayaran Anda telah terverifikasi dan akun Anda telah berhasil di-upgrade ke Paket [PRO / PLUS / PREMIUM].\n\nRincian Hak Akses Baru Anda:\n• Status Paket    : [PRO / PLUS / PREMIUM] (Aktif)\n• Masa Berlaku    : 6 Bulan (Semester Pass) hingga [Tanggal Expired]\n• Kuota Proyek    : [3 / 10 / Unlimited] Proyek AHP\n• Kuota Evaluator : Akses Evaluator Manual & Direktori Pakar Platform\n• Fitur Unggulan  : [Subkriteria / Bobot Alternatif / AI Analisis Riset]\n\nSilakan muat ulang (refresh) halaman Dashboard Anda untuk mulai menggunakan fasilitas paket baru. Terima kasih telah mempercayakan analisis riset Anda pada platform kami.\n\nSalam sukses,\nTim Administrator Sistem AHP`;
+      setReplyStatus('Selesai');
+    } else if (templateIndex === 3) {
+      text = `Halo ${userName},\n\nBukti transfer yang Anda unggah untuk tiket #${ticketId} telah kami terima dengan baik.\n\nSaat ini tim billing kami sedang melakukan pencocokan mutasi perbankan (estimasi 15–60 menit pada jam kerja). Status paket Anda akan diperbarui secara otomatis begitu verifikasi selesai.\n\nMohon kesediaan Anda untuk menunggu sejenak.\n\nSalam,\nTim Verifikasi & Billing AHP`;
+      setReplyStatus('Sedang Diverifikasi');
+    } else if (templateIndex === 4) {
+      text = `Halo ${userName},\n\nMohon maaf, pengajuan upgrade untuk tiket #${ticketId} saat ini belum dapat kami proses karena alasan berikut:\n\n• [Bukti transfer yang diunggah tidak terbaca jelas / buram / nominal transfer tidak sesuai / dana belum masuk pada mutasi rekening].\n\nLangkah Selanjutnya:\nSilakan periksa kembali bukti transaksi Anda dan kirimkan konfirmasi ulang, atau hubungi kami kembali melalui tiket ini jika Anda membutuhkan bantuan lebih lanjut.\n\nSalam,\nTim Layanan Pelanggan AHP`;
+      setReplyStatus('Ditolak');
     }
 
-    const namaUser = ticket.user_name || ticket['Nama User'] || ticket.nama_user || ticket[3] || 'Pemohon';
-    const lampiranUrl = String(ticket.lampiran || ticket['Lampiran'] || ticket[10] || '').trim();
-    const pertanyaan = String(ticket.pertanyaan || ticket['Topik Pesan'] || ticket.topik_pesan || ticket.pesan || '').toLowerCase();
-    const topik = String(ticket['Topik Pesan'] || ticket.topik_pesan || '').toLowerCase();
-    const fullText = `${pertanyaan} ${topik}`;
-
-    const upgradeKeywords = [
-      'upgrade', 'naik paket', 'pindah paket', 'berlangganan', 'langganan',
-      'pro plan', 'plus plan', 'premium plan', 'paket pro', 'paket plus', 'paket premium',
-      'beli lisensi', 'bayar paket', 'biaya langganan', 'tambah kuota', 'ganti plan', 'pembayaran'
-    ];
-
-    const isUpgradeIntent = upgradeKeywords.some(keyword => fullText.includes(keyword));
-
-    if (lampiranUrl && lampiranUrl !== '-') {
-      return `Yth. ${namaUser},\n\nTerima kasih telah melampirkan dokumen / bukti konfirmasi Anda. Lampiran telah berhasil kami periksa dan diverifikasi oleh sistem.\n\nKami informasikan bahwa paket akun Anda telah berhasil di-upgrade.\n\nAgar seluruh fitur pada paket baru aktif dan sinkron secara optimal, silakan lakukan restart atau relogin (keluar dan masuk kembali) pada aplikasi Anda.\n\nTerima kasih atas kepercayaan Anda menggunakan layanan kami.\n\nHormat kami,\nAdmin Ahp Platform\n\n=========================================\n      ★ OFFICIAL VERIFIED STAMP ★        \n          AHP PLATFORM SYSTEM            \n         STATUS: UPGRADE COMPLETED       \n=========================================`;
-    }
-
-    if (isUpgradeIntent) {
-      return `Yth. ${namaUser},\n\nTerima kasih telah mengajukan permohonan layanan dan peningkatan paket akun di platform kami.\n\nMenindaklanjuti permohonan Anda, silakan melakukan proses penyelesaian pembayaran melalui saluran rekening resmi kami berikut:\n\n• Bank Tujuan: Bank Mandiri / BCA / BNI\n• Nomor Rekening: 123-456-7890 (a.n. PT Platform Layanan)\n• Nominal Tagihan: Sesuai dengan paket yang dipilih\n\nSetelah transfer berhasil diselesaikan, mohon lampirkan salinan bukti transaksi pada tiket ini agar hak akses dan aktivasi paket Anda dapat segera kami proses.\n\nHormat kami,\nAdmin Ahp Platform`;
-    }
-
-    return '';
+    setReplyMessage(text);
   };
 
   const handleOpenReplyModal = (ticket: any) => {
     setSelectedTicket(ticket);
     const status = ticket.status || ticket['Status'] || ticket[7] || 'Selesai';
     setReplyStatus(status);
-    setReplyMessage(buildSmartReplyTemplate(ticket));
+    setReplyMessage(ticket.jawaban_expert || ticket['Isi_Email'] || ticket.isi_email || '');
     setShowReplyModal(true);
   };
 
@@ -332,6 +326,56 @@ export default function AdminDashboardPage() {
 
     fetchAllOperasionalData();
   }, [router, fetchAllOperasionalData]);
+
+  // 🟢 HANDLER UPDATE STATUS DARI DROPDOWN
+  const handleUpdateStatus = async (ticketId: string, newStatus: string) => {
+    if (!GOOGLE_SCRIPT_URL) return;
+
+    setUserConsultations(prev =>
+      prev.map(item => {
+        const id = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || '');
+        return id === ticketId ? { ...item, status: newStatus, Status: newStatus } : item;
+      })
+    );
+
+    setAdminConsultations(prev =>
+      prev.map(item => {
+        const id = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || '');
+        return id === ticketId ? { ...item, status: newStatus, Status: newStatus } : item;
+      })
+    );
+
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateconsultationstatus',
+          ticket_id: ticketId,
+          idTiket: ticketId,
+          id: ticketId,
+          status: newStatus,
+          new_status: newStatus,
+          adminName,
+          adminEmail,
+          adminRole
+        }),
+        redirect: 'follow'
+      });
+
+      const textRes = await res.text();
+      let json;
+      try { json = JSON.parse(textRes); } catch { json = { success: true }; }
+
+      if (json && json.success === false) {
+        alert(`⚠️ Gagal memperbarui status di server: ${json.message}`);
+        fetchAllOperasionalData();
+      }
+    } catch (err: any) {
+      alert(`Gagal koneksi ke server: ${err.message}`);
+      fetchAllOperasionalData();
+    }
+  };
 
   const handleDeleteExpert = async (exp: ExpertItem) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
@@ -453,7 +497,7 @@ export default function AdminDashboardPage() {
       if (json.success) { 
         alert('Berhasil dihapus.'); fetchAllOperasionalData(); 
       } else { 
-        alert(`Gagal: ${json.message}. Pastikan action 'deleteuser' telah ditambahkan di backend.`); 
+        alert(`Gagal: ${json.message}`); 
       }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
   };
@@ -608,27 +652,38 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
   };
 
+  // 🟢 SUBMIT TANGGAPAN DARI MODAL
   const handleReplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyMessage.trim()) { alert('Pesan balasan kosong.'); return; }
     try {
       setSubmittingReply(true);
-      const ticketId = selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket.id || selectedTicket[0];
+      const ticketId = String(selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket.id || selectedTicket[0] || '').trim();
       const payload = {
-        action: 'replyconsultation',
+        action: 'submitconsultationreply',
         ticket_id: ticketId,
+        idTiket: ticketId,
+        id: ticketId,
+        reply_message: replyMessage.trim(),
         jawaban_expert: replyMessage.trim(),
         status: replyStatus,
+        new_status: replyStatus,
         adminName,
-        adminEmail
+        adminEmail,
+        adminRole
       };
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload), redirect: 'follow'
       });
-      const json = JSON.parse(await res.text());
-      if (json && json.success) { alert('Balasan terkirim!'); setShowReplyModal(false); fetchAllOperasionalData(); } 
-      else { alert('Gagal: ' + json.message); }
+      const json = await res.json().catch(() => ({ success: true }));
+      if (json && json.success !== false) { 
+        alert('✅ Balasan & Status berhasil disimpan!'); 
+        setShowReplyModal(false); 
+        fetchAllOperasionalData(); 
+      } else { 
+        alert('Gagal: ' + (json?.message || 'Terjadi kesalahan')); 
+      }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingReply(false); }
   };
 
@@ -750,17 +805,9 @@ export default function AdminDashboardPage() {
       const jawaban = String(c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '').toLowerCase();
       
       const rawStatus = String(c.status || c['Status'] || c[7] || 'Menunggu').toLowerCase().trim();
-      let normalizedStatus = 'menunggu';
-      if (rawStatus.includes('selesai') || rawStatus.includes('completed') || rawStatus.includes('closed') || rawStatus.includes('answered')) {
-        normalizedStatus = 'selesai';
-      } else if (rawStatus.includes('proses') || rawStatus.includes('progress') || rawStatus.includes('diproses') || rawStatus.includes('assigned')) {
-        normalizedStatus = 'diproses';
-      } else if (rawStatus.includes('pending') || rawStatus.includes('tunggu') || rawStatus.includes('menunggu')) {
-        normalizedStatus = 'menunggu';
-      }
 
       const matchesSearch = userName.includes(q) || userEmail.includes(q) || instansi.includes(q) || expertEmail.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
-      const matchesStatus = consultStatusFilter === 'ALL' || normalizedStatus === consultStatusFilter.toLowerCase();
+      const matchesStatus = consultStatusFilter === 'ALL' || rawStatus === consultStatusFilter.toLowerCase();
       
       return matchesSearch && matchesStatus;
     });
@@ -774,19 +821,10 @@ export default function AdminDashboardPage() {
       const adminPengirim = String(c.admin_name || c.adminName || c['Admin Pengirim'] || c.user_name || c[3] || '').toLowerCase();
       const pertanyaan = String(c.pertanyaan || c['Topik Pesan'] || c.topik_pesan || c.pesan || c[6] || '').toLowerCase();
       const jawaban = String(c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '').toLowerCase();
-
       const rawStatus = String(c.status || c['Status'] || c[7] || 'Menunggu').toLowerCase().trim();
-      let normalizedStatus = 'menunggu';
-      if (rawStatus.includes('selesai') || rawStatus.includes('completed') || rawStatus.includes('closed') || rawStatus.includes('answered')) {
-        normalizedStatus = 'selesai';
-      } else if (rawStatus.includes('proses') || rawStatus.includes('progress') || rawStatus.includes('diproses') || rawStatus.includes('assigned')) {
-        normalizedStatus = 'diproses';
-      } else if (rawStatus.includes('pending') || rawStatus.includes('tunggu') || rawStatus.includes('menunggu')) {
-        normalizedStatus = 'menunggu';
-      }
 
       const matchesSearch = adminPengirim.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
-      const matchesStatus = adminConsultStatusFilter === 'ALL' || normalizedStatus === adminConsultStatusFilter.toLowerCase();
+      const matchesStatus = adminConsultStatusFilter === 'ALL' || rawStatus === adminConsultStatusFilter.toLowerCase();
 
       return matchesSearch && matchesStatus;
     });
@@ -811,7 +849,6 @@ export default function AdminDashboardPage() {
     });
   }, [feedbacks, feedbackSearchQuery]);
 
-  // 🟢 LOGIKA ANALISIS & TREN KUNJUNGAN BERDASARKAN ROLE PENGGUNA
   const visitorAnalytics = useMemo(() => {
     let generalVisitors = 0; let registeredUsers = 0; let adminVisits = 0; let anomalies = 0;
     const pageCounts: Record<string, number> = {};
@@ -823,7 +860,6 @@ export default function AdminDashboardPage() {
       const explicitRole = String(v.role || v[3] || '').trim().toLowerCase();
       const rawDate = v.timestamp || v[0];
 
-      // Deteksi Anomali Sederhana (Akses halaman terlarang, akses panel admin tanpa identitas admin)
       const isSuspiciousPath = pagePath.includes('.env') || pagePath.includes('wp-admin') || pagePath.includes('sql');
       const isUnauthorizedAdminAccess = pagePath.includes('/admin') && emailUser !== 'Visitor Umum' && !emailUser.toLowerCase().includes('admin');
       const isExplicitAnomaly = explicitRole === 'hacker' || explicitRole === 'blocked';
@@ -868,28 +904,28 @@ export default function AdminDashboardPage() {
           {
             label: 'User Terdaftar',
             data: sortedDates.map(item => item[1].user),
-            borderColor: '#2563eb', // Biru
+            borderColor: '#2563eb',
             backgroundColor: 'rgba(37, 99, 235, 0.1)',
             tension: 0.3, fill: true, pointRadius: 3
           },
           {
             label: 'Pengunjung Umum',
             data: sortedDates.map(item => item[1].guest),
-            borderColor: '#16a34a', // Hijau
+            borderColor: '#16a34a',
             backgroundColor: 'rgba(22, 163, 74, 0.1)',
             tension: 0.3, fill: true, pointRadius: 3
           },
           {
             label: 'Super Admin & Admin',
             data: sortedDates.map(item => item[1].admin),
-            borderColor: '#9333ea', // Ungu
+            borderColor: '#9333ea',
             backgroundColor: 'rgba(147, 51, 234, 0.1)',
             tension: 0.3, fill: true, pointRadius: 3
           },
           {
             label: 'Anomali / Ilegal',
             data: sortedDates.map(item => item[1].anomaly),
-            borderColor: '#ef4444', // Merah
+            borderColor: '#ef4444',
             backgroundColor: 'rgba(239, 68, 68, 0.1)',
             tension: 0.3, fill: true, pointRadius: 3
           }
@@ -898,7 +934,6 @@ export default function AdminDashboardPage() {
     };
   }, [visitorStatsList]);
 
-  // LOGIKA ANALISIS & GRAFIK TREN SENTIMEN MASUKAN
   const feedbackSentimentAnalytics = useMemo(() => {
     let positive = 0; let neutral = 0; let negative = 0;
     const sentimentDateCounts: Record<string, { pos: number, neu: number, neg: number }> = {};
@@ -1009,7 +1044,7 @@ export default function AdminDashboardPage() {
           {activeTab === 'expert_directory' && canAccessTab('expert_directory') && (
             <div>
               <div style={STYLES.cardTitleRow}>
-                <h3>Direktori Pakar & Tenaga Ahli ({filteredExperts.length})</h3>
+                <h3>Direktori Pakar &amp; Tenaga Ahli ({filteredExperts.length})</h3>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={handleOpenAddExpert} style={STYLES.btnAdd}>+ Tambah Pakar Baru</button>
                   <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
@@ -1023,9 +1058,9 @@ export default function AdminDashboardPage() {
                     <tr>
                       <th style={{ ...STYLES.th, width: 50, textAlign: 'center' }}>Foto</th>
                       <th style={STYLES.th}>Nama Pakar</th>
-                      <th style={STYLES.th}>Keahlian & Instansi</th>
+                      <th style={STYLES.th}>Keahlian &amp; Instansi</th>
                       <th style={STYLES.th}>Berkas</th>
-                      <th style={STYLES.th}>Status & Visibilitas</th>
+                      <th style={STYLES.th}>Status &amp; Visibilitas</th>
                       <th style={{ ...STYLES.th, textAlign: 'center' }}>Aksi</th>
                     </tr>
                   </thead>
@@ -1157,7 +1192,7 @@ export default function AdminDashboardPage() {
                       <th style={{ ...STYLES.th, width: 60, textAlign: 'center' }}>Gambar</th>
                       <th style={STYLES.th}>Nama Produk</th>
                       <th style={STYLES.th}>Deskripsi</th>
-                      <th style={STYLES.th}>Kategori & Status</th>
+                      <th style={STYLES.th}>Kategori &amp; Status</th>
                       <th style={STYLES.th}>Aksi</th>
                     </tr>
                   </thead>
@@ -1201,7 +1236,7 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 4: KONSULTASI PUBLIK */}
+          {/* TAB 4: KONSULTASI PUBLIK (DENGAN UPDATE STATUS & TEMPLATE 1 - 4) */}
           {activeTab === 'consultation_user' && canAccessTab('consultation_user') && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1216,13 +1251,15 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
               
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
                 <input type="text" placeholder="Cari nama, email, pertanyaan, atau ID Tiket..." value={consultSearchQuery} onChange={e => setConsultSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 320 }} />
                 <select value={consultStatusFilter} onChange={e => setConsultStatusFilter(e.target.value)} style={{ ...STYLES.input, maxWidth: 200 }}>
                   <option value="ALL">Semua Status</option>
-                  <option value="menunggu">Menunggu / Pending</option>
-                  <option value="diproses">Diproses / Assigned</option>
-                  <option value="selesai">Selesai / Answered</option>
+                  <option value="Menunggu">⏳ Menunggu</option>
+                  <option value="Sedang Diverifikasi">🔍 Sedang Diverifikasi</option>
+                  <option value="Diteruskan ke Pakar">➡️ Diteruskan ke Pakar</option>
+                  <option value="Selesai">✅ Selesai</option>
+                  <option value="Ditolak">❌ Ditolak</option>
                 </select>
               </div>
 
@@ -1235,7 +1272,7 @@ export default function AdminDashboardPage() {
                           <input 
                             type="checkbox" 
                             onChange={(e) => {
-                              const allIds = filteredUserConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.id || c[0] || ''));
+                              const allIds = filteredUserConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || ''));
                               setSelectedConsultations(e.target.checked ? allIds : []);
                             }}
                             checked={selectedConsultations.length === filteredUserConsultations.length && filteredUserConsultations.length > 0}
@@ -1246,13 +1283,13 @@ export default function AdminDashboardPage() {
                       <th style={{ ...STYLES.th, width: 100 }}>ID Tiket</th>
                       <th style={{ ...STYLES.th, width: 220 }}>Pemohon &amp; Pakar</th>
                       <th style={STYLES.th}>Rincian Pertanyaan &amp; Jawaban</th>
-                      <th style={{ ...STYLES.th, width: 110 }}>Status</th>
+                      <th style={{ ...STYLES.th, width: 130 }}>Status Tiket</th>
                       <th style={{ ...STYLES.th, width: 140, textAlign: 'center' }}>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUserConsultations.map((c, i) => {
-                      const ticketId = String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.id || c[0] || i);
+                      const ticketId = String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || i);
                       const userName = c.user_name || c['Nama User'] || c.nama_user || c[3] || 'Pemohon';
                       const userEmail = c.user_email || c['Kontak User'] || c.email || c[4] || '';
                       const asalInstitusi = c.asal_institusi || c['Asal Institusi'] || c.institusi || c[5] || '';
@@ -1261,8 +1298,8 @@ export default function AdminDashboardPage() {
 
                       const pertanyaanUser = c.pertanyaan || c['Topik Pesan'] || c.topik_pesan || c.pesan || c[6] || '-';
                       const jawabanExpert = c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '';
-                      const lampiranUrl = c.lampiran || c['Lampiran'] || c[10] || '';
-                      const status = c.status || c['Status'] || c[7] || 'Pending';
+                      const lampiranUrl = c.lampiran || c['Lampiran'] || c.fileUrl || c[10] || '';
+                      const status = c.status || c['Status'] || c[7] || 'Menunggu';
                       
                       const rawDate = c.created_at || c['Tanggal Dibuat'] || c.tanggal_dibuat || c.timestamp || c[8] || c[0];
                       const dateStr = formatDisplayDate(rawDate);
@@ -1288,7 +1325,7 @@ export default function AdminDashboardPage() {
                             <div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>📅 {dateStr}</div>
                           </td>
                           <td style={STYLES.td}>
-                            <span style={{ fontWeight: 800, color: '#1e3a8a' }}>#{ticketId}</span>
+                            <span style={STYLES.idTag}>#{ticketId}</span>
                           </td>
                           <td style={STYLES.td}>
                             <div>
@@ -1320,7 +1357,7 @@ export default function AdminDashboardPage() {
                               </div>
                               <div style={{ background: jawabanExpert ? '#f0fdf4' : '#fffbeb', borderLeft: `4px solid ${jawabanExpert ? '#16a34a' : '#f59e0b'}`, padding: '8px 12px', borderRadius: '0 6px 6px 0' }}>
                                 <div style={{ fontSize: 11, fontWeight: 800, color: jawabanExpert ? '#166534' : '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-                                  {jawabanExpert ? '✅ Jawaban / Balasan Pakar:' : '⏳ Status Jawaban:'}
+                                  {jawabanExpert ? '✅ Tanggapan / Balasan:' : '⏳ Status Jawaban:'}
                                 </div>
                                 <div style={{ fontSize: 12.5, color: jawabanExpert ? '#14532d' : '#78350f', whiteSpace: 'pre-wrap', lineHeight: 1.45, fontStyle: jawabanExpert ? 'normal' : 'italic' }}>
                                   {jawabanExpert || 'Belum ada tanggapan atau balasan yang dikirimkan.'}
@@ -1328,17 +1365,38 @@ export default function AdminDashboardPage() {
                               </div>
                             </div>
                           </td>
+                          {/* DROPDOWN UPDATE STATUS DI TABEL */}
                           <td style={STYLES.td}>
-                            <span style={status.toLowerCase() === 'selesai' || status.toLowerCase() === 'answered' ? STYLES.badgeActive : (status.toLowerCase() === 'diproses' || status.toLowerCase() === 'assigned' ? { ...STYLES.badgePending, background: '#e0f2fe', color: '#0369a1' } : STYLES.badgePending)}>
-                              {status.toUpperCase()}
-                            </span>
+                            <select
+                              value={status || 'Menunggu'}
+                              onChange={(e) => handleUpdateStatus(ticketId, e.target.value)}
+                              style={{
+                                ...STYLES.statusSelect,
+                                background:
+                                  status === 'Selesai' ? '#dcfce7' :
+                                  status === 'Sedang Diverifikasi' ? '#e0e7ff' :
+                                  status === 'Diteruskan ke Pakar' ? '#dbeafe' :
+                                  status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
+                                color:
+                                  status === 'Selesai' ? '#166534' :
+                                  status === 'Sedang Diverifikasi' ? '#3730a3' :
+                                  status === 'Diteruskan ke Pakar' ? '#1e40af' :
+                                  status === 'Ditolak' ? '#991b1b' : '#854d0e'
+                              }}
+                            >
+                              <option value="Menunggu">⏳ Menunggu</option>
+                              <option value="Sedang Diverifikasi">🔍 Sedang Diverifikasi</option>
+                              <option value="Diteruskan ke Pakar">➡️ Diteruskan ke Pakar</option>
+                              <option value="Selesai">✅ Selesai</option>
+                              <option value="Ditolak">❌ Ditolak</option>
+                            </select>
                           </td>
                           <td style={{ ...STYLES.td, textAlign: 'center' }}>
                             <button 
                               onClick={() => handleOpenReplyModal(c)} 
                               style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%', whiteSpace: 'nowrap' }}
                             >
-                              ✍️ Tanggapi / Balas
+                              ✍️ Jawab Tiket
                             </button>
                           </td>
                         </tr>
@@ -1369,9 +1427,11 @@ export default function AdminDashboardPage() {
                 <input type="text" placeholder="Cari pengirim, topik, atau ID Tiket..." value={adminConsultSearchQuery} onChange={e => setAdminConsultSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 320 }} />
                 <select value={adminConsultStatusFilter} onChange={e => setAdminConsultStatusFilter(e.target.value)} style={{ ...STYLES.input, maxWidth: 200 }}>
                   <option value="ALL">Semua Status</option>
-                  <option value="menunggu">Menunggu / Pending</option>
-                  <option value="diproses">Diproses</option>
-                  <option value="selesai">Selesai</option>
+                  <option value="Menunggu">⏳ Menunggu</option>
+                  <option value="Sedang Diverifikasi">🔍 Sedang Diverifikasi</option>
+                  <option value="Diteruskan ke Pakar">➡️ Diteruskan ke Pakar</option>
+                  <option value="Selesai">✅ Selesai</option>
+                  <option value="Ditolak">❌ Ditolak</option>
                 </select>
               </div>
 
@@ -1384,7 +1444,7 @@ export default function AdminDashboardPage() {
                           <input 
                             type="checkbox" 
                             onChange={(e) => {
-                              const allIds = filteredAdminConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.id || c[0] || ''));
+                              const allIds = filteredAdminConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || ''));
                               setSelectedAdminConsultations(e.target.checked ? allIds : []);
                             }}
                             checked={selectedAdminConsultations.length === filteredAdminConsultations.length && filteredAdminConsultations.length > 0}
@@ -1395,13 +1455,13 @@ export default function AdminDashboardPage() {
                       <th style={{ ...STYLES.th, width: 100 }}>ID Tiket</th>
                       <th style={{ ...STYLES.th, width: 220 }}>Admin &amp; Pakar</th>
                       <th style={STYLES.th}>Rincian Pesan &amp; Tanggapan</th>
-                      <th style={{ ...STYLES.th, width: 110 }}>Status</th>
+                      <th style={{ ...STYLES.th, width: 130 }}>Status</th>
                       <th style={{ ...STYLES.th, width: 140, textAlign: 'center' }}>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredAdminConsultations.map((item: any, i: number) => {
-                      const ticketId = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.id || item[0] || i);
+                      const ticketId = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || i);
                       const adminPengirim = item.admin_name || item.adminName || item.user_name || item['Nama User'] || adminName || 'Admin Operator';
                       const expertTujuan = item.expert_email || item['Expert Tujuan'] || item.pakar_email || 'Pakar Terkait';
                       
@@ -1430,7 +1490,7 @@ export default function AdminDashboardPage() {
                             </td>
                           )}
                           <td style={STYLES.td}>📅 {dateStr}</td>
-                          <td style={STYLES.td}><strong style={{ color: '#1e3a8a' }}>#{ticketId}</strong></td>
+                          <td style={STYLES.td}><span style={STYLES.idTag}>#{ticketId}</span></td>
                           <td style={STYLES.td}>
                             <div><strong>👤 {adminPengirim}</strong></div>
                             <div style={{ fontSize: 11, color: '#2563eb', marginTop: 2 }}>🎯 Pakar: {expertTujuan}</div>
@@ -1448,16 +1508,36 @@ export default function AdminDashboardPage() {
                             </div>
                           </td>
                           <td style={STYLES.td}>
-                            <span style={status.toLowerCase() === 'selesai' ? STYLES.badgeActive : STYLES.badgePending}>
-                              {status}
-                            </span>
+                            <select
+                              value={status || 'Menunggu'}
+                              onChange={(e) => handleUpdateStatus(ticketId, e.target.value)}
+                              style={{
+                                ...STYLES.statusSelect,
+                                background:
+                                  status === 'Selesai' ? '#dcfce7' :
+                                  status === 'Sedang Diverifikasi' ? '#e0e7ff' :
+                                  status === 'Diteruskan ke Pakar' ? '#dbeafe' :
+                                  status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
+                                color:
+                                  status === 'Selesai' ? '#166534' :
+                                  status === 'Sedang Diverifikasi' ? '#3730a3' :
+                                  status === 'Diteruskan ke Pakar' ? '#1e40af' :
+                                  status === 'Ditolak' ? '#991b1b' : '#854d0e'
+                              }}
+                            >
+                              <option value="Menunggu">⏳ Menunggu</option>
+                              <option value="Sedang Diverifikasi">🔍 Sedang Diverifikasi</option>
+                              <option value="Diteruskan ke Pakar">➡️ Diteruskan ke Pakar</option>
+                              <option value="Selesai">✅ Selesai</option>
+                              <option value="Ditolak">❌ Ditolak</option>
+                            </select>
                           </td>
                           <td style={{ ...STYLES.td, textAlign: 'center' }}>
                             <button 
                               onClick={() => handleOpenReplyModal(item)} 
                               style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%' }}
                             >
-                              ✍️ Tanggapi
+                              ✍️ Jawab Tiket
                             </button>
                           </td>
                         </tr>
@@ -1484,7 +1564,6 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {/* 🟢 STATISTIK DIPERBARUI MENJADI 4 KOLOM */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
                 <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 16 }}>
                   <div style={{ fontSize: 12, color: '#1e40af', fontWeight: 600 }}>Total Kunjungan</div>
@@ -1683,7 +1762,7 @@ export default function AdminDashboardPage() {
           {/* TAB 8: SOP & PANDUAN */}
           {activeTab === 'sop_guide' && (
             <div>
-              <h3>SOP & Panduan Operasional</h3>
+              <h3>SOP &amp; Panduan Operasional</h3>
               <p style={{ fontSize: 13.5, color: '#475569', lineHeight: 1.6, marginBottom: 20 }}>
                 Selamat datang di Panduan Operasional Admin. Pastikan Anda berhati-hati dalam mengubah data, terutama data Pakar dan Konsultasi.
               </p>
@@ -1708,11 +1787,12 @@ export default function AdminDashboardPage() {
                 </div>
 
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, background: '#f8fafc' }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: '#1e3a8a', fontSize: 14 }}>3. Tiket Konsultasi &amp; Smart Payment Intent</h4>
+                  <h4 style={{ margin: '0 0 8px 0', color: '#1e3a8a', fontSize: 14 }}>3. Tiket Konsultasi &amp; Template 1 - 4</h4>
                   <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: '#334155', lineHeight: 1.5 }}>
-                    <li>Sistem secara otomatis mendeteksi intensi upgrade paket dari pertanyaan pemohon dan menyediakan template instruksi pembayaran formal.</li>
-                    <li>Jika terdeteksi lampiran berkas bukti transfer, sistem otomatis membuat template balasan konfirmasi upgrade, instruksi restart, dan stempel digital resmi.</li>
-                    <li>Penghapusan data secara permanen dibatasi eksklusif hanya untuk akun dengan peran <strong>Super Admin</strong>.</li>
+                    <li>Gunakan <strong>Template 1</strong> untuk mengirimkan rincian rekening transfer bank kepada pemohon upgrade paket.</li>
+                    <li>Gunakan <strong>Template 2</strong> setelah bukti pembayaran diverifikasi untuk mengaktifkan akun dan mengubah status tiket menjadi Selesai.</li>
+                    <li>Gunakan <strong>Template 3</strong> jika bukti transfer sedang dicocokkan dengan mutasi perbankan.</li>
+                    <li>Gunakan <strong>Template 4</strong> jika data pembayaran atau bukti transfer tidak valid.</li>
                   </ul>
                 </div>
               </div>
@@ -1905,7 +1985,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* MODAL TANGGAPI / BALAS TIKET KONSULTASI */}
+      {/* 🟢 MODAL TANGGAPI / BALAS TIKET KONSULTASI (DENGAN TEMPLATE 1 - 4) */}
       {showReplyModal && selectedTicket && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalBox}>
@@ -1928,24 +2008,24 @@ export default function AdminDashboardPage() {
             </div>
             
             {/* Pratinjau Lengkap Data Pemohon & Pertanyaan */}
-            <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+            <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: '#64748b' }}>ID Tiket: <strong style={{ color: '#1e3a8a' }}>#{selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket[0]}</strong></span>
+                <span style={{ fontSize: 12, color: '#64748b' }}>ID Tiket: <strong style={{ color: '#1e3a8a' }}>#{selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket[0]}</strong></span>
                 <span style={{ fontSize: 12, color: '#64748b' }}>Waktu: <strong>{formatDisplayDate(selectedTicket.created_at || selectedTicket['Tanggal Dibuat'] || selectedTicket[8] || selectedTicket[0])}</strong></span>
               </div>
               <div style={{ fontSize: 12.5, color: '#334155', marginBottom: 6 }}>
-                Pemohon: <strong style={{ color: '#0f172a' }}>{selectedTicket.user_name || selectedTicket['Nama User'] || selectedTicket[3] || 'Pemohon'}</strong> ({selectedTicket.user_email || selectedTicket['Kontak User'] || selectedTicket[4] || '-'})
+                Pemohon: <strong style={{ color: '#0f172a' }}>{selectedTicket.user_name || selectedTicket['Nama User'] || selectedTicket.nama_user || selectedTicket[3] || 'Pemohon'}</strong> ({selectedTicket.user_email || selectedTicket['Kontak User'] || selectedTicket.email || selectedTicket[4] || '-'})
                 {selectedTicket.asal_institusi || selectedTicket[5] ? ` - ${selectedTicket.asal_institusi || selectedTicket[5]}` : ''}
               </div>
               
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #cbd5e1' }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', marginBottom: 3 }}>Pertanyaan User:</div>
                 <div style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', lineHeight: 1.5, background: '#fff', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1' }}>
-                  {selectedTicket.pertanyaan || selectedTicket['Topik Pesan'] || selectedTicket[6] || '-'}
+                  {selectedTicket.pertanyaan || selectedTicket['Topik Pesan'] || selectedTicket.topik_pesan || selectedTicket[6] || '-'}
                 </div>
-                {(selectedTicket.lampiran || selectedTicket[10]) && (
+                {(selectedTicket.lampiran || selectedTicket.fileUrl || selectedTicket[10]) && (
                   <div style={{ marginTop: 8 }}>
-                    <a href={selectedTicket.lampiran || selectedTicket[10]} target="_blank" rel="noreferrer" style={STYLES.linkBadge}>
+                    <a href={selectedTicket.lampiran || selectedTicket.fileUrl || selectedTicket[10]} target="_blank" rel="noreferrer" style={STYLES.linkBadge}>
                       📎 Buka Berkas Lampiran User
                     </a>
                   </div>
@@ -1953,22 +2033,61 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
+            {/* 🟢 TOMBOL PILIH TEMPLATE BALASAN CEPAT 1 - 4 */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+                ⚡ Pilih Template Balasan Cepat:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => applyTemplate(1)}
+                  style={{ ...STYLES.btnTemplate, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                >
+                  💳 1. Instruksi Transfer Bank
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTemplate(2)}
+                  style={{ ...STYLES.btnTemplate, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                >
+                  🟢 2. Upgrade Berhasil (Aktif)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTemplate(3)}
+                  style={{ ...STYLES.btnTemplate, background: '#fefce8', color: '#854d0e', border: '1px solid #fef08a' }}
+                >
+                  ⏳ 3. Sedang Diverifikasi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTemplate(4)}
+                  style={{ ...STYLES.btnTemplate, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}
+                >
+                  ❌ 4. Upgrade Ditolak
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleReplySubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
                 <label style={STYLES.label}>Status Tiket</label>
                 <select value={replyStatus} onChange={e => setReplyStatus(e.target.value)} style={STYLES.input}>
-                  <option value="Selesai">Selesai (Answered / Closed)</option>
-                  <option value="Diproses">Diproses (Assigned / In Progress)</option>
-                  <option value="Menunggu">Menunggu (Pending)</option>
+                  <option value="Menunggu">⏳ Menunggu</option>
+                  <option value="Sedang Diverifikasi">🔍 Sedang Diverifikasi</option>
+                  <option value="Diteruskan ke Pakar">➡️ Diteruskan ke Pakar</option>
+                  <option value="Selesai">✅ Selesai</option>
+                  <option value="Ditolak">❌ Ditolak</option>
                 </select>
               </div>
               <div>
-                <label style={STYLES.label}>Jawaban / Balasan Resmi (Akan Terkirim ke User)</label>
-                <textarea rows={8} value={replyMessage} onChange={e => setReplyMessage(e.target.value)} style={{...STYLES.input, resize: 'vertical'}} required placeholder="Ketik isi jawaban/balasan konsultasi di sini..." />
+                <label style={STYLES.label}>Jawaban / Balasan Resmi (Akan Terkirim ke User) *</label>
+                <textarea rows={8} value={replyMessage} onChange={e => setReplyMessage(e.target.value)} style={{...STYLES.input, resize: 'vertical'}} required placeholder="Ketik isi jawaban/balasan konsultasi atau gunakan template cepat di atas..." />
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                 <button type="button" onClick={() => setShowReplyModal(false)} style={STYLES.btnCancel}>Batal</button>
-                <button type="submit" disabled={submittingReply} style={STYLES.btnSaveModal}>{submittingReply ? 'Mengirim...' : 'Kirim Jawaban'}</button>
+                <button type="submit" disabled={submittingReply} style={STYLES.btnSaveModal}>{submittingReply ? 'Mengirim...' : 'Kirim Jawaban & Simpan'}</button>
               </div>
             </form>
           </div>
@@ -1998,6 +2117,9 @@ const STYLES: Record<string, React.CSSProperties> = {
   btnDelete: { background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', transition: '0.2s' },
   badgeActive: { background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, display: 'inline-block' },
   badgePending: { background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, display: 'inline-block' },
+  idTag: { background: '#eff6ff', color: '#1d4ed8', padding: '3px 7px', borderRadius: 5, fontSize: 11.5, fontWeight: 800, border: '1px solid #bfdbfe' },
+  statusSelect: { padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', outline: 'none' },
+  btnTemplate: { padding: '8px 10px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', textAlign: 'left' },
   linkBadge: { background: '#dbeafe', color: '#1d4ed8', padding: '3px 8px', borderRadius: 4, fontSize: 11, textDecoration: 'none', fontWeight: 700, border: '1px solid #bfdbfe', display: 'inline-block' },
   missingBadge: { background: '#fef2f2', color: '#dc2626', padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 600, border: '1px solid #fecaca' },
   tableWrap: { overflowX: 'auto', marginTop: 16, border: '1px solid #e2e8f0', borderRadius: 8 },

@@ -80,7 +80,8 @@ export default function SuperAdminControlPage() {
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'admin_performance' | 'admins_management' | 'subscriptions' | 'plans_config' | 'signature_stamp'>('admin_performance');
+  // 🟢 Tab Ditambahkan: project_retention
+  const [activeTab, setActiveTab] = useState<'admin_performance' | 'admins_management' | 'subscriptions' | 'plans_config' | 'signature_stamp' | 'project_retention'>('admin_performance');
 
   // State Data Khusus SuperAdmin
   const [admins, setAdmins] = useState<AdminItem[]>([]);
@@ -106,7 +107,7 @@ export default function SuperAdminControlPage() {
     notes: ''
   });
 
-  // State Config Plans (Default Kapital)
+  // State Config Plans
   const [plans, setPlans] = useState<PlanSetting[]>([
     { plan_key: 'FREE', label: 'FREE', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 5, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: true, allow_alternative_method: false, allow_ai_features: false },
     { plan_key: 'PRO', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
@@ -145,6 +146,11 @@ export default function SuperAdminControlPage() {
   const [diditMeActive, setDiditMeActive] = useState(true);
   const [diditApiKey, setDiditApiKey] = useState('');
 
+  // 🟢 State Pengaturan Retensi & Kedaluwarsa Proyek
+  const [expirationMonths, setExpirationMonths] = useState<number>(6);
+  const [autoDeleteEnabled, setAutoDeleteEnabled] = useState<boolean>(true);
+  const [savingRetention, setSavingRetention] = useState<boolean>(false);
+
   const fetchWithCatch = useCallback(async (action: string) => {
     if (!GOOGLE_SCRIPT_URL) return [];
     try {
@@ -175,25 +181,25 @@ export default function SuperAdminControlPage() {
       setLoading(true);
       setApiError('');
 
-      const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData, systemAssetsData] = await Promise.all([
+      const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData, systemAssetsData, retentionData] = await Promise.all([
         fetchWithCatch('getadmins'),
         fetchWithCatch('getadminlogs'),
         fetchWithCatch('getpaymentsettings'),
         fetchWithCatch('getdiditsettings'),
         fetchWithCatch('getplansettings'),
         fetchWithCatch('getallusersubscriptions'),
-        fetchWithCatch('get_system_assets') // 👈 Menarik data aset dari GET
+        fetchWithCatch('get_system_assets'),
+        fetchWithCatch('getprojectexpirationsettings') // 👈 Menarik data pengaturan retensi proyek
       ]);
 
       setAdmins(Array.isArray(admData) ? admData : []);
       setAdminLogsList(Array.isArray(logsData) ? logsData : []);
       setUserSubscriptions(Array.isArray(userSubsData) ? userSubsData : []);
 
-      // 🟢 Sinkronisasi data Aset Sistem yang Lebih Fleksibel
+      // Sinkronisasi data Aset Sistem
       let assetsMap: Record<string, string> = {};
       if (systemAssetsData) {
         if (Array.isArray(systemAssetsData)) {
-          // Jika backend mengirim dalam bentuk Array
           systemAssetsData.forEach((row: any) => {
             if (row.setting_key && row.setting_value !== undefined) {
               assetsMap[row.setting_key] = row.setting_value;
@@ -202,12 +208,10 @@ export default function SuperAdminControlPage() {
             }
           });
         } else if (typeof systemAssetsData === 'object') {
-          // Jika backend mengirim dalam bentuk Object { key: value }
           assetsMap = systemAssetsData;
         }
       }
 
-      // Masukkan ke dalam State dan LocalStorage
       if (Object.keys(assetsMap).length > 0) {
         if (assetsMap.active_signer_type) {
           setActiveSignerType(assetsMap.active_signer_type as 'main' | 'backup');
@@ -267,6 +271,16 @@ export default function SuperAdminControlPage() {
         }
       }
 
+      // 🟢 Sinkronisasi Pengaturan Retensi Proyek
+      if (retentionData && typeof retentionData === 'object') {
+        if (retentionData.expiration_months !== undefined) {
+          setExpirationMonths(Number(retentionData.expiration_months) || 6);
+        }
+        if (retentionData.auto_delete_enabled !== undefined) {
+          setAutoDeleteEnabled(Boolean(retentionData.auto_delete_enabled));
+        }
+      }
+
     } catch (err: any) {
       setApiError(`Gagal mengambil data kontrol: ${err.message}`);
     } finally {
@@ -292,7 +306,6 @@ export default function SuperAdminControlPage() {
     setAdminEmail(email);
     setAdminRole(role);
 
-    // Initial load dari cache localStorage agar UI cepat muncul
     setSuperAdminSignatureUrl(localStorage.getItem('superadmin_signature_url') || '');
     setActiveSignerType((localStorage.getItem('active_signer_type') as 'main' | 'backup') || 'main');
     setBackupSignerName(localStorage.getItem('backup_signer_name') || '');
@@ -305,7 +318,6 @@ export default function SuperAdminControlPage() {
     const storedDidit = localStorage.getItem('diditme_active');
     if (storedDidit !== null) setDiditMeActive(storedDidit === 'true');
 
-    // Fetch pembaruan dari server
     fetchSuperData();
   }, [router, fetchSuperData]);
 
@@ -628,11 +640,19 @@ export default function SuperAdminControlPage() {
         }),
         redirect: 'follow'
       });
-      const json = await res.json();
-      if (json.success) {
+      
+      const txtRes = await res.text();
+      let json;
+      try {
+        json = JSON.parse(txtRes);
+      } catch (e) {
+        throw new Error("Gagal parsing respons server. Pastikan URL Apps Script benar.");
+      }
+
+      if (json.success !== false) {
         alert('✅ Pengaturan Config Paket & Batasan berhasil disimpan!');
       } else {
-        alert('Gagal menyimpan: ' + json.message);
+        alert('Gagal menyimpan: ' + (json.message || 'Error tidak diketahui'));
       }
     } catch (err: any) {
       alert('Kesalahan jaringan: ' + err.message);
@@ -641,7 +661,6 @@ export default function SuperAdminControlPage() {
     }
   };
 
-  // 🟢 SIMPAN TANDA TANGAN, LOGO, XENDIT & DIDIT.ME DENGAN AMAN
   const handleSaveSignatureSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -725,6 +744,37 @@ export default function SuperAdminControlPage() {
     }
   };
 
+  // 🟢 SIMPAN PENGATURAN RETENSI PROYEK
+  const handleSaveProjectRetention = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!GOOGLE_SCRIPT_URL) return;
+
+    try {
+      setSavingRetention(true);
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'saveprojectexpirationsettings',
+          expiration_months: expirationMonths,
+          auto_delete_enabled: autoDeleteEnabled,
+          adminName, adminEmail, adminRole
+        })
+      });
+
+      const json = await res.json();
+      if (json.success !== false) {
+        alert(json.message || '✅ Pengaturan retensi & kedaluwarsa proyek berhasil disimpan!');
+      } else {
+        alert('Gagal menyimpan: ' + (json.message || 'Error tidak diketahui'));
+      }
+    } catch (err: any) {
+      alert('Gagal menyimpan pengaturan retensi: ' + err.message);
+    } finally {
+      setSavingRetention(false);
+    }
+  };
+
   const handleDeleteAdminLogs = async () => {
     if (!window.confirm('⚠️ PERINGATAN FATAL: Apakah Anda yakin ingin menghapus SELURUH riwayat aktivitas audit admin?')) return;
 
@@ -795,6 +845,10 @@ export default function SuperAdminControlPage() {
           </button>
           <button onClick={() => setActiveTab('signature_stamp')} style={activeTab === 'signature_stamp' ? STYLES.tabActive : STYLES.tabInactive}>
             ✍️ Pengaturan Tanda Tangan & Pembayaran
+          </button>
+          {/* 🟢 TOMBOL TAB RETENSI & ARSIP */}
+          <button onClick={() => setActiveTab('project_retention')} style={activeTab === 'project_retention' ? STYLES.tabActive : STYLES.tabInactive}>
+            ⏳ Retensi &amp; Arsip Proyek
           </button>
         </div>
 
@@ -923,7 +977,7 @@ export default function SuperAdminControlPage() {
             </div>
           )}
 
-          {/* 3. USER SUBSCRIPTIONS (KHUSUS PENGGUNA KOMERSIAL) */}
+          {/* 3. USER SUBSCRIPTIONS */}
           {activeTab === 'subscriptions' && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1174,7 +1228,7 @@ export default function SuperAdminControlPage() {
                   )}
                 </div>
 
-                {/* BLOK PENGATURAN XENDIT LENGKAP */}
+                {/* XENDIT */}
                 <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
                   <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>💳 Konfigurasi Xendit Payment Gateway</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1223,7 +1277,7 @@ export default function SuperAdminControlPage() {
                   </div>
                 </div>
 
-                {/* BLOK PENGATURAN DIDIT.ME */}
+                {/* DIDIT.ME */}
                 <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
                   <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>🔗 Integrasi Didit.me (Halaman Publik Expert Directory)</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1257,6 +1311,81 @@ export default function SuperAdminControlPage() {
                   {loading ? 'Menyimpan...' : 'Simpan Pengaturan Sistem'}
                 </button>
               </form>
+            </div>
+          )}
+
+          {/* 🟢 6. TAB BARU: PENGATURAN RETENSI & ARSIP PROYEK */}
+          {activeTab === 'project_retention' && (
+            <div>
+              <div style={STYLES.cardTitleRow}>
+                <div>
+                  <h3 style={STYLES.cardTitle}>⏳ Kebijakan Retensi &amp; Kedaluwarsa Proyek AHP</h3>
+                  <p style={STYLES.cardDesc}>
+                    Atur batas waktu proyek yang tidak aktif sebelum dicadangkan (*backup*) dan dibersihkan otomatis dari basis data.
+                  </p>
+                </div>
+                <button 
+                  onClick={() => router.push('/admin/archives')} 
+                  style={{ ...STYLES.btnAdd, background: '#0284c7' }}
+                >
+                  🗄️ Buka Halaman Arsip Proyek
+                </button>
+              </div>
+
+              {loading ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>⏳ Memuat konfigurasi retensi...</div>
+              ) : (
+                <form onSubmit={handleSaveProjectRetention} style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 640, marginTop: 10 }}>
+                  
+                  {/* TOGGLE AUTOMATISASI */}
+                  <div style={{ background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #cbd5e1' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                      <div>
+                        <strong style={{ fontSize: 14, color: '#0f172a' }}>Otomatisasi Backup &amp; Pembersihan</strong>
+                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                          Jalankan pemindahan otomatis proyek kedaluwarsa ke lembar cadangan (*Archive_Projects*).
+                        </div>
+                      </div>
+                      <input 
+                        type="checkbox" 
+                        checked={autoDeleteEnabled} 
+                        onChange={(e) => setAutoDeleteEnabled(e.target.checked)}
+                        style={{ width: 20, height: 20, cursor: 'pointer' }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* PILIHAN BATAS WAKTU */}
+                  <div style={{ opacity: autoDeleteEnabled ? 1 : 0.5, pointerEvents: autoDeleteEnabled ? 'auto' : 'none' }}>
+                    <label style={STYLES.label}>Batas Waktu Tanpa Aktivitas:</label>
+                    <select 
+                      value={expirationMonths} 
+                      onChange={(e) => setExpirationMonths(Number(e.target.value))}
+                      style={{ ...STYLES.input, fontWeight: 700, marginTop: 6 }}
+                    >
+                      <option value={1}>1 Bulan (30 Hari)</option>
+                      <option value={3}>3 Bulan (90 Hari)</option>
+                      <option value={6}>6 Bulan (180 Hari) - Rekomendasi Standar</option>
+                      <option value={12}>12 Bulan (1 Tahun)</option>
+                      <option value={24}>24 Bulan (2 Tahun)</option>
+                    </select>
+
+                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginTop: 12, fontSize: 12.5, color: '#1e40af', lineHeight: 1.5 }}>
+                      💡 <strong>Perlindungan Data:</strong> Sebelum data dihapus dari daftar aktif, seluruh baris proyek beserta respons kuesioner akan disalin terlebih dahulu ke tab arsip. <strong>Sertifikat Pakar (Certificate Requests) tidak akan pernah dihapus</strong> dan tetap aman selamanya.
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 10, paddingTop: 6 }}>
+                    <button 
+                      type="submit" 
+                      disabled={savingRetention} 
+                      style={savingRetention ? { ...STYLES.btnSaveModal, background: '#94a3b8' } : STYLES.btnSaveModal}
+                    >
+                      {savingRetention ? 'Menyimpan Pengaturan...' : '💾 Simpan Kebijakan Retensi'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           )}
 
@@ -1336,7 +1465,7 @@ export default function SuperAdminControlPage() {
         </div>
       )}
 
-      {/* MODAL EDIT PRIVILESE USER (DENGAN PILIHAN PLAN KAPITAL & OPSI CHECKBOX CUSTOM FEATURES) */}
+      {/* MODAL EDIT PRIVILESE USER */}
       {isEditSubModalOpen && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalBox, maxWidth: 500 }}>

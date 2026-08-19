@@ -198,6 +198,22 @@ function formatRupiah(amount: number) {
   }).format(amount)
 }
 
+// 🟢 SAFE FETCH HELPER (Mencegah Crash jika salah satu endpoint gagal)
+async function safeFetchJson(url: string) {
+  try {
+    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
+    if (!res.ok) return null
+    const text = await res.text()
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  } catch {
+    return null
+  }
+}
+
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
   let dataObj = raw.data || raw.result || raw.payload || raw;
@@ -383,13 +399,12 @@ function UpgradeModal({
     async function loadPlanSettings() {
       try {
         setFetchingPlans(true)
-        const [resPlans, resPayment] = await Promise.all([
-          fetch(`${API_URL}?action=getplansettings&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }),
-          fetch(`${API_URL}?action=getpaymentsettings&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' })
+        const [jsonPlans, jsonPayment] = await Promise.all([
+          safeFetchJson(`${API_URL}?action=getplansettings&_t=${Date.now()}`),
+          safeFetchJson(`${API_URL}?action=getpaymentsettings&_t=${Date.now()}`)
         ])
 
-        const jsonPlans = await resPlans.json()
-        if (jsonPlans.success && Array.isArray(jsonPlans.data)) {
+        if (jsonPlans && jsonPlans.success && Array.isArray(jsonPlans.data)) {
           const map: Record<string, DynamicPlanSetting> = {}
           jsonPlans.data.forEach((p: DynamicPlanSetting) => {
             if (p.plan_key) {
@@ -399,8 +414,7 @@ function UpgradeModal({
           setDynamicPlans(map)
         }
 
-        const jsonPayment = await resPayment.json().catch(() => ({}))
-        if (jsonPayment.success && jsonPayment.data) {
+        if (jsonPayment && jsonPayment.success && jsonPayment.data) {
           setIsXenditActive(String(jsonPayment.data.is_xendit_active).toUpperCase() === 'TRUE')
         }
 
@@ -1026,22 +1040,6 @@ function countSubcriteriaFromMap(value: unknown): number {
   }, 0)
 }
 
-function normalizeExpert(raw: RawExpert): Expert {
-  return {
-    id: String(raw?.id ?? raw?.expertid ?? raw?.expert_id ?? '').trim(),
-    project_id: String(raw?.project_id ?? raw?.projectid ?? '').trim(),
-    expert_index: Number(raw?.expert_index ?? raw?.expertindex ?? 0),
-    name: String(raw?.expert_name ?? raw?.expertname ?? '').trim(),
-    email: String(raw?.expert_email ?? raw?.expertemail ?? '').trim(),
-    whatsapp: String(raw?.expert_whatsapp ?? raw?.expertwhatsapp ?? '').trim(),
-    role: String(raw?.role ?? '').trim().toLowerCase(),
-    status: String(raw?.status ?? '').trim().toLowerCase(),
-    response_status: String(raw?.response_status ?? raw?.responsestatus ?? '')
-      .trim()
-      .toLowerCase(),
-  }
-}
-
 function normalizeProject(raw: RawProject): Project {
   const criteriaList = splitCsv(raw?.kriteria ?? raw?.criteria ?? raw?.criteria_csv ?? (raw as any)?.['criteria'])
   const alternatifList = splitCsv(raw?.alternatif ?? raw?.alternatives ?? raw?.alternatif_csv)
@@ -1075,6 +1073,8 @@ function normalizeProject(raw: RawProject): Project {
     calculatedCritCount = criteriaList.length;
   }
 
+  const expertCount = Number(raw?.jumlah_expert ?? raw?.jumlahexpert ?? 0)
+
   return {
     id: String(raw?.id ?? raw?.project_id ?? raw?.projectid ?? '').trim(),
     user_id: String(raw?.user_id ?? raw?.userid ?? '').trim(),
@@ -1082,8 +1082,8 @@ function normalizeProject(raw: RawProject): Project {
     nama_proyek: String(raw?.nama_proyek ?? raw?.namaproyek ?? raw?.judul ?? raw?.title ?? '').trim(),
     deskripsi: String(raw?.deskripsi ?? '').trim(),
     metode: String(raw?.metode ?? '').trim(),
-    jumlah_expert: Number(raw?.jumlah_expert ?? raw?.jumlahexpert ?? 0),
-    jumlah_expert_responden: 0,
+    jumlah_expert: expertCount,
+    jumlah_expert_responden: expertCount, // 🟢 Menggunakan data langsung tanpa N+1 loop
     punya_subkriteria: Boolean(raw?.punya_subkriteria),
     fasilitator_email: String(raw?.fasilitator_email ?? raw?.fasilitatoremail ?? '').trim(),
     fasilitator_whatsapp: String(
@@ -1101,7 +1101,7 @@ function normalizeProject(raw: RawProject): Project {
   }
 }
 
-// 🟢 KOMPONEN TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO DIPERBESAR
+// 🟢 KOMPONEN TOP BAR UTAMA
 function AppTopBar() {
   return (
     <div style={topBarStyles.container} className="no-print">
@@ -1116,7 +1116,7 @@ function AppTopBar() {
   )
 }
 
-// 🟢 KOMPONEN SIDEBAR DENGAN PLAN DI POSISI ATAS & DAFTAR PROYEK
+// 🟢 KOMPONEN SIDEBAR BERSIH
 function DashboardSidebar({
   user,
   userProfile,
@@ -1129,7 +1129,6 @@ function DashboardSidebar({
   onOpenProfile,
   onOpenUpgrade,
   onLogout,
-  onSelectSection
 }: {
   user: UserSession | null
   userProfile: UserProfileData
@@ -1142,7 +1141,6 @@ function DashboardSidebar({
   onOpenProfile: () => void
   onOpenUpgrade: () => void
   onLogout: () => void
-  onSelectSection: (sec: 'dashboard' | 'consultation') => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -1151,7 +1149,7 @@ function DashboardSidebar({
   const planBadgeColor = 
     userPlan === 'premium' ? '#9333ea' : 
     userPlan === 'plus' ? '#2563eb' : 
-    userPlan === 'pro' ? '#16a34a' : '#64748b';
+    userPlan === 'pro' ? '#16a34a' : '#64748b'
 
   const navItems = [
     {
@@ -1161,25 +1159,31 @@ function DashboardSidebar({
       onClick: onOpenUpgrade
     },
     {
-      label: 'Dashboard Analisis',
+      label: 'Dashboard Utama',
       icon: '📊',
       active: pathname === '/dashboard',
-      onClick: () => {
-        router.push('/dashboard')
-        onSelectSection('dashboard')
-      }
+      onClick: () => router.push('/dashboard')
     },
     {
-      label: 'Tiket Konsultasi',
+      label: 'Proyek AHP Saya',
+      icon: '📁',
+      badge: projects.length > 0 ? String(projects.length) : undefined,
+      badgeColor: '#2563eb',
+      active: pathname === '/user/projects',
+      onClick: () => router.push('/user/projects')
+    },
+    {
+      label: 'Pusat Konsultasi',
       icon: '💬',
       badge: consultationCount > 0 ? String(consultationCount) : undefined,
       badgeColor: '#10b981',
-      onClick: () => onSelectSection('consultation')
+      active: pathname === '/user/consultations',
+      onClick: () => router.push('/user/consultations')
     },
     {
       label: 'Direktori Pakar',
       icon: '👥',
-      active: pathname === '/expert-directory',
+      active: pathname === '/expert-directory' || pathname === '/expert/directory',
       onClick: () => router.push('/expert-directory')
     },
     {
@@ -1304,44 +1308,6 @@ function DashboardSidebar({
             )}
           </button>
         ))}
-
-        {!isCollapsed && projects.length > 0 && (
-          <div style={{ marginTop: 12, paddingBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
-              📁 Proyek Anda ({projects.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: 'transparent',
-                    color: '#cbd5e1',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: 11.5,
-                    padding: '6px 14px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    width: '100%',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={p.nama_proyek}
-                >
-                  <span style={{ fontSize: 10 }}>🔹</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nama_proyek}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </nav>
 
       <div style={{
@@ -1368,7 +1334,6 @@ function DashboardContent() {
 
   const [session, setSession] = useState<UserSession | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
-  
   const [dynamicPlans, setDynamicPlans] = useState<Record<string, DynamicPlanSetting>>({})
 
   const [projects, setProjects] = useState<Project[]>([])
@@ -1410,6 +1375,7 @@ function DashboardContent() {
     )
   }, [userProfile])
 
+  // 🟢 LOAD DASHBOARD SUPER CEPAT & RESILIEN (TANPA N+1 QUERY)
   const loadDashboard = useCallback(async (user: UserSession, isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
@@ -1419,46 +1385,41 @@ function DashboardContent() {
     try {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
 
-      const [subRes, projRes, consultRes, userRes, statsRes, planRes] = await Promise.all([
-        fetch(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
-        fetch(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }),
-        fetch(`${API_URL}?action=getconsultationrequests&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
-        fetch(`${API_URL}?action=getuserprofile&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
-        fetch(`${API_URL}?action=getvisitorstats&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
-        fetch(`${API_URL}?action=getplansettings&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null)
+      // Fetch semua endpoint esensial secara paralel dengan safe fetch
+      const [subJson, projJson, consultJson, userJson, statsJson, planJson] = await Promise.all([
+        safeFetchJson(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getconsultationrequests&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getuserprofile&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getvisitorstats&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getplansettings&_t=${Date.now()}`)
       ])
 
       let currentSub: any = null
       let fallbackPlanFromUser: PlanType = 'free'
 
-      if (userRes) {
-        const uJson = await userRes.json().catch(() => ({}))
-        if (uJson && uJson.data) {
-          setUserProfile({
-            nama: uJson.data.nama || user.nama || '',
-            institusi: uJson.data.institusi || '',
-            city: uJson.data.city || uJson.data.kota || '',
-            digital_signature: uJson.data.digital_signature || uJson.data.tandatangan || '',
-            foto_profil: uJson.data.foto_profil || uJson.data.fotoprofil || '',
-          })
+      // 1. Profil Pengguna
+      if (userJson && userJson.data) {
+        setUserProfile({
+          nama: userJson.data.nama || user.nama || '',
+          institusi: userJson.data.institusi || '',
+          city: userJson.data.city || userJson.data.kota || '',
+          digital_signature: userJson.data.digital_signature || userJson.data.tandatangan || '',
+          foto_profil: userJson.data.foto_profil || userJson.data.fotoprofil || '',
+        })
 
-          const userRawPlan = String(uJson.data.plan || uJson.data.role || uJson.data.status_user || '').toLowerCase().trim()
-          if (['free', 'pro', 'plus', 'premium'].includes(userRawPlan)) {
-            fallbackPlanFromUser = userRawPlan as PlanType
-          }
+        const userRawPlan = String(userJson.data.plan || userJson.data.role || userJson.data.status_user || '').toLowerCase().trim()
+        if (['free', 'pro', 'plus', 'premium'].includes(userRawPlan)) {
+          fallbackPlanFromUser = userRawPlan as PlanType
         }
       }
 
-      // Normalisasi akurat dengan parsing kolom spesifik
-      if (subRes && typeof subRes.json === 'function') {
-        const subJson = await subRes.json().catch(() => ({}))
+      // 2. Subscription Data
+      if (subJson) {
         const parsed = normalizeSubscriptionData(subJson, cleanUserEmail)
-        if (parsed) {
-          currentSub = parsed
-        }
+        if (parsed) currentSub = parsed
       }
 
-      // Fallback ke tabel users HANYA jika baris di sheet subscriptions tidak ditemukan
       if (!currentSub) {
         currentSub = {
           plan: fallbackPlanFromUser,
@@ -1467,116 +1428,75 @@ function DashboardContent() {
           user_id: user.id
         }
       }
-
       setSubscription(currentSub)
 
-      if (planRes) {
-        const pJson = await planRes.json().catch(() => ({}))
-        if (pJson && pJson.success && Array.isArray(pJson.data)) {
-          const map: Record<string, DynamicPlanSetting> = {}
-          pJson.data.forEach((p: DynamicPlanSetting) => {
-            if (p.plan_key) {
-              map[String(p.plan_key).toLowerCase().trim()] = p
-            }
-          })
-          setDynamicPlans(map)
-        }
-      }
-
-      if (statsRes) {
-        const statsJson = await statsRes.json().catch(() => ({}))
-        if (statsJson && statsJson.success) {
-          const totalVisits = typeof statsJson.data === 'object' && statsJson.data !== null 
-            ? (statsJson.data.total_visits || statsJson.data.total_public_visits || 0)
-            : (statsJson.total_visits || statsJson.total_public_visits || 0)
-          setVisitorStats(totalVisits)
-        }
-      }
-
-      const projJson = await projRes.json()
-      const baseProjects: Project[] = Array.isArray(projJson?.data)
-        ? projJson.data.map(normalizeProject)
-        : []
-
-      const normalizedProjects = await Promise.all(
-        baseProjects.map(async (project) => {
-          try {
-            const expertRes = await fetch(
-              `${API_URL}?action=getprojectexperts&project_id=${encodeURIComponent(project.id)}&_t=${Date.now()}`,
-              { method: 'GET', cache: 'no-store' }
-            )
-            const expertJson = await expertRes.json()
-
-            const experts: Expert[] = Array.isArray(expertJson?.data)
-              ? expertJson.data.map(normalizeExpert)
-              : []
-
-            const expertRespondenCount = experts.filter((expert) => {
-              return (
-                expert.project_id.toLowerCase() === project.id.toLowerCase() &&
-                (expert.role === 'expert' || expert.role === '')
-              )
-            }).length
-
-            return {
-              ...project,
-              jumlah_expert_responden: expertRespondenCount || project.jumlah_expert,
-            }
-          } catch (err) {
-            console.error('Gagal memuat expert project:', project.id, err)
-            return {
-              ...project,
-              jumlah_expert_responden: project.jumlah_expert || 0,
-            }
+      // 3. Plan Config
+      if (planJson && planJson.success && Array.isArray(planJson.data)) {
+        const map: Record<string, DynamicPlanSetting> = {}
+        planJson.data.forEach((p: DynamicPlanSetting) => {
+          if (p.plan_key) {
+            map[String(p.plan_key).toLowerCase().trim()] = p
           }
         })
-      )
+        setDynamicPlans(map)
+      }
 
-      if (consultRes) {
-        const consultJson = await consultRes.json().catch(() => ({}))
-        if (consultJson && consultJson.success && Array.isArray(consultJson.data)) {
-          const myTickets: ConsultationTicket[] = (consultJson.data as RawConsultation[])
-            .filter((item: RawConsultation) => {
-              const itemEmail = String(
-                item.user_email || 
-                item.userEmail || 
-                item.kontakUser || 
-                item.kontak_user || 
-                item.user_contact || 
-                ''
-              ).toLowerCase().trim()
+      // 4. Visitor Stats
+      if (statsJson && statsJson.success) {
+        const totalVisits = typeof statsJson.data === 'object' && statsJson.data !== null 
+          ? (statsJson.data.total_visits || statsJson.data.total_public_visits || 0)
+          : (statsJson.total_visits || statsJson.total_public_visits || 0)
+        setVisitorStats(totalVisits)
+      }
 
-              if (cleanUserEmail.includes('admin') || cleanUserEmail === 'admin@ahp.avitech.cloud') {
-                return true
-              }
-              return itemEmail === cleanUserEmail || (itemEmail && cleanUserEmail.includes(itemEmail))
-            })
-            .map((item: RawConsultation) => ({
-              idTiket: String(item.idTiket || item.id_tiket || item.ticket_id || item.id || '-'),
-              projectId: String(item.projectId || item.project_id || item.id_proyek || 'Umum'),
-              namaUser: String(item.namaUser || item.nama_user || item.user_name || 'User'),
-              kontakUser: String(item.kontakUser || item.user_email || item.userEmail || item.kontak_user || user.email),
-              expertTujuan: String(item.expertTujuan || item.expert_tujuan || item.expert_name || 'Expert'),
-              topikPesan: String(item.topikPesan || item.topik_penelitian || item.topik_pesan || item.topic || '-'),
-              pertanyaan: String(item.pertanyaan || item.pesan || ''),
-              status: String(item.status || 'Menunggu'),
-              created_at: String(item.created_at || item.tanggalDibuat || item.timestamp || ''),
-              jawabanExpert: String(item.jawabanExpert || item.jawaban_expert || item.expertResponse || item.balasanExpert || ''),
-              fileUrl: String(item.fileUrl || item.file_url || item.lampiran || '')
-            }))
+      // 5. Proyek Data (Instan, Tanpa N+1 query per project)
+      const rawProjectList = projJson?.data || (Array.isArray(projJson) ? projJson : [])
+      if (Array.isArray(rawProjectList)) {
+        setProjects(rawProjectList.map(normalizeProject))
+      } else {
+        setProjects([])
+      }
 
-          setConsultations(myTickets)
-        } else {
-          setConsultations([])
-        }
+      // 6. Konsultasi Data
+      if (consultJson && consultJson.success && Array.isArray(consultJson.data)) {
+        const myTickets: ConsultationTicket[] = (consultJson.data as RawConsultation[])
+          .filter((item: RawConsultation) => {
+            const itemEmail = String(
+              item.user_email || 
+              item.userEmail || 
+              item.kontakUser || 
+              item.kontak_user || 
+              item.user_contact || 
+              ''
+            ).toLowerCase().trim()
+
+            if (cleanUserEmail.includes('admin') || cleanUserEmail === 'admin@ahp.avitech.cloud') {
+              return true
+            }
+            return itemEmail === cleanUserEmail || (itemEmail && cleanUserEmail.includes(itemEmail))
+          })
+          .map((item: RawConsultation) => ({
+            idTiket: String(item.idTiket || item.id_tiket || item.ticket_id || item.id || '-'),
+            projectId: String(item.projectId || item.project_id || item.id_proyek || 'Umum'),
+            namaUser: String(item.namaUser || item.nama_user || item.user_name || 'User'),
+            kontakUser: String(item.kontakUser || item.user_email || item.userEmail || item.kontak_user || user.email),
+            expertTujuan: String(item.expertTujuan || item.expert_tujuan || item.expert_name || 'Expert'),
+            topikPesan: String(item.topikPesan || item.topik_penelitian || item.topik_pesan || item.topic || '-'),
+            pertanyaan: String(item.pertanyaan || item.pesan || ''),
+            status: String(item.status || 'Menunggu'),
+            created_at: String(item.created_at || item.tanggalDibuat || item.timestamp || ''),
+            jawabanExpert: String(item.jawabanExpert || item.jawaban_expert || item.expertResponse || item.balasanExpert || ''),
+            fileUrl: String(item.fileUrl || item.file_url || item.lampiran || '')
+          }))
+
+        setConsultations(myTickets)
       } else {
         setConsultations([])
       }
 
-      setProjects(normalizedProjects)
     } catch (err) {
       console.error('Dashboard load error:', err)
-      setError('Gagal memuat dashboard. Silakan coba lagi.')
+      setError('Gagal memuat beberapa data dashboard. Silakan coba klik refresh.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -1681,7 +1601,6 @@ function DashboardContent() {
   const subscriptionLike = subscription as SubscriptionLike | null
   const globalDynamicPlan = dynamicPlans[currentPlan]
 
-  // Aturan Hierarki Ketat: Jika subscription ada, kuota mengacu HANYA pada nilai eksplisit di baris tersebut
   const maxProjects = useMemo(() => {
     if (subscriptionLike && (subscriptionLike.max_projects !== undefined && subscriptionLike.max_projects !== null)) {
       const explicitLimit = toFiniteLimit(subscriptionLike.max_projects)
@@ -1741,17 +1660,6 @@ function DashboardContent() {
     router.push('/buat-proyek/baru')
   }
 
-  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
-    if (sec === 'dashboard') {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    } else {
-      const el = document.getElementById('consultation-section')
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth' })
-      }
-    }
-  }
-
   const S = styles
 
   if (loading) {
@@ -1766,7 +1674,7 @@ function DashboardContent() {
 
   return (
     <div style={S.layoutWrapper}>
-      {/* 🟢 SIDEBAR DENGAN PLAN DI ATAS & DAFTAR PROYEK */}
+      {/* 🟢 SIDEBAR BERSIH */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
@@ -1779,7 +1687,6 @@ function DashboardContent() {
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenUpgrade={() => setShowUpgrade(true)}
         onLogout={handleLogout}
-        onSelectSection={handleScrollToSection}
       />
 
       {/* 🟢 KONTEN UTAMA */}
@@ -1802,7 +1709,7 @@ function DashboardContent() {
 
         <div style={S.container}>
           
-          {/* 🟢 TOP BAR UTAMA DENGAN GRADASI HIJAU TUA KANAN KE KIRI & LOGO TRANSPARAN */}
+          {/* TOP BAR */}
           <AppTopBar />
 
           <div style={S.topbar}>
@@ -1830,11 +1737,11 @@ function DashboardContent() {
 
             <div style={S.topbarActions}>
               <button
-                onClick={() => setShowProfileModal(true)}
-                style={S.btnProfile}
+                onClick={() => router.push('/user/projects')}
+                style={S.btnPrimarySmall}
                 type="button"
               >
-                ⚙️ Profil Saya {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
+                📁 Proyek Saya
               </button>
               <button
                 onClick={() => router.push('/expert-directory')}
@@ -1842,6 +1749,13 @@ function DashboardContent() {
                 type="button"
               >
                 👥 Direktori Pakar
+              </button>
+              <button
+                onClick={() => setShowProfileModal(true)}
+                style={S.btnProfile}
+                type="button"
+              >
+                ⚙️ Profil {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
               </button>
               <button onClick={handleRefresh} style={S.btnGhost} type="button">
                 {refreshing ? 'Memuat...' : '🔄 Refresh'}
@@ -1939,7 +1853,7 @@ function DashboardContent() {
           </div>
 
           <div style={S.sectionHeader}>
-            <h3 style={S.sectionTitle}>Daftar Proyek</h3>
+            <h3 style={S.sectionTitle}>Ringkasan Proyek Terakhir</h3>
           </div>
 
           {projects.length === 0 ? (
@@ -1952,7 +1866,7 @@ function DashboardContent() {
             </div>
           ) : (
             <div style={S.projectList}>
-              {projects.map((project) => (
+              {projects.slice(0, 2).map((project) => (
                 <div key={project.id} style={S.projectCard}>
                   <div style={S.projectCardTop}>
                     <div>
@@ -1974,25 +1888,13 @@ function DashboardContent() {
 
                     <div style={S.actionGroup}>
                       <button
-                        style={S.btnSecondarySmall}
-                        type="button"
-                        onClick={() => {
-                          if (typeof window !== 'undefined') {
-                            localStorage.setItem('activeProjectId', project.id)
-                          }
-                          router.push('/expert-directory')
-                        }}
-                      >
-                        💬 Konsultasi
-                      </button>
-                      <button
                         style={S.btnPrimarySmall}
                         type="button"
                         onClick={() =>
                           router.push(`/proyek/kelola?id=${encodeURIComponent(project.id)}`)
                         }
                       >
-                        Kelola Proyek
+                        Buka Ruang Kerja
                       </button>
                     </div>
                   </div>
@@ -2028,118 +1930,6 @@ function DashboardContent() {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
-
-          <div id="consultation-section" style={{ ...S.sectionHeader, marginTop: 32 }}>
-            <h3 style={S.sectionTitle}>💬 Riwayat Permintaan Konsultasi Saya</h3>
-          </div>
-
-          {consultations.length === 0 ? (
-            <div style={S.emptyState}>
-              <div style={S.emptyIcon}>💬</div>
-              <h3 style={S.emptyTitle}>Belum ada pengajuan konsultasi</h3>
-              <p style={S.emptyDesc}>
-                Buka menu <strong>Direktori Pakar</strong> untuk mengajukan diskusi atau konsultasi riset resmi.
-              </p>
-            </div>
-          ) : (
-            <div style={S.projectList}>
-              {consultations.map((ticket, idx) => {
-                const jawabanLower = (ticket.jawabanExpert || '').toLowerCase()
-                const topikLower = (ticket.topikPesan || '').toLowerCase()
-                const idLower = (ticket.idTiket || '').toLowerCase()
-                const tujuanLower = (ticket.expertTujuan || '').toLowerCase()
-
-                const isBillingTicket = tujuanLower.includes('layanan') || 
-                                        tujuanLower.includes('admin') || 
-                                        topikLower.includes('plan') || 
-                                        idLower.includes('pricing-sup') ||
-                                        jawabanLower.includes('pembayaran') || 
-                                        jawabanLower.includes('transfer')
-
-                const statusLower = (ticket.status || '').toLowerCase()
-                const isVerifying = statusLower.includes('verifikasi')
-                const isSelesai = statusLower.includes('selesai')
-                const isPendingAdmin = statusLower.includes('pending admin')
-
-                return (
-                  <div key={idx} style={S.projectCard}>
-                    <div style={S.projectCardTop}>
-                      <div>
-                        <div style={S.projectTitleRow}>
-                          <h4 style={S.projectTitle}>Tiket Konsultasi #{ticket.idTiket}</h4>
-                          <span style={{
-                            ...S.metaChip,
-                            fontWeight: 700,
-                            background: isSelesai ? '#dcfce7' : isVerifying ? '#e0e7ff' : statusLower.includes('diteruskan') ? '#dbeafe' : '#fef9c3',
-                            color: isSelesai ? '#166534' : isVerifying ? '#3730a3' : statusLower.includes('diteruskan') ? '#1e40af' : '#854d0e',
-                          }}>
-                            {ticket.status}
-                          </span>
-                        </div>
-
-                        <div style={S.projectMetaRow}>
-                          <span style={S.metaChip}>Pakar Tujuan: <strong>{isBillingTicket ? 'Tim Layanan Pelanggan & Billing' : ticket.expertTujuan}</strong></span>
-                          <span style={S.metaChip}>ID Proyek: <strong>{ticket.projectId}</strong></span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p style={S.projectDesc}>
-                      <strong>Topik / Pertanyaan Anda:</strong><br />
-                      &quot;{ticket.topikPesan}&quot;
-                      {ticket.pertanyaan && (
-                        <span style={{ display: 'block', marginTop: 4, color: '#475569' }}>
-                          {ticket.pertanyaan}
-                        </span>
-                      )}
-                    </p>
-
-                    {ticket.jawabanExpert ? (
-                      <div style={{
-                        marginTop: 14,
-                        background: '#f0fdf4',
-                        border: '1px solid #bbf7d0',
-                        borderRadius: 10,
-                        padding: '12px 16px',
-                      }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d', marginBottom: 4 }}>
-                          💬 Tanggapan / Jawaban dari {isBillingTicket ? 'Admin' : ticket.expertTujuan}:
-                        </div>
-                        <p style={{ margin: 0, fontSize: 13.5, color: '#166534', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                          {ticket.jawabanExpert}
-                        </p>
-
-                        {ticket.fileUrl && (
-                          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #bbf7d0' }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', display: 'block', marginBottom: 4 }}>📎 Bukti Pembayaran / Lampiran Diunggah:</span>
-                            <a href={ticket.fileUrl} target="_blank" rel="noreferrer">
-                              <img src={ticket.fileUrl} alt="Bukti Lampiran" style={{ maxHeight: 100, borderRadius: 6, border: '1px solid #cbd5e1' }} />
-                            </a>
-                          </div>
-                        )}
-
-                        {isBillingTicket && (isSelesai || isPendingAdmin) && !isVerifying && !ticket.fileUrl && (
-                          <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px dashed #86efac' }}>
-                            <button 
-                              onClick={() => { setPaymentTicket(ticket); setPaymentReceiptUrl(''); setShowPaymentModal(true); }}
-                              style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 6px rgba(22,163,74,0.2)' }}
-                              type="button"
-                            >
-                              💸 Konfirmasi Telah Bayar (Upload Bukti)
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ marginTop: 12, fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>
-                        ⏳ Menunggu tanggapan dari Pakar / Admin...
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
             </div>
           )}
 
@@ -2873,16 +2663,6 @@ const styles: Record<string, CSSProperties> = {
     color: '#1d4ed8',
     border: '1px solid #bfdbfe',
     borderRadius: 8,
-    cursor: 'pointer',
-    fontSize: 12.5,
-    fontWeight: 700,
-  },
-  btnSecondarySmall: {
-    padding: '8px 14px',
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    border: '1px solid #bfdbfe',
-    borderRadius: 9,
     cursor: 'pointer',
     fontSize: 12.5,
     fontWeight: 700,

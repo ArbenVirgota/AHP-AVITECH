@@ -1,7 +1,8 @@
 // app/buat-proyek/page.tsx
+
 'use client'
 
-import { useEffect, useState, useCallback, Suspense } from 'react'
+import { useEffect, useState, useCallback, useMemo, Suspense } from 'react'
 import type { CSSProperties } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { getSession, clearSession } from '@/lib/auth'
@@ -10,6 +11,7 @@ import { countUserProjects, PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
+  process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec'
 
 interface Project {
@@ -127,6 +129,7 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   };
 }
 
+// 🟢 TOP HEADER RESMI AHP
 function AppTopBar() {
   return (
     <div style={topBarStyles.container} className="no-print">
@@ -141,11 +144,12 @@ function AppTopBar() {
   )
 }
 
+// 🟢 SIDEBAR PENGGUNA STANDAR (BERSIH TANPA LIST DAFTAR PROYEK DI BAWAH)
 function DashboardSidebar({
   user,
   userProfile,
   userPlan,
-  projects,
+  projectsCount,
   isProfileComplete,
   isCollapsed,
   consultationCount,
@@ -153,12 +157,11 @@ function DashboardSidebar({
   onOpenProfile,
   onOpenUpgrade,
   onLogout,
-  onSelectSection
 }: {
   user: UserSession | null
   userProfile: UserProfileData
   userPlan: string
-  projects: Project[]
+  projectsCount: number
   isProfileComplete: boolean
   isCollapsed: boolean
   consultationCount: number
@@ -166,7 +169,6 @@ function DashboardSidebar({
   onOpenProfile: () => void
   onOpenUpgrade: () => void
   onLogout: () => void
-  onSelectSection: (sec: 'dashboard' | 'consultation') => void
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -182,23 +184,30 @@ function DashboardSidebar({
       label: planLabelFormatted,
       icon: '⭐',
       badgeColor: planBadgeColor,
+      isPlan: true,
       onClick: onOpenUpgrade
     },
     {
-      label: 'Dashboard Analisis',
+      label: 'Dashboard Utama',
       icon: '📊',
       active: pathname === '/dashboard',
-      onClick: () => {
-        router.push('/dashboard')
-        onSelectSection('dashboard')
-      }
+      onClick: () => router.push('/dashboard')
     },
     {
-      label: 'Tiket Konsultasi',
+      label: 'Proyek AHP Saya',
+      icon: '📁',
+      active: pathname === '/user/projects' || pathname === '/buat-proyek/baru' || pathname === '/buat-proyek',
+      badge: projectsCount > 0 ? String(projectsCount) : undefined,
+      badgeColor: '#2563eb',
+      onClick: () => router.push('/user/projects')
+    },
+    {
+      label: 'Pusat Konsultasi',
       icon: '💬',
+      active: pathname === '/user/consultations',
       badge: consultationCount > 0 ? String(consultationCount) : undefined,
       badgeColor: '#10b981',
-      onClick: () => onSelectSection('consultation')
+      onClick: () => router.push('/user/consultations')
     },
     {
       label: 'Direktori Pakar',
@@ -328,44 +337,6 @@ function DashboardSidebar({
             )}
           </button>
         ))}
-
-        {!isCollapsed && projects.length > 0 && (
-          <div style={{ marginTop: 12, paddingBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 14px 6px' }}>
-              📁 Proyek Anda ({projects.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
-              {projects.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => router.push(`/proyek/kelola?id=${encodeURIComponent(p.id)}`)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    background: 'transparent',
-                    color: '#cbd5e1',
-                    border: 'none',
-                    borderRadius: 6,
-                    fontSize: 11.5,
-                    padding: '6px 14px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    width: '100%',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                  title={p.namaproyek || p.nama_proyek}
-                >
-                  <span style={{ fontSize: 10 }}>🔹</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.namaproyek || p.nama_proyek}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </nav>
 
       <div style={{
@@ -382,6 +353,259 @@ function DashboardSidebar({
         </button>
       </div>
     </aside>
+  )
+}
+
+// 🟢 MODAL PROFIL & PENGESAHAN LENGKAP
+function ProfileModal({
+  user,
+  profile,
+  onClose,
+  onSaveSuccess,
+}: {
+  user: UserSession
+  profile: UserProfileData
+  onClose: () => void
+  onSaveSuccess: (updated: UserProfileData) => void
+}) {
+  const [formData, setFormData] = useState<UserProfileData>({
+    nama: profile.nama || user?.nama || '',
+    institusi: profile.institusi || '',
+    city: profile.city || '',
+    digital_signature: profile.digital_signature || '',
+    foto_profil: profile.foto_profil || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [previewSig, setPreviewSig] = useState(profile.digital_signature || '')
+  const [previewFoto, setPreviewFoto] = useState(profile.foto_profil || '')
+
+  const handleFotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar (JPG/PNG).')
+        return
+      }
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        setPreviewFoto(base64)
+        setFormData((prev) => ({ ...prev, foto_profil: base64 }))
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSigFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar tanda tangan (PNG/JPG).')
+        return
+      }
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        setPreviewSig(base64)
+        setFormData((prev) => ({ ...prev, digital_signature: base64 }))
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setErrorMsg('')
+
+    try {
+      const payload = {
+        action: 'updateuserprofile',
+        email: user.email,
+        user_id: user.id || '',
+        nama: formData.nama,
+        institusi: formData.institusi,
+        city: formData.city,
+        digital_signature: formData.digital_signature || '',
+        foto_profil: formData.foto_profil || '',
+      }
+
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        redirect: 'follow',
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        onSaveSuccess({ 
+          ...formData, 
+          digital_signature: formData.digital_signature || '',
+          foto_profil: formData.foto_profil || '' 
+        })
+        alert('✅ ' + result.message)
+        onClose()
+      } else {
+        alert('❌ Gagal dari Server: ' + result.message)
+        setErrorMsg(result.message)
+      }
+    } catch (err: any) {
+      setErrorMsg('Gagal menyambung ke server: ' + err.toString())
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const S = modalStyles
+
+  return (
+    <div style={S.overlay} onClick={onClose}>
+      <div 
+        style={{ 
+          ...S.modal, 
+          maxWidth: 540, 
+          maxHeight: '90vh', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          padding: '24px 28px'
+        }} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ ...S.header, marginBottom: 12, flexShrink: 0 }}>
+          <h2 style={S.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
+          <button onClick={onClose} style={S.closeBtn} type="button">✕</button>
+        </div>
+
+        <p style={{ ...S.desc, flexShrink: 0, marginBottom: 12 }}>
+          Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
+        </p>
+
+        {errorMsg && (
+          <div style={{ ...S.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626', flexShrink: 0 }}>
+            {errorMsg}
+          </div>
+        )}
+
+        <form 
+          onSubmit={handleSubmit} 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 12, 
+            overflowY: 'auto', 
+            paddingRight: 4,
+            flexGrow: 1,
+            marginBottom: 12
+          }}
+        >
+          <div>
+            <label style={formStyles.label}>Nama Lengkap &amp; Gelar *</label>
+            <input
+              type="text"
+              required
+              value={formData.nama}
+              onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+              placeholder="Contoh: Dr. Arben Virgota, S.Pi., M.Si"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Nama Institusi / Afiliasi *</label>
+            <input
+              type="text"
+              required
+              value={formData.institusi}
+              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
+              placeholder="Contoh: Universitas Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Kota *</label>
+            <input
+              type="text"
+              required
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              placeholder="Contoh: Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Foto Profil (Upload File Gambar)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFotoFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewFoto ? (
+                <img 
+                  src={previewFoto} 
+                  alt="Pratinjau Foto Profil" 
+                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada foto yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Tanda Tangan Digital (.png Transparan)</label>
+            <input
+              type="file"
+              accept="image/*"
+              required={!previewSig}
+              onChange={handleSigFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewSig ? (
+                <img 
+                  src={previewSig} 
+                  alt="Pratinjau Tanda Tangan" 
+                  style={{ maxHeight: 45, objectFit: 'contain' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada tanda tangan yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+        </form>
+
+        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <button onClick={onClose} style={S.btnClose} type="button">
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              ...S.btnClose,
+              background: '#2563eb',
+              color: 'white',
+              fontWeight: 700,
+            }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Profil'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -423,6 +647,7 @@ function BuatProyekContent() {
   const [session, setSession] = useState<UserSession | null>(null)
   const [userProfile, setUserProfile] = useState<UserProfileData>({ nama: '', institusi: '', city: '', digital_signature: '', foto_profil: '' })
   const [userPlan, setUserPlan] = useState<string>('free')
+  const [showProfileModal, setShowProfileModal] = useState(false)
   
   // State hak akses
   const [hasSubcriteriaAccess, setHasSubcriteriaAccess] = useState(false)
@@ -464,7 +689,16 @@ function BuatProyekContent() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  // 🟢 PENGATURAN SINGLE SOURCE OF TRUTH (PRIORITAS SUBSCRIPTIONS -> FALLBACK USERS) DENGAN OVERRIDE MUTLAK
+  const isProfileComplete = useMemo(() => {
+    return Boolean(
+      userProfile.nama?.trim() &&
+      userProfile.institusi?.trim() &&
+      userProfile.city?.trim() &&
+      userProfile.digital_signature?.trim()
+    )
+  }, [userProfile])
+
+  // 🟢 PENGATURAN SINGLE SOURCE OF TRUTH DENGAN OVERRIDE MUTLAK
   const loadInitialData = useCallback(async () => {
     const s = getSession()
     if (!s || !s.email) {
@@ -600,12 +834,10 @@ function BuatProyekContent() {
         const hasCustomAi = customList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
 
         if (finalSourceCustomFeatures.trim() !== '') {
-          // 🟢 OVERRIDE MUTLAK: Jika diisi, hak bawaan plan DIABAIKAN.
           finalAllowSub = hasCustomSub;
           finalAllowAlt = hasCustomAlt;
           finalAllowAi = hasCustomAi;
         } else {
-          // Jika kosong, gunakan bawaan
           finalAllowSub = planDefaultAllowSub;
           finalAllowAlt = planDefaultAllowAlt;
           finalAllowAi = planDefaultAllowAi;
@@ -968,33 +1200,36 @@ function BuatProyekContent() {
     router.replace('/login')
   }
 
-  const handleScrollToSection = (sec: 'dashboard' | 'consultation') => {
-    if (sec === 'dashboard') {
-      router.push('/dashboard')
-    } else {
-      router.push('/dashboard#consultation-section')
-    }
-  }
-
   const S = styles
   if (initLoading) return <div style={S.loadingPage}><div style={S.spinner} /><div style={{ fontSize: 13, color: '#334155', fontWeight: 600 }}>Memuat halaman...</div></div>
   if (success) return <div style={S.loadingPage}><div style={{ fontSize: 44 }}>✅</div><h2 style={{ fontSize: 18, fontWeight: 700, color: '#166534', margin: 0 }}>Proyek Berhasil Dibuat!</h2><p style={{ fontSize: 13, color: '#475569', margin: 0 }}>Mengalihkan ke halaman kelola...</p></div>
 
   return (
     <div style={S.layoutWrapper}>
+      
+      {/* 🟢 MODAL PROFIL & PENGESAHAN */}
+      {showProfileModal && session && (
+        <ProfileModal
+          user={session}
+          profile={userProfile}
+          onClose={() => setShowProfileModal(false)}
+          onSaveSuccess={(updated) => setUserProfile(updated)}
+        />
+      )}
+
+      {/* 🟢 SIDEBAR UTAMA (BERSIH TANPA LIST DAFTAR PROYEK DI BAWAH) */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
         userPlan={userPlan}
-        projects={allUserProjects}
-        isProfileComplete={true}
+        projectsCount={allUserProjects.length || projectCount}
+        isProfileComplete={isProfileComplete}
         isCollapsed={isSidebarCollapsed}
         consultationCount={0}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onOpenProfile={() => router.push('/dashboard?action=profile')}
+        onOpenProfile={() => setShowProfileModal(true)}
         onOpenUpgrade={() => setShowUpgrade(true)}
         onLogout={handleLogout}
-        onSelectSection={handleScrollToSection}
       />
 
       <main style={S.mainContent}>
@@ -1284,7 +1519,6 @@ export default function BuatProyekPage() {
   )
 }
 
-// Komponen penengah yang mengatasi export error Suspense
 function BuatProyekPageContent() {
   return <BuatProyekContent />
 }
@@ -1341,6 +1575,7 @@ const sidebarStyles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     height: '100vh',
+    zIndex: 10,
   },
   brandContainer: {
     padding: '20px 16px',
@@ -1511,6 +1746,102 @@ const sidebarStyles: Record<string, CSSProperties> = {
   },
 }
 
+const formStyles: Record<string, CSSProperties> = {
+  label: {
+    display: 'block',
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#334155',
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  input: {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: 13,
+    borderRadius: 8,
+    border: '1px solid #cbd5e1',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  previewBox: {
+    height: 50,
+    border: '1px dashed #cbd5e1',
+    borderRadius: 8,
+    background: '#f8fafc',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+}
+
+const modalStyles: Record<string, CSSProperties> = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 999,
+    padding: 16,
+  },
+  modal: {
+    background: 'white',
+    borderRadius: 16,
+    padding: '28px 32px',
+    maxWidth: 480,
+    width: '100%',
+    boxShadow: '0 25px 60px rgba(0,0,0,0.3)',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: '#1e293b',
+    margin: 0,
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: 18,
+    color: '#94a3b8',
+    padding: 0,
+  },
+  desc: {
+    fontSize: 13,
+    color: '#64748b',
+    marginBottom: 20,
+  },
+  infoBox: {
+    background: '#fffbeb',
+    border: '1px solid #fcd34d',
+    borderRadius: 8,
+    padding: '10px 14px',
+    fontSize: 12,
+    color: '#92400e',
+    marginBottom: 16,
+  },
+  btnClose: {
+    width: '100%',
+    padding: 11,
+    background: '#f1f5f9',
+    border: 'none',
+    borderRadius: 9,
+    cursor: 'pointer',
+    fontWeight: 600,
+    color: '#374151',
+    fontSize: 14,
+  },
+}
+
 const styles: Record<string, CSSProperties> = {
   layoutWrapper: {
     display: 'flex',
@@ -1560,21 +1891,4 @@ const styles: Record<string, CSSProperties> = {
   btnCancel: { padding: '10px 20px', background: 'white', border: '1.5px solid #cbd5e1', borderRadius: 9, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: '#475569' },
   btnSimpan: { padding: '10px 24px', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', color: 'white', border: 'none', borderRadius: 9, cursor: 'pointer', fontSize: 13.5, fontWeight: 700, boxShadow: '0 4px 12px rgba(37,99,235,0.3)' },
   btnDisabled: { background: '#94a3b8', boxShadow: 'none', cursor: 'not-allowed' },
-}
-
-const modalStyles: Record<string, CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 16 },
-  modal: { background: 'white', borderRadius: 16, padding: '28px 32px', maxWidth: 480, width: '100%', boxShadow: '0 25px 60px rgba(0,0,0,0.3)' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  title: { fontSize: 18, fontWeight: 800, color: '#1e293b', margin: 0 },
-  closeBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#94a3b8', padding: 0 },
-  desc: { fontSize: 13, color: '#64748b', marginBottom: 20 },
-  planGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 },
-  planCard: { border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 8px', textAlign: 'center' },
-  planCardActive: { border: '1.5px solid #2563eb', background: '#eff6ff' },
-  planName: { fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 4 },
-  planDesc: { fontSize: 11, color: '#64748b' },
-  planBadge: { marginTop: 6, fontSize: 9.5, background: '#1d4ed8', color: 'white', borderRadius: 999, padding: '2px 6px', display: 'inline-block' },
-  infoBox: { background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#92400e', marginBottom: 16 },
-  btnClose: { width: '100%', padding: 11, background: '#f1f5f9', border: 'none', borderRadius: 9, cursor: 'pointer', fontWeight: 600, color: '#374151', fontSize: 14 },
 }

@@ -2,7 +2,6 @@
 
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
-import dns from 'dns';
 
 export async function POST(req: Request) {
   try {
@@ -20,41 +19,34 @@ export async function POST(req: Request) {
     const smtpHost = process.env.SMTP_HOST || 'smtp.hostinger.com';
     const smtpPort = Number(process.env.SMTP_PORT) || 465;
     const smtpUser = process.env.SMTP_USER || 'admin@avitech.cloud';
-    // Membersihkan tanda petik pembungkus jika terbaca dari .env.local
-    const smtpPass = (process.env.SMTP_PASS || '1r25nPejanggik').replace(/^["']|["']$/g, '');
+    const smtpPass = (process.env.SMTP_PASS || '').replace(/^["']|["']$/g, '');
 
-    // 2. Konfigurasi Transporter SMTP
+    // 2. Konfigurasi Transporter SMTP (DIUBAH UNTUK SERVERLESS)
     const transporter = nodemailer.createTransport({
       host: smtpHost,
       port: smtpPort,
-      secure: smtpPort === 465, // true untuk port 465 (SSL), false untuk port 587 (STARTTLS)
+      secure: smtpPort === 465, // true untuk port 465 (SSL)
       
-      // 🟢 TAMBAHAN WAJIB UNTUK GMAIL SMTP: Mencegah Error 421 (Rate Limit)
-      pool: true,
-      maxConnections: 3,
-      maxMessages: 50,
-
+      // 🚫 JANGAN GUNAKAN pool: true DI SERVERLESS / NEXT.JS API
+      // pool: false (default), agar koneksi langsung ditutup setelah 1x kirim
+      
       auth: {
         user: smtpUser,
         pass: smtpPass,
       },
-      // 💡 SOLUSI ERROR 535 AUTH PLAIN: Paksa metode otentikasi LOGIN
-      authMethod: 'LOGIN',
-      // 💡 SOLUSI HANG: Batasi timeout koneksi & socket
-      connectionTimeout: 10000, // 10 detik
-      greetingTimeout: 10000,   // 10 detik
-      socketTimeout: 15000,     // 15 detik
-      // 💡 SOLUSI ENETUNREACH: Paksa resolver DNS hanya mengembalikan alamat IPv4
-      lookup: (hostname, options, callback) => {
-        dns.lookup(hostname, { family: 4 }, callback);
-      },
+      
+      // Batasi timeout agar tidak terjadi hang yang ekstrim
+      connectionTimeout: 10000, 
+      greetingTimeout: 10000,   
+      socketTimeout: 15000,     
+      
       tls: {
-        rejectUnauthorized: false // Memastikan koneksi tidak terhalang isu sertifikat
+        // Mengabaikan sertifikat SSL/TLS yang mungkin bermasalah di local/hosting
+        rejectUnauthorized: false 
       }
     } as nodemailer.TransportOptions);
 
     // 3. Konfigurasi Data Email
-    // Pengirim (from) dikunci persis sama dengan akun auth SMTP untuk menghindari Sender Mismatch
     const mailOptions = {
       from: `"Admin AHP Avitech" <${smtpUser}>`,
       to: String(to).trim().toLowerCase(),
@@ -66,6 +58,9 @@ export async function POST(req: Request) {
     // 4. Proses Pengiriman
     const info = await transporter.sendMail(mailOptions);
     console.log('Email terkirim:', info.messageId);
+
+    // 5. Tutup transporter secara eksplisit (Penting untuk Serverless)
+    transporter.close();
 
     return NextResponse.json({
       success: true,
