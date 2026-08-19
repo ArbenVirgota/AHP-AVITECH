@@ -201,7 +201,7 @@ export default function AdminDashboardPage() {
 
   const generateRandomExpPass = () => `EXP-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  // 🟢 HELPER FORMAT TANGGAL
+  // HELPER FORMAT TANGGAL
   const formatDisplayDate = (val: any) => {
     if (!val) return '-';
     try {
@@ -215,7 +215,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // 🟢 TEMPLATE JAWABAN CEPAT 1 - 4
+  // TEMPLATE JAWABAN CEPAT 1 - 4
   const applyTemplate = (templateIndex: number) => {
     if (!selectedTicket) return;
     const userName = selectedTicket.user_name || selectedTicket['Nama User'] || selectedTicket.nama_user || selectedTicket.namaUser || selectedTicket[3] || 'Pengguna';
@@ -327,7 +327,7 @@ export default function AdminDashboardPage() {
     fetchAllOperasionalData();
   }, [router, fetchAllOperasionalData]);
 
-  // 🟢 HANDLER UPDATE STATUS DARI DROPDOWN
+  // HANDLER UPDATE STATUS DARI DROPDOWN
   const handleUpdateStatus = async (ticketId: string, newStatus: string) => {
     if (!GOOGLE_SCRIPT_URL) return;
 
@@ -346,7 +346,7 @@ export default function AdminDashboardPage() {
     );
 
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=updateconsultationstatus`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -383,9 +383,11 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`Yakin ingin menghapus Pakar: ${exp.expert_name || exp.nama}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteexpert', expertId: expId, adminName, adminEmail, adminRole }) 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteexpert`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'deleteexpert', expertId: expId, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -398,9 +400,11 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`Yakin ingin menghapus Produk: ${prod.nama || prod.name}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteproduct', productId: prodId, adminName, adminEmail, adminRole }) 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteproduct`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'deleteproduct', productId: prodId, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -414,9 +418,11 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`Yakin ingin menghapus Tiket #${ticketId}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }) 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -431,9 +437,11 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       for (const ticketId of selectedConsultations) {
-        await fetch(GOOGLE_SCRIPT_URL, { 
-          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }) 
+        await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
+          redirect: 'follow'
         });
       }
       alert('Tiket terpilih berhasil dihapus.');
@@ -454,9 +462,11 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       for (const ticketId of selectedAdminConsultations) {
-        await fetch(GOOGLE_SCRIPT_URL, { 
-          method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }) 
+        await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
+          redirect: 'follow'
         });
       }
       alert('Tiket admin-pakar terpilih berhasil dihapus.');
@@ -475,9 +485,11 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       const timestamp = fb.timestamp || fb.Timestamp || fb[0];
-      const res = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deletefeedback', timestamp: timestamp, adminName, adminEmail, adminRole }) 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deletefeedback`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'deletefeedback', timestamp: timestamp, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -489,9 +501,11 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`⚠️ Yakin ingin MENGHAPUS User Pakar: ${usr.nama || usr.name} (${usr.email})? Aksi ini mungkin tidak dapat dibatalkan.`)) return;
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteuser', email: usr.email, adminName, adminEmail, adminRole }) 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteuser`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'deleteuser', email: usr.email, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { 
@@ -509,13 +523,15 @@ export default function AdminDashboardPage() {
 
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deletevisitorlogs`, {
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ 
           action: 'deletevisitorlogs', 
           rows: selectedLogs,
           adminName, adminEmail, adminRole 
-        })
+        }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) {
@@ -535,7 +551,7 @@ export default function AdminDashboardPage() {
       nextYear.setFullYear(nextYear.getFullYear() + 1);
       const expiryStr = nextYear.toISOString().split('T')[0];
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=admin_update_user_plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -548,7 +564,8 @@ export default function AdminDashboardPage() {
           adminName, 
           adminEmail, 
           adminRole
-        })
+        }),
+        redirect: 'follow'
       });
 
       const json = await res.json();
@@ -578,10 +595,11 @@ export default function AdminDashboardPage() {
 
     try {
       setSubmittingPassword(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=admin_update_user_password`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'admin_update_user_password', email: targetUserForPassword.email, new_password: customPassword, adminName, adminEmail, adminRole })
+        body: JSON.stringify({ action: 'admin_update_user_password', email: targetUserForPassword.email, new_password: customPassword, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
       });
 
       const json = await res.json();
@@ -636,7 +654,7 @@ export default function AdminDashboardPage() {
 
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=sendadminnotetoexpert`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -644,7 +662,8 @@ export default function AdminDashboardPage() {
           email, name: getFormattedName(targetExpertForNote),
           subject: '[VERIFIKASI] Kelengkapan Data Pakar', note: buildNoteText(),
           adminName, adminEmail, adminRole
-        })
+        }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) { alert('Instruksi berhasil dikirim!'); setIsNoteModalOpen(false); fetchAllOperasionalData(); } 
@@ -652,7 +671,7 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
   };
 
-  // 🟢 SUBMIT TANGGAPAN DARI MODAL
+  // SUBMIT TANGGAPAN DARI MODAL
   const handleReplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyMessage.trim()) { alert('Pesan balasan kosong.'); return; }
@@ -672,9 +691,11 @@ export default function AdminDashboardPage() {
         adminEmail,
         adminRole
       };
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload), redirect: 'follow'
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=submitconsultationreply`, {
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload), 
+        redirect: 'follow'
       });
       const json = await res.json().catch(() => ({ success: true }));
       if (json && json.success !== false) { 
@@ -732,7 +753,12 @@ export default function AdminDashboardPage() {
     try {
       setSubmittingExpert(true);
       const payload = { action: 'saveexpert', source: 'admin_dashboard', ...expertForm, adminName, adminEmail, adminRole };
-      const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload), redirect: 'follow' });
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveexpert`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify(payload), 
+        redirect: 'follow' 
+      });
       const json = await res.json();
       if (json.success) { alert('Pakar disimpan!'); setIsExpertModalOpen(false); fetchAllOperasionalData(); } else { alert(`Gagal: ${json.message}`); }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingExpert(false); }
@@ -762,7 +788,13 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     try {
       setSubmittingProduct(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: editingProduct ? 'updateproduct' : 'saveproduct', ...productForm, adminName, adminEmail, adminRole }) });
+      const actionName = editingProduct ? 'updateproduct' : 'saveproduct';
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${actionName}`, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: actionName, ...productForm, adminName, adminEmail, adminRole }),
+        redirect: 'follow'
+      });
       const json = await res.json();
       if (json.success) { alert('Produk disimpan!'); setIsProductModalOpen(false); fetchAllOperasionalData(); }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingProduct(false); }
@@ -835,7 +867,8 @@ export default function AdminDashboardPage() {
     return visitorStatsList.filter(v => {
       const emailUser = String(v.email || v[1] || 'Visitor Umum').toLowerCase();
       const pagePath = String(v.page || v[2] || '/').toLowerCase();
-      return emailUser.includes(q) || pagePath.includes(q);
+      const ipAddress = String(v.ip_address || v.ip || v[3] || '').toLowerCase();
+      return emailUser.includes(q) || pagePath.includes(q) || ipAddress.includes(q);
     });
   }, [visitorStatsList, visitorSearchQuery]);
 
@@ -857,7 +890,7 @@ export default function AdminDashboardPage() {
     visitorStatsList.forEach((v) => {
       const emailUser = String(v.email || v[1] || 'Visitor Umum').trim();
       const pagePath = String(v.page || v[2] || '/').trim();
-      const explicitRole = String(v.role || v[3] || '').trim().toLowerCase();
+      const explicitRole = String(v.role || v[4] || '').trim().toLowerCase();
       const rawDate = v.timestamp || v[0];
 
       const isSuspiciousPath = pagePath.includes('.env') || pagePath.includes('wp-admin') || pagePath.includes('sql');
@@ -1019,7 +1052,16 @@ export default function AdminDashboardPage() {
           <p style={STYLES.headerSubtitle}>Operator: <strong>{adminName}</strong> ({adminRole})</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          {isSuperAdmin && <button onClick={() => router.push('/admin/super-control')} style={{ ...STYLES.btnAdd, background: '#4f46e5' }}>🛡️ Panel SuperAdmin</button>}
+          {isSuperAdmin && (
+            <>
+              <button onClick={() => router.push('/admin/archives')} style={{ ...STYLES.btnAdd, background: '#0284c7' }}>
+                📦 Repositori Arsip
+              </button>
+              <button onClick={() => router.push('/admin/super-control')} style={{ ...STYLES.btnAdd, background: '#4f46e5' }}>
+                🛡️ Panel SuperAdmin
+              </button>
+            </>
+          )}
           <button onClick={() => { localStorage.clear(); router.replace('/admin/login'); }} style={STYLES.btnLogout}>Keluar</button>
         </div>
       </header>
@@ -1236,7 +1278,7 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 4: KONSULTASI PUBLIK (DENGAN UPDATE STATUS & TEMPLATE 1 - 4) */}
+          {/* TAB 4: KONSULTASI PUBLIK */}
           {activeTab === 'consultation_user' && canAccessTab('consultation_user') && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1365,7 +1407,6 @@ export default function AdminDashboardPage() {
                               </div>
                             </div>
                           </td>
-                          {/* DROPDOWN UPDATE STATUS DI TABEL */}
                           <td style={STYLES.td}>
                             <select
                               value={status || 'Menunggu'}
@@ -1549,7 +1590,7 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 6: STATISTIK KUNJUNGAN */}
+          {/* TAB 6: STATISTIK KUNJUNGAN (DENGAN KOLOM IP ADDRESS) */}
           {activeTab === 'visitor_stats' && canAccessTab('visitor_stats') && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1607,7 +1648,7 @@ export default function AdminDashboardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
                 <div>
                   <h4 style={{ marginBottom: 10, fontSize: 14 }}>Daftar Log Terakhir</h4>
-                  <input type="text" placeholder="Cari pengguna atau alamat halaman..." value={visitorSearchQuery} onChange={e => setVisitorSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
+                  <input type="text" placeholder="Cari pengguna, IP, atau alamat halaman..." value={visitorSearchQuery} onChange={e => setVisitorSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
                   <div style={STYLES.tableWrap}>
                     <table style={STYLES.table}>
                       <thead>
@@ -1625,7 +1666,8 @@ export default function AdminDashboardPage() {
                             </th>
                           )}
                           <th style={STYLES.th}>Waktu</th>
-                          <th style={STYLES.th}>Pengguna / IP</th>
+                          <th style={STYLES.th}>Pengguna (Email)</th>
+                          <th style={STYLES.th}>Alamat IP</th>
                           <th style={STYLES.th}>Halaman</th>
                         </tr>
                       </thead>
@@ -1633,6 +1675,7 @@ export default function AdminDashboardPage() {
                         {filteredVisitorStats.slice(0, 50).map((v, i) => {
                           const originalIndex = visitorStatsList.indexOf(v);
                           const rowNum = originalIndex !== -1 ? originalIndex + 2 : -1;
+                          const ipAddress = v.ip_address || v.ip || v[3] || 'Unknown';
 
                           return (
                             <tr key={i}>
@@ -1652,7 +1695,14 @@ export default function AdminDashboardPage() {
                               <td style={STYLES.td}>
                                 <div style={{ fontWeight: 600, color: '#0f172a' }}>{v.email || v[1] || 'Visitor Umum'}</div>
                               </td>
-                              <td style={STYLES.td}>{v.page || v[2] || '/'}</td>
+                              <td style={STYLES.td}>
+                                <span style={STYLES.ipBadge}>{ipAddress}</span>
+                              </td>
+                              <td style={STYLES.td}>
+                                <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                                  {v.page || v[2] || '/'}
+                                </code>
+                              </td>
                             </tr>
                           );
                         })}
@@ -1985,7 +2035,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* 🟢 MODAL TANGGAPI / BALAS TIKET KONSULTASI (DENGAN TEMPLATE 1 - 4) */}
+      {/* MODAL TANGGAPI / BALAS TIKET KONSULTASI */}
       {showReplyModal && selectedTicket && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalBox}>
@@ -2033,7 +2083,7 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* 🟢 TOMBOL PILIH TEMPLATE BALASAN CEPAT 1 - 4 */}
+            {/* TOMBOL PILIH TEMPLATE BALASAN CEPAT 1 - 4 */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
                 ⚡ Pilih Template Balasan Cepat:
@@ -2118,6 +2168,7 @@ const STYLES: Record<string, React.CSSProperties> = {
   badgeActive: { background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, display: 'inline-block' },
   badgePending: { background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, display: 'inline-block' },
   idTag: { background: '#eff6ff', color: '#1d4ed8', padding: '3px 7px', borderRadius: 5, fontSize: 11.5, fontWeight: 800, border: '1px solid #bfdbfe' },
+  ipBadge: { background: '#f8fafc', color: '#334155', padding: '3px 7px', borderRadius: 5, fontSize: 11.5, fontWeight: 700, border: '1px solid #cbd5e1', fontFamily: 'monospace' },
   statusSelect: { padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', outline: 'none' },
   btnTemplate: { padding: '8px 10px', borderRadius: 6, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', textAlign: 'left' },
   linkBadge: { background: '#dbeafe', color: '#1d4ed8', padding: '3px 8px', borderRadius: 4, fontSize: 11, textDecoration: 'none', fontWeight: 700, border: '1px solid #bfdbfe', display: 'inline-block' },

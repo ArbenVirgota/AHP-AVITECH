@@ -80,18 +80,18 @@ export default function SuperAdminControlPage() {
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  // 🟢 Tab Ditambahkan: project_retention
+  // Tab Menu Kontrol SuperAdmin
   const [activeTab, setActiveTab] = useState<'admin_performance' | 'admins_management' | 'subscriptions' | 'plans_config' | 'signature_stamp' | 'project_retention'>('admin_performance');
 
-  // State Data Khusus SuperAdmin
+  // State Data SuperAdmin
   const [admins, setAdmins] = useState<AdminItem[]>([]);
   const [adminLogsList, setAdminLogsList] = useState<any[]>([]);
 
-  // State User Subscriptions (Privilege User)
+  // State Subscriptions Komersial
   const [userSubs, setUserSubscriptions] = useState<UserSubscriptionItem[]>([]);
   const [subSearchQuery, setSubSearchQuery] = useState('');
   
-  // State Modal Edit Privilese User LENGKAP
+  // State Modal Edit Privilese User
   const [isEditSubModalOpen, setIsEditSubModalOpen] = useState(false);
   const [editingUserSub, setEditingUserSub] = useState<UserSubscriptionItem | null>(null);
   const [subForm, setSubForm] = useState({
@@ -136,7 +136,7 @@ export default function SuperAdminControlPage() {
   const [backupSignerSignatureUrl, setBackupSignerSignatureUrl] = useState('');
   const [appSystemStampUrl, setAppSystemStampUrl] = useState('');
   
-  // State Xendit Lengkap
+  // State Xendit
   const [xenditActive, setXenditActive] = useState(true);
   const [xenditMode, setXenditMode] = useState('sandbox');
   const [xenditPublicKey, setXenditPublicKey] = useState('');
@@ -146,7 +146,7 @@ export default function SuperAdminControlPage() {
   const [diditMeActive, setDiditMeActive] = useState(true);
   const [diditApiKey, setDiditApiKey] = useState('');
 
-  // 🟢 State Pengaturan Retensi & Kedaluwarsa Proyek
+  // State Pengaturan Retensi & Kedaluwarsa Proyek
   const [expirationMonths, setExpirationMonths] = useState<number>(6);
   const [autoDeleteEnabled, setAutoDeleteEnabled] = useState<boolean>(true);
   const [savingRetention, setSavingRetention] = useState<boolean>(false);
@@ -154,7 +154,7 @@ export default function SuperAdminControlPage() {
   const fetchWithCatch = useCallback(async (action: string) => {
     if (!GOOGLE_SCRIPT_URL) return [];
     try {
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}`, { 
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}&_t=${Date.now()}`, { 
         method: 'GET',
         cache: 'no-store',
         redirect: 'follow' 
@@ -189,7 +189,7 @@ export default function SuperAdminControlPage() {
         fetchWithCatch('getplansettings'),
         fetchWithCatch('getallusersubscriptions'),
         fetchWithCatch('get_system_assets'),
-        fetchWithCatch('getprojectexpirationsettings') // 👈 Menarik data pengaturan retensi proyek
+        fetchWithCatch('getprojectexpirationsettings')
       ]);
 
       setAdmins(Array.isArray(admData) ? admData : []);
@@ -271,13 +271,20 @@ export default function SuperAdminControlPage() {
         }
       }
 
-      // 🟢 Sinkronisasi Pengaturan Retensi Proyek
+      // Sinkronisasi Pengaturan Retensi Proyek
       if (retentionData && typeof retentionData === 'object') {
-        if (retentionData.expiration_months !== undefined) {
-          setExpirationMonths(Number(retentionData.expiration_months) || 6);
+        const monthsVal = retentionData.expiration_months !== undefined 
+          ? retentionData.expiration_months 
+          : (retentionData.data && retentionData.data.expiration_months);
+        const autoDeleteVal = retentionData.auto_delete_enabled !== undefined 
+          ? retentionData.auto_delete_enabled 
+          : (retentionData.data && retentionData.data.auto_delete_enabled);
+
+        if (monthsVal !== undefined) {
+          setExpirationMonths(Number(monthsVal) || 6);
         }
-        if (retentionData.auto_delete_enabled !== undefined) {
-          setAutoDeleteEnabled(Boolean(retentionData.auto_delete_enabled));
+        if (autoDeleteVal !== undefined) {
+          setAutoDeleteEnabled(Boolean(autoDeleteVal));
         }
       }
 
@@ -477,7 +484,7 @@ export default function SuperAdminControlPage() {
     try {
       setSubmittingAdmin(true);
       const action = editingAdmin ? 'editadmin' : 'registeradmin';
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -489,7 +496,8 @@ export default function SuperAdminControlPage() {
           status: adminForm.status,
           allowed_access: JSON.stringify(adminForm.allowed_access),
           adminName, adminEmail, adminRole
-        })
+        }),
+        redirect: 'follow'
       });
       const json = await res.json();
       if (json.success) {
@@ -507,7 +515,7 @@ export default function SuperAdminControlPage() {
 
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteadmin`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ 
@@ -517,7 +525,8 @@ export default function SuperAdminControlPage() {
           adminName, 
           currentAdminEmail: adminEmail, 
           adminRole 
-        })
+        }),
+        redirect: 'follow'
       });
       const textRes = await res.text();
       let json;
@@ -587,7 +596,7 @@ export default function SuperAdminControlPage() {
     e.preventDefault();
     try {
       setSaving(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=updatesubscription`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -630,7 +639,7 @@ export default function SuperAdminControlPage() {
   const handleSavePlans = async () => {
     try {
       setSaving(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveplansettings`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -675,7 +684,7 @@ export default function SuperAdminControlPage() {
       localStorage.setItem('diditme_active', String(diditMeActive));
 
       if (GOOGLE_SCRIPT_URL) {
-        const resAsset = await fetch(GOOGLE_SCRIPT_URL, {
+        const resAsset = await fetch(`${GOOGLE_SCRIPT_URL}?action=save_system_assets`, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
@@ -706,7 +715,7 @@ export default function SuperAdminControlPage() {
           if (err.message && err.message.includes('Gagal')) throw err;
         }
 
-        const resPay = await fetch(GOOGLE_SCRIPT_URL, {
+        const resPay = await fetch(`${GOOGLE_SCRIPT_URL}?action=updatepaymentsettings`, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
@@ -722,7 +731,7 @@ export default function SuperAdminControlPage() {
         });
         await resPay.text(); 
 
-        const resDidit = await fetch(GOOGLE_SCRIPT_URL, {
+        const resDidit = await fetch(`${GOOGLE_SCRIPT_URL}?action=updateditsettings`, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
@@ -751,7 +760,7 @@ export default function SuperAdminControlPage() {
 
     try {
       setSavingRetention(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveprojectexpirationsettings`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
@@ -759,7 +768,8 @@ export default function SuperAdminControlPage() {
           expiration_months: expirationMonths,
           auto_delete_enabled: autoDeleteEnabled,
           adminName, adminEmail, adminRole
-        })
+        }),
+        redirect: 'follow'
       });
 
       const json = await res.json();
@@ -780,11 +790,11 @@ export default function SuperAdminControlPage() {
 
     try {
       setLoading(true);
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteadminlogsbulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          action: 'deleteadminlogsulk',
+          action: 'deleteadminlogsbulk',
           deleteAll: true,
           adminName,
           adminEmail,
@@ -1314,7 +1324,7 @@ export default function SuperAdminControlPage() {
             </div>
           )}
 
-          {/* 🟢 6. TAB BARU: PENGATURAN RETENSI & ARSIP PROYEK */}
+          {/* 🟢 6. TAB: PENGATURAN RETENSI & ARSIP PROYEK */}
           {activeTab === 'project_retention' && (
             <div>
               <div style={STYLES.cardTitleRow}>
