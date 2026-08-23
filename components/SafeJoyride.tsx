@@ -6,9 +6,8 @@ import React, { useState, useEffect } from 'react';
 import { CallBackProps, STATUS, Step } from 'react-joyride';
 import dynamic from 'next/dynamic';
 
-// 🟢 SOLUSI REACT #306: Mengambil secara eksplisit named export dari modul
 const Joyride = dynamic(
-  () => import('react-joyride').then((mod) => mod.Joyride),
+  () => import('react-joyride').then((mod: any) => mod.default || mod.Joyride),
   { ssr: false }
 );
 
@@ -18,6 +17,21 @@ interface SafeJoyrideProps {
   primaryColor?: string;
 }
 
+// Helper untuk membaca Cookie
+function getCookie(name: string): string {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : '';
+}
+
+// Helper untuk menyimpan Cookie (berlaku selama 1 tahun)
+function setCookie(name: string, value: string) {
+  if (typeof document === 'undefined') return;
+  const d = new Date();
+  d.setTime(d.getTime() + 365 * 24 * 60 * 60 * 1000);
+  document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/`;
+}
+
 export default function SafeJoyride({ steps, storageKey, primaryColor = '#2563eb' }: SafeJoyrideProps) {
   const [run, setRun] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -25,13 +39,14 @@ export default function SafeJoyride({ steps, storageKey, primaryColor = '#2563eb
   useEffect(() => {
     setIsMounted(true);
     try {
-      const hasSeen = localStorage.getItem(storageKey);
+      // 🟢 Mengecek status dari Cookie (jauh lebih stabil dibanding localStorage)
+      const hasSeen = getCookie(storageKey);
       if (!hasSeen) {
         const timer = setTimeout(() => setRun(true), 1200);
         return () => clearTimeout(timer);
       }
     } catch (e) {
-      console.warn('LocalStorage tidak tersedia:', e);
+      console.warn('Cookie tidak dapat diakses:', e);
     }
   }, [storageKey]);
 
@@ -39,7 +54,8 @@ export default function SafeJoyride({ steps, storageKey, primaryColor = '#2563eb
     const { status } = data;
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
       try {
-        localStorage.setItem(storageKey, 'true');
+        // 🟢 Menyimpan status permanen ke Cookie
+        setCookie(storageKey, 'true');
       } catch (e) {}
       setRun(false);
     }
