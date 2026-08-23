@@ -6,9 +6,9 @@ import React, { useState, useEffect } from 'react';
 import { CallBackProps, STATUS, Step } from 'react-joyride';
 import dynamic from 'next/dynamic';
 
-// 🟢 Import Dinamis Standar untuk Next.js
+// 🟢 SOLUSI REACT #306: Mengambil secara eksplisit named export dari modul
 const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod.Joyride),
+  () => import('react-joyride').then((mod) => mod.Joyride),
   { ssr: false }
 );
 
@@ -24,21 +24,28 @@ export default function SafeJoyride({ steps, storageKey, primaryColor = '#2563eb
 
   useEffect(() => {
     setIsMounted(true);
-    const hasSeen = localStorage.getItem(storageKey);
-    if (!hasSeen) {
-      setTimeout(() => setRun(true), 1000);
+    try {
+      const hasSeen = localStorage.getItem(storageKey);
+      if (!hasSeen) {
+        const timer = setTimeout(() => setRun(true), 1200);
+        return () => clearTimeout(timer);
+      }
+    } catch (e) {
+      console.warn('LocalStorage tidak tersedia:', e);
     }
   }, [storageKey]);
 
   const handleCallback = (data: CallBackProps) => {
     const { status } = data;
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
-      localStorage.setItem(storageKey, 'true');
+      try {
+        localStorage.setItem(storageKey, 'true');
+      } catch (e) {}
       setRun(false);
     }
   };
 
-  if (!isMounted) return null;
+  if (!isMounted || typeof window === 'undefined') return null;
 
   return (
     <Joyride
@@ -47,13 +54,9 @@ export default function SafeJoyride({ steps, storageKey, primaryColor = '#2563eb
       continuous={true}
       showSkipButton={true}
       showProgress={true}
-      
-      // 🟢 PENGATURAN STANDAR YANG BERSIH DAN AMAN
-      disableScroll={false}          // Biarkan Joyride mengatur scroll secara otomatis
       scrollToFirstStep={true}
-      scrollOffset={100}             // Jarak aman standar
-      disableScrollParentFix={true}  // Melindungi dari cacat layout flex/grid
-      
+      scrollOffset={100}
+      disableScrollParentFix={true}
       callback={handleCallback}
       styles={{
         options: {
