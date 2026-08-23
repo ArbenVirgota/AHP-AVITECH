@@ -8,6 +8,9 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { getSession, clearSession } from '@/lib/auth';
 import type { UserSession } from '@/lib/auth';
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
   process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL ||
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
@@ -284,6 +287,107 @@ const RI_MAP: Record<number, number> = {
 };
 
 const PIE_COLORS = ['#38bdf8', '#34d399', '#f47f7f', '#fbbf24', '#a78bfa', '#fb7185', '#22d3ee', '#818cf8'];
+
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS LAPORAN
+// ============================================================================
+function LaporanOnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const hasSeenTutorial = localStorage.getItem('ahp_tour_laporan');
+    
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1500); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      localStorage.setItem('ahp_tour_laporan', 'true');
+      setRun(false);
+    }
+  };
+
+  const steps: Step[] = [
+    {
+      target: 'body',
+      content: 'Selamat datang di Halaman Laporan Eksekutif! Di sini Anda dapat melihat hasil akhir sintesis AHP Anda secara keseluruhan.',
+      title: '📄 Laporan Proyek',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-ai-report',
+      content: 'Jika paket Anda mendukung, Anda bisa membuat draf narasi analisis secara otomatis menggunakan AI berdasarkan hasil perhitungan AHP ini.',
+      title: '🤖 Analisis AI',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-download-pdf',
+      content: 'Gunakan tombol ini untuk mengunduh seluruh hasil laporan dan matriks ini menjadi dokumen PDF resmi yang siap dicetak.',
+      title: '🖨️ Unduh Laporan PDF',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-pie-chart',
+      content: 'Grafik ini menunjukkan proporsi dan persentase bobot prioritas akhir secara global dengan mudah.',
+      title: '📊 Grafik Proporsi',
+      placement: 'right',
+    },
+    {
+      target: '.tour-ranking',
+      content: 'Ini adalah tabel hasil akhir dari seluruh perhitungan AHP. Peringkat teratas (Rank #1) adalah alternatif atau kriteria dengan prioritas terbaik.',
+      title: '🏆 Ranking Prioritas',
+      placement: 'left',
+    },
+    {
+      target: '.tour-progress-pakar',
+      content: 'Anda juga bisa memantau dan melampirkan daftar pakar yang validitas datanya ikut terhitung di dalam sintesis laporan ini.',
+      title: '👥 Responden Terlibat',
+      placement: 'top',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true}
+      showSkipButton={true}
+      showProgress={true}
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#2563eb', // Warna biru 
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none',
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Selesai',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
 
 function sortByOrder<T extends { urutan?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => Number(a.urutan || 0) - Number(b.urutan || 0));
@@ -591,7 +695,7 @@ function normalizeSavedResponse(raw: Record<string, unknown>): SavedResponse {
     expertname: String(raw.expertname || raw.expert_name || raw.expertName || '').trim(),
     matrixtype: String(raw.matrixtype || raw.matrix_type || raw.matrixType || '').trim(),
     parentid: String(raw.parentid || raw.parent_id || raw.parentId || '').trim(),
-    parentname: String(raw.parentname || raw.parent_name || raw.parentName || '').trim(),
+    parentname: String(raw.parentname || raw.parent_name || raw.parentName || ''),
     itemids: parseStringArray(raw.itemids || raw.item_ids || raw.itemIds || raw.item_ids_json),
     itemnames: parseStringArray(raw.itemnames || raw.item_names || raw.itemNames || raw.item_names_json),
     matriksjson: parseMatrix(raw.matriksjson || raw.matriks_json || raw.matrix_json || raw.matrixJson),
@@ -599,7 +703,7 @@ function normalizeSavedResponse(raw: Record<string, unknown>): SavedResponse {
     cr: Number(raw.cr || 0),
     submittedat: String(raw.submittedat || raw.submitted_at || ''),
     updatedat: String(raw.updatedat || raw.updated_at || ''),
-    submittedby: String(raw.submittedby || raw.submitted_by || '').trim(),
+    submittedby: String(raw.submittedby || raw.submitted_by || ''),
     lasteditedby: String(raw.lasteditedby || raw.last_edited_by || ''),
     editnotes: String(raw.editnotes || raw.edit_notes || ''),
     isconfirmed: Boolean(raw.isconfirmed ?? raw.is_confirmed),
@@ -982,7 +1086,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
 
 function AppTopBar() {
   return (
-    <div style={topBarStyles.container} className="print-topbar">
+    <div style={topBarStyles.container} className="no-print">
       <div style={topBarStyles.brandGroup}>
         <img src="/logo.png" alt="Logo AHP" style={topBarStyles.logo} className="print-logo" />
         <div>
@@ -1988,6 +2092,9 @@ function ProjectReportContent() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
       
+      {/* 🟢 SISIPKAN KOMPONEN TOUR JOYRIDE DI SINI */}
+      <LaporanOnboardingTour />
+
       {/* 🟢 MODAL PROFIL & PENGESAHAN */}
       {showProfileModal && session && (
         <ProfileModal
@@ -2102,6 +2209,7 @@ function ProjectReportContent() {
                 <button 
                   onClick={handleGenerateAiReport} 
                   disabled={loadingAi || isGeneratingPdf}
+                  className="tour-ai-report"
                   style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: (loadingAi || isGeneratingPdf) ? 'not-allowed' : 'pointer' }}
                 >
                   {loadingAi ? '⏳ Menyusun...' : 'Analisis Draf Otomatis'}
@@ -2111,6 +2219,7 @@ function ProjectReportContent() {
                   title="Fitur Analisis Otomatis hanya tersedia untuk paket PLUS dan PREMIUM atau akun dengan akses kustom"
                   onClick={() => alert('Fasilitas Analisis Draf Otomatis terkunci. Silakan tingkatkan paket langganan Anda ke PLUS atau PREMIUM.')}
                   disabled={isGeneratingPdf}
+                  className="tour-ai-report"
                   style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
                 >
                   🔒 Analisis Draf Otomatis
@@ -2122,6 +2231,7 @@ function ProjectReportContent() {
                 type="button" 
                 onClick={handlePrintDocument} 
                 disabled={isGeneratingPdf}
+                className="tour-download-pdf"
                 style={{
                   ...STYLES.btnGhost, 
                   cursor: isGeneratingPdf ? 'not-allowed' : 'pointer',
@@ -2213,7 +2323,7 @@ function ProjectReportContent() {
           {/* GRAFIK & RANKING GLOBAL */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
             
-            <section style={STYLES.card} className="print-card">
+            <section style={STYLES.card} className="print-card tour-pie-chart">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <h2 style={{...STYLES.sectionTitle, fontSize: 13}}>Grafik Proporsi Global</h2>
                 <div title="Consistency Ratio (CR) Global" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '2px 5px' }}>
@@ -2228,7 +2338,7 @@ function ProjectReportContent() {
               <GlobalPieChart data={finalAggregateRanking} />
             </section>
 
-            <section style={STYLES.card} className="print-card">
+            <section style={STYLES.card} className="print-card tour-ranking">
               <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Ranking Prioritas Sintesis Akhir</h2>
               
               <div style={{ overflowX: 'auto' }}>
@@ -2285,7 +2395,7 @@ function ProjectReportContent() {
           </div>
 
           {/* STATUS RESPONDEN */}
-          <section style={STYLES.card} className="print-card">
+          <section style={STYLES.card} className="print-card tour-progress-pakar">
             <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
             
             {/* 3. NARASI KONSISTENSI GLOBAL */}
@@ -2841,7 +2951,6 @@ const STYLES: Record<string, CSSProperties> = {
   sectionTitle: { margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b', letterSpacing: '-0.3px' },
   metaText: { color: '#64748b', margin: '2px 0 0', fontSize: 11, lineHeight: 1.4 },
   
-  // 🟢 Penambahan flex styling untuk header expert
   panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 },
   subTitle: { margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' },
   subTitleDisabled: { margin: 0, fontSize: 13, fontWeight: 700, color: '#94a3b8' },

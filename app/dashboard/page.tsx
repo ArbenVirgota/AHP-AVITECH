@@ -10,6 +10,9 @@ import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride'
+
 const API_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec'
 
@@ -260,6 +263,106 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
+
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR MENGGUNAKAN JOYRIDE
+// ============================================================================
+function OnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    // Cek di localStorage apakah user sudah pernah melihat tutorial ini
+    const hasSeenTutorial = localStorage.getItem('ahp_has_seen_tutorial');
+    
+    // Jika belum pernah melihat, jalankan tour setelah 1.5 detik agar halaman ter-render sempurna
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1500); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      // Jika user klik "Lewati Tur" atau sudah selesai sampai akhir, catat di memori
+      localStorage.setItem('ahp_has_seen_tutorial', 'true');
+      setRun(false);
+    }
+  };
+
+  // Definisikan langkah-langkah dan elemen mana yang akan disorot menggunakan CSS Class
+  const steps: Step[] = [
+    {
+      target: 'body', 
+      content: 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
+      title: '👋 Selamat Datang!',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-step-profile',
+      content: 'Sebelum memulai riset, pastikan Anda melengkapi profil dan mengunggah tanda tangan digital agar e-sertifikat riset Anda sah secara administratif.',
+      title: '⚙️ Lengkapi Profil Anda',
+    },
+    {
+      target: '.tour-step-project',
+      content: 'Di sinilah ruang kerja Anda berada. Buka menu ini untuk melihat daftar proyek riset AHP Anda atau membuat proyek baru.',
+      title: '📁 Proyek AHP Saya',
+    },
+    {
+      target: '.tour-step-expert',
+      content: 'Butuh responden berkualitas? Cari dan temukan pakar yang relevan dengan riset Anda di menu Direktori Pakar.',
+      title: '👥 Direktori Pakar',
+    },
+    {
+      target: '.tour-step-consultation',
+      content: 'Jika Anda memiliki kendala atau butuh masukan dari pakar, gunakan fitur Pusat Konsultasi untuk mengirim tiket pertanyaan.',
+      title: '💬 Pusat Konsultasi',
+    },
+    {
+      target: '.tour-step-create-project',
+      content: 'Setelah profil lengkap, klik tombol ini untuk mulai membangun struktur hirarki dan membuat proyek riset AHP pertama Anda!',
+      title: '🚀 Mulai Riset Sekarang',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true} // Melanjutkan otomatis saat klik lanjut
+      showSkipButton={true} // Tombol untuk melewati tutorial
+      showProgress={true} // Menampilkan "1 dari 6"
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#2563eb', // Warna biru 
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none', // Sembunyikan tombol (X) kecil agar user fokus ke tombol "Lewati Tur"
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Selesai',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
 
 function FeatureComparisonModal({
   dynamicPlans,
@@ -1083,7 +1186,7 @@ function normalizeProject(raw: RawProject): Project {
     deskripsi: String(raw?.deskripsi ?? '').trim(),
     metode: String(raw?.metode ?? '').trim(),
     jumlah_expert: expertCount,
-    jumlah_expert_responden: expertCount, // 🟢 Menggunakan data langsung tanpa N+1 loop
+    jumlah_expert_responden: expertCount, 
     punya_subkriteria: Boolean(raw?.punya_subkriteria),
     fasilitator_email: String(raw?.fasilitator_email ?? raw?.fasilitatoremail ?? '').trim(),
     fasilitator_whatsapp: String(
@@ -1170,7 +1273,8 @@ function DashboardSidebar({
       badge: projects.length > 0 ? String(projects.length) : undefined,
       badgeColor: '#2563eb',
       active: pathname === '/user/projects',
-      onClick: () => router.push('/user/projects')
+      onClick: () => router.push('/user/projects'),
+      tourClass: 'tour-step-project' // 🟢 Tambahan untuk Joyride
     },
     {
       label: 'Pusat Konsultasi',
@@ -1178,20 +1282,23 @@ function DashboardSidebar({
       badge: consultationCount > 0 ? String(consultationCount) : undefined,
       badgeColor: '#10b981',
       active: pathname === '/user/consultations',
-      onClick: () => router.push('/user/consultations')
+      onClick: () => router.push('/user/consultations'),
+      tourClass: 'tour-step-consultation' // 🟢 Tambahan untuk Joyride
     },
     {
       label: 'Direktori Pakar',
       icon: '👥',
       active: pathname === '/expert-directory' || pathname === '/expert/directory',
-      onClick: () => router.push('/expert-directory')
+      onClick: () => router.push('/expert-directory'),
+      tourClass: 'tour-step-expert' // 🟢 Tambahan untuk Joyride
     },
     {
       label: 'Profil & Pengesahan',
       icon: '⚙️',
       badge: !isProfileComplete ? '!' : undefined,
       badgeColor: '#ef4444',
-      onClick: onOpenProfile
+      onClick: onOpenProfile,
+      tourClass: 'tour-step-profile' // 🟢 Tambahan untuk Joyride
     },
     {
       label: 'Panduan Sistem',
@@ -1280,6 +1387,7 @@ function DashboardSidebar({
             type="button"
             onClick={item.onClick}
             title={isCollapsed ? item.label : undefined}
+            className={item.tourClass} // 🟢 Menyisipkan Class untuk Joyride
             style={{
               ...sidebarStyles.navButton,
               justifyContent: isCollapsed ? 'center' : 'flex-start',
@@ -1674,6 +1782,10 @@ function DashboardContent() {
 
   return (
     <div style={S.layoutWrapper}>
+      
+      {/* 🟢 SISIPKAN KOMPONEN ONBOARDING TOUR JOYRIDE */}
+      <OnboardingTour />
+
       {/* 🟢 SIDEBAR BERSIH */}
       <DashboardSidebar
         user={session}
@@ -1811,7 +1923,7 @@ function DashboardContent() {
                   <span style={S.planPrice}>{planConfig.price}</span>
                 </div>
                 <div style={S.planMeta}>Proyek: <strong>{projectUsageText}</strong></div>
-                <button onClick={handleCreateProject} style={S.btnPrimary} type="button">
+                <button onClick={handleCreateProject} className="tour-step-create-project" style={S.btnPrimary} type="button">
                   {canCreateProject ? '+ Buat Proyek' : 'Upgrade Paket'}
                 </button>
                 {currentPlan === 'free' && (

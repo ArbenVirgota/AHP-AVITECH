@@ -5,6 +5,9 @@
 import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
 
@@ -154,6 +157,95 @@ function calculateAHP(matrix: number[][]) {
   const cr = n <= 2 || ri === 0 ? 0 : ci / ri;
   return { weights, cr };
 }
+
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS HALAMAN EXPERT (PENGISIAN MATRIKS)
+// ============================================================================
+function MatrixOnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    // Cek apakah pakar sudah pernah melihat panduan ini
+    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_matrix');
+    
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1200); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      localStorage.setItem('ahp_tour_expert_matrix', 'true');
+      setRun(false);
+    }
+  };
+
+  const steps: Step[] = [
+    {
+      target: 'body',
+      content: 'Mari kita pelajari cara mengisi kuesioner matriks perbandingan berpasangan ini dengan benar.',
+      title: '📋 Petunjuk Pengisian',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-slider',
+      content: 'Pilih kriteria mana yang lebih penting di antara keduanya. Geser slider ke kiri/kanan. Angka 9 berarti mutlak sangat penting, angka 1 berarti sama penting.',
+      title: '⚖️ Skala Penilaian Saaty',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-cr',
+      content: 'Indikator ini mengukur konsistensi logika jawaban Anda. Usahakan nilai CR tetap di bawah 0.1 (KONSISTEN) agar penilaian Anda rasional dan valid.',
+      title: '📊 Consistency Ratio (CR)',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-submit',
+      content: 'Jika Anda sudah yakin dengan seluruh penilaian di halaman ini, klik tombol ini untuk menyimpan dan beralih ke halaman matriks berikutnya.',
+      title: '💾 Simpan & Lanjut',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true}
+      showSkipButton={true}
+      showProgress={true}
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#0f766e', // Warna tema expert (teal-700)
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none',
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Paham!',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
 
 function ExpertMainContent() {
   const searchParams = useSearchParams();
@@ -495,7 +587,6 @@ function ExpertMainContent() {
       if (currentTaskIndex < tasks.length - 1) {
         setCurrentTaskIndex((prev) => prev + 1);
       } else {
-        // 🟢 DIARAHKAN KE app/expert/selesai/page.tsx
         router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`);
       }
     } catch (err) {
@@ -637,14 +728,19 @@ function ExpertMainContent() {
   return (
     <div style={STYLES.page}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
+
+      {/* 🟢 3. MEMASANG KOMPONEN TOUR SAAT MASUK KE MODE MATRIKS */}
+      <MatrixOnboardingTour />
+
       <div style={STYLES.container}>
         <div style={{...STYLES.card, display: 'flex', flexDirection: 'column', height: '90vh', maxHeight: '90vh', padding: '20px 24px'}}>
           
-          {/* HEADER MATRIKS (TETAP DIAM DI ATAS) */}
           <div style={{ flexShrink: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
               <span style={STYLES.badge}>Tugas {currentTaskIndex + 1} dari {tasks.length}</span>
-              <span style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
+              
+              {/* 🟢 TARGET CLASS: .tour-cr */}
+              <span className="tour-cr" style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
                 CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
               </span>
             </div>
@@ -653,15 +749,17 @@ function ExpertMainContent() {
             <p style={STYLES.desc}>{task.description}</p>
           </div>
 
-          {/* 🟢 AREA MATRIKS YANG BISA DI-SCROLL VERTIKAL */}
           <div className="eval-scroll" style={STYLES.scrollableArea}>
             <div style={{ display: 'grid', gap: 16 }}>
-              {pairs.map((p) => {
+              {pairs.map((p, idx) => {
                 const saatyVal = currentMatrix[p.i]?.[p.j] ?? 1;
                 const state = saatyToSliderState(saatyVal);
+                
+                // 🟢 TARGET CLASS: .tour-slider (Hanya disorot pada kotak slider pertama)
+                const isFirstSlider = idx === 0;
 
                 return (
-                  <div key={`${p.i}-${p.j}`} style={STYLES.sliderCard}>
+                  <div key={`${p.i}-${p.j}`} className={isFirstSlider ? 'tour-slider' : ''} style={STYLES.sliderCard}>
                     <div style={STYLES.sliderHeader}>
                       <strong>{p.left}</strong>
                       <span style={{ fontSize: 12, color: '#64748b' }}>vs</span>
@@ -728,15 +826,16 @@ function ExpertMainContent() {
             </div>
           </div>
 
-          {/* FOOTER TOMBOL AKSI (TETAP DIAM DI BAWAH) */}
           <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
             {currentTaskIndex > 0 ? (
               <button onClick={() => setCurrentTaskIndex((prev) => prev - 1)} style={STYLES.btnSecondary}>← Sebelumnya</button>
             ) : <div />}
 
+            {/* 🟢 TARGET CLASS: .tour-submit */}
             <button 
               onClick={() => void saveCurrentTask()} 
               disabled={isSubmitDisabled} 
+              className="tour-submit"
               style={{
                 ...STYLES.btnPrimary,
                 opacity: isSubmitDisabled ? 0.6 : 1,
@@ -783,7 +882,6 @@ const STYLES: Record<string, React.CSSProperties> = {
   btnSecondary: { padding: '12px 20px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
   badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block' },
   
-  // 🟢 Penambahan Gaya Baru untuk Sticky dan Scroll
   crSuccess: { fontSize: 12.5, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '4px 10px', borderRadius: 999, border: '1px solid #bbf7d0' },
   crError: { fontSize: 12.5, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '4px 10px', borderRadius: 999, border: '1px solid #fecaca' },
   scrollableArea: { flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', paddingBottom: '16px' },

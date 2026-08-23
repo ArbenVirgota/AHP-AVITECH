@@ -6,6 +6,9 @@ import React, { useEffect, useState, useCallback, useMemo, CSSProperties } from 
 import { useRouter } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 
 // 🟢 BATAS KUOTA PAKAR SESUAI ATURAN PLAN USER (KAPITAL)
@@ -170,6 +173,95 @@ function renderStarRating(rating?: number, totalReviews?: number) {
     </div>
   );
 }
+
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS DIREKTORI PAKAR
+// ============================================================================
+function ExpertDirectoryOnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_directory');
+    
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1200); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      localStorage.setItem('ahp_tour_expert_directory', 'true');
+      setRun(false);
+    }
+  };
+
+  const steps: Step[] = [
+    {
+      target: 'body',
+      content: 'Selamat datang di Direktori Pakar! Di sini Anda dapat menemukan dan terhubung dengan berbagai pakar terverifikasi.',
+      title: '👥 Direktori Pakar',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-gabung',
+      content: 'Jika Anda memiliki kepakaran khusus, Anda juga dapat bergabung ke direktori ini untuk membantu peneliti lain dan mendapatkan benefit khusus.',
+      title: '🌟 Gabung Sebagai Pakar',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-search',
+      content: 'Gunakan kolom pencarian ini untuk menemukan pakar berdasarkan nama, bidang keahlian, atau asal institusi mereka.',
+      title: '🔍 Cari Pakar',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-konsultasi',
+      content: 'Klik tombol ini untuk mengirimkan pertanyaan atau tiket konsultasi langsung kepada pakar yang bersangkutan. (Membutuhkan Login)',
+      title: '💬 Ajukan Konsultasi',
+      placement: 'top',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true}
+      showSkipButton={true}
+      showProgress={true}
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#2563eb', // Warna biru 
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none',
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Paham!',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
 
 export default function ExpertDirectoryPage() {
   const router = useRouter();
@@ -712,6 +804,10 @@ export default function ExpertDirectoryPage() {
 
   return (
     <div style={STYLES.page}>
+      
+      {/* 🟢 SISIPKAN KOMPONEN TOUR JOYRIDE DI SINI */}
+      <ExpertDirectoryOnboardingTour />
+
       <div style={STYLES.container}>
         <div style={STYLES.headerRow}>
           <div>
@@ -724,7 +820,7 @@ export default function ExpertDirectoryPage() {
           </div>
           
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <button type="button" onClick={() => setShowApplyModal(true)} style={STYLES.btnApplyExpert}>
+            <button type="button" onClick={() => setShowApplyModal(true)} className="tour-gabung" style={STYLES.btnApplyExpert}>
               🌟 Gabung Sebagai Pakar
             </button>
             <button type="button" onClick={() => router.push('/')} style={STYLES.btnSecondary}>
@@ -781,7 +877,7 @@ export default function ExpertDirectoryPage() {
         )}
 
         {isLoggedIn && (
-          <div style={STYLES.searchBarWrap}>
+          <div className="tour-search" style={STYLES.searchBarWrap}>
             <input
               type="text"
               placeholder="Cari berdasarkan nama, bidang keahlian, atau instansi..."
@@ -839,6 +935,7 @@ export default function ExpertDirectoryPage() {
                       {isLoggedIn ? (
                         <button 
                           onClick={() => handleOpenConsultModal(exp, formattedName)} 
+                          className={idx === 0 ? "tour-konsultasi" : ""}
                           style={STYLES.btnConsultAction}
                         >
                           💬 Ajukan Konsultasi

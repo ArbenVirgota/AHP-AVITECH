@@ -10,6 +10,9 @@ import type { UserSession } from '@/lib/auth'
 import { countUserProjects, PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride'
+
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec'
@@ -128,6 +131,101 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
+
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS BUAT PROYEK
+// ============================================================================
+function BuatProyekOnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    const hasSeenTutorial = localStorage.getItem('ahp_tour_buat_proyek');
+    
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1200); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      localStorage.setItem('ahp_tour_buat_proyek', 'true');
+      setRun(false);
+    }
+  };
+
+  const steps: Step[] = [
+    {
+      target: 'body',
+      content: 'Mari kita mulai membuat ruang kerja proyek riset AHP pertama Anda. Ikuti petunjuk singkat ini.',
+      title: '📁 Buat Proyek Baru',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-info-proyek',
+      content: 'Pertama, isi nama proyek Anda dan pilih metode evaluasi. Opsi "Kombinasi dengan Alternatif" akan memunculkan isian tambahan untuk pilihan alternatif Anda.',
+      title: '1. Informasi Proyek',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-kriteria',
+      content: 'Ketik daftar kriteria utama Anda di sini (pisahkan dengan tombol Enter). Jika Anda berlangganan fitur AI, Anda dapat menyusunnya secara otomatis.',
+      title: '2. Kriteria Utama',
+      placement: 'top',
+    },
+    {
+      target: '.tour-pakar',
+      content: 'Tentukan jumlah pakar responden dan isi data kontaknya. Jika paket Anda mendukung, Anda bisa mencari dan memilih langsung dari Direktori Pakar.',
+      title: '3. Tim Pakar',
+      placement: 'top',
+    },
+    {
+      target: '.tour-simpan',
+      content: 'Periksa kembali kelengkapan data. Kriteria, Alternatif, dan daftar Pakar tidak dapat diedit setelah disimpan. Jika sudah yakin, klik tombol ini!',
+      title: '💾 Simpan Proyek',
+      placement: 'top',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true}
+      showSkipButton={true}
+      showProgress={true}
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#2563eb', // Warna biru (blue-600)
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none',
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Paham!',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
 
 // 🟢 TOP HEADER RESMI AHP
 function AppTopBar() {
@@ -1206,6 +1304,8 @@ function BuatProyekContent() {
 
   return (
     <div style={S.layoutWrapper}>
+      {/* 🟢 SISIPKAN KOMPONEN ONBOARDING TOUR JOYRIDE */}
+      <BuatProyekOnboardingTour />
       
       {/* 🟢 MODAL PROFIL & PENGESAHAN */}
       {showProfileModal && session && (
@@ -1217,7 +1317,7 @@ function BuatProyekContent() {
         />
       )}
 
-      {/* 🟢 SIDEBAR UTAMA (BERSIH TANPA LIST DAFTAR PROYEK DI BAWAH) */}
+      {/* 🟢 SIDEBAR UTAMA */}
       <DashboardSidebar
         user={session}
         userProfile={userProfile}
@@ -1255,7 +1355,8 @@ function BuatProyekContent() {
 
           {error && <div style={S.errorBox}>{error}</div>}
 
-          <div style={S.card}>
+          {/* 🟢 TARGET CLASS: tour-info-proyek */}
+          <div style={S.card} className="tour-info-proyek">
             <h3 style={S.cardTitle}>1. Informasi Proyek &amp; Struktur Metode</h3>
             <div style={S.grid2}>
               <div style={S.fieldGroup}>
@@ -1283,7 +1384,8 @@ function BuatProyekContent() {
             </div>
           </div>
 
-          <div style={S.card}>
+          {/* 🟢 TARGET CLASS: tour-kriteria */}
+          <div style={S.card} className="tour-kriteria">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
               <h3 style={{...S.cardTitle, margin: 0}}>
                 2. Daftar Kriteria Utama <span style={S.badge}>{kriteriaArray.length} aktif</span>
@@ -1407,7 +1509,8 @@ function BuatProyekContent() {
             </div>
           )}
 
-          <div style={S.card}>
+          {/* 🟢 TARGET CLASS: tour-pakar */}
+          <div style={S.card} className="tour-pakar">
             <h3 style={S.cardTitle}>
               <span>4. Tim Pakar (Expert Responden)</span>
               <span style={S.badgeGlobal}>{resolvedMaxExpertsDirectory === 0 ? '📝 Input Manual Mandiri' : `🔍 Kuota Direktori: ${resolvedMaxExpertsDirectory === 99999 ? 'Unlimited' : resolvedMaxExpertsDirectory}`}</span>
@@ -1495,7 +1598,8 @@ function BuatProyekContent() {
 
           <div style={S.footer}>
             <button type="button" onClick={() => router.back()} style={S.btnCancel}>Batal</button>
-            <button type="button" onClick={handleSimpan} disabled={loading || isQuotaFull} style={loading || isQuotaFull ? { ...S.btnSimpan, ...S.btnDisabled } : S.btnSimpan}>
+            {/* 🟢 TARGET CLASS: tour-simpan */}
+            <button type="button" className="tour-simpan" onClick={handleSimpan} disabled={loading || isQuotaFull} style={loading || isQuotaFull ? { ...S.btnSimpan, ...S.btnDisabled } : S.btnSimpan}>
               {loading ? 'Menyimpan...' : isQuotaFull ? 'Kuota Penuh' : 'Simpan & Buat Proyek'}
             </button>
           </div>

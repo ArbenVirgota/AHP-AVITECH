@@ -5,6 +5,9 @@
 import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
+// 🟢 1. IMPORT REACT-JOYRIDE
+import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
 
@@ -96,6 +99,102 @@ function processPhoneNumber(phoneInput?: any): { displayPhone: string; waLinkPho
   return { displayPhone: localFormat, waLinkPhone: internationalFormat, isValid: true, errorMsg: '' };
 }
 
+// ============================================================================
+// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS HALAMAN PENYELESAIAN EXPERT
+// ============================================================================
+function SelesaiOnboardingTour() {
+  const [run, setRun] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+    // Cek apakah pakar sudah pernah melihat panduan ini
+    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_selesai');
+    
+    if (!hasSeenTutorial) {
+      setTimeout(() => setRun(true), 1200); 
+    }
+  }, []);
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { status } = data;
+    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
+
+    if (finishedStatuses.includes(status)) {
+      localStorage.setItem('ahp_tour_expert_selesai', 'true');
+      setRun(false);
+    }
+  };
+
+  const steps: Step[] = [
+    {
+      target: 'body',
+      content: 'Terima kasih telah menyelesaikan evaluasi matriks! Ini adalah tahap akhir untuk menyimpan profil Anda dan mengunduh E-Sertifikat Apresiasi.',
+      title: '🎉 Tahap Penyelesaian',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-profile-form',
+      content: 'Mohon lengkapi Nama Utama dan Gelar Anda dengan benar. Data ini akan dicetak secara permanen di E-Sertifikat Anda.',
+      title: '📝 Lengkapi Profil',
+      placement: 'top',
+    },
+    {
+      target: '.tour-ktp',
+      content: 'Anda diwajibkan untuk mengunggah gambar/foto KTP sebagai bukti validasi identitas dan kepakaran sesuai dengan standar riset administratif.',
+      title: '🪪 Verifikasi Identitas',
+      placement: 'top',
+    },
+    {
+      target: '.tour-consent',
+      content: 'Jangan lupa mencentang kotak persetujuan ini agar Anda dapat bergabung di Direktori Pakar dan menerbitkan sertifikat.',
+      title: '✅ Persetujuan',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-save-profile',
+      content: 'Setelah semua formulir terisi, klik tombol Simpan. Opsi pengunduhan PDF E-Sertifikat akan otomatis muncul setelah data Anda tersimpan!',
+      title: '💾 Simpan Profil & Unduh',
+      placement: 'top',
+    }
+  ];
+
+  if (!isMounted) return null;
+
+  return (
+    <Joyride
+      steps={steps}
+      run={run}
+      continuous={true}
+      showSkipButton={true}
+      showProgress={true}
+      callback={handleJoyrideCallback}
+      styles={{
+        options: {
+          primaryColor: '#0f766e', // Warna tema expert (teal-700)
+          textColor: '#334155',
+          zIndex: 100000,
+        },
+        buttonClose: {
+          display: 'none',
+        },
+        tooltipContainer: {
+          textAlign: 'left'
+        }
+      }}
+      locale={{
+        back: 'Kembali',
+        close: 'Tutup',
+        last: 'Paham!',
+        next: 'Lanjut',
+        skip: 'Lewati Tur',
+      }}
+    />
+  );
+}
+// ============================================================================
+
 function ExpertSelesaiContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token') || '';
@@ -120,10 +219,8 @@ function ExpertSelesaiContent() {
   const [showCertModal, setShowCertModal] = useState(false);
   const [officialCertId, setOfficialCertId] = useState<string>(''); 
   
-  // 🟢 State untuk proses Unduh PDF
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  // 🟢 State Aset Sistem dari Sheet system_assets / app_settings
   const [systemAssets, setSystemAssets] = useState<{
     platform_logo?: string;
     admin_signature?: string;
@@ -145,7 +242,6 @@ function ExpertSelesaiContent() {
     isPublic: true
   });
 
-  // 🟢 EFFECT DOM REMOVER MUTLAK: Menyembunyikan sidebar, navbar, drawer dari layout induk
   useEffect(() => {
     if (typeof document !== 'undefined') {
       const hiddenElements: HTMLElement[] = [];
@@ -195,7 +291,6 @@ function ExpertSelesaiContent() {
 
       const ts = Date.now();
       
-      // Ambil data expert & aset sistem secara paralel
       const [tokenRes, assetsRes] = await Promise.all([
         fetch(GOOGLESCRIPTURL, {
           method: 'POST',
@@ -329,7 +424,6 @@ function ExpertSelesaiContent() {
     void loadData();
   }, [loadData]);
 
-  // 🟢 Resolusi Tanda Tangan & Data Pengesah Sistem (Prioritas Sheet system_assets)
   const getSystemSignerInfo = () => {
     const activeType = typeof window !== 'undefined' ? localStorage.getItem('active_signer_type') : 'main';
     let name = 'Dr. Arben Virgota, S.Pi., M.Si';
@@ -344,7 +438,6 @@ function ExpertSelesaiContent() {
     return { name, title, sigUrl };
   };
 
-  // 🟢 Resolusi Logo Platform (Prioritas Sheet system_assets)
   const getAppLogoUrl = () => {
     return systemAssets.platform_logo || (typeof window !== 'undefined' ? localStorage.getItem('app_system_stamp_url') : '') || '/logo.png';
   };
@@ -562,7 +655,6 @@ function ExpertSelesaiContent() {
     }
   };
 
-  // 🟢 FUNGSI BARU: UNDUH PDF (SUPPORT ANDROID & IOS)
   const handleDownloadPDF = async () => {
     if (isGeneratingPdf) return;
     
@@ -575,7 +667,6 @@ function ExpertSelesaiContent() {
         return;
       }
 
-      // Dinamis import library (Hanya di-load saat tombol diklik agar Next.js tidak error)
       const html2pdfModule = await import('html2pdf.js' as any);
       const html2pdf = html2pdfModule.default || html2pdfModule;
 
@@ -585,7 +676,6 @@ function ExpertSelesaiContent() {
         margin:       0,
         filename:     `Sertifikat_Apresiasi_${cleanFileNameId}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
-        // windowWidth: 1122 mensimulasikan layar PC agar sertifikat tidak gepeng di Android
         html2canvas:  { scale: 2, useCORS: true, letterRendering: true, windowWidth: 1122 },
         jsPDF:        { unit: 'mm', format: [297, 185], orientation: 'landscape' }
       };
@@ -594,7 +684,6 @@ function ExpertSelesaiContent() {
 
     } catch (err) {
       console.error('Gagal membuat PDF:', err);
-      // Fallback Darurat: Gunakan print bawaan browser
       window.print();
     } finally {
       setIsGeneratingPdf(false);
@@ -707,6 +796,9 @@ function ExpertSelesaiContent() {
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', zIndex: 2147483647, overflowY: 'auto', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif', boxSizing: 'border-box' }}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
+      {/* 🟢 KOMPONEN TUR ONBOARDING */}
+      <SelesaiOnboardingTour />
+
       <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }} className="no-print">
         
         <div style={{ background: 'white', padding: '14px 18px', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
@@ -719,7 +811,7 @@ function ExpertSelesaiContent() {
         <div style={{ background: 'white', padding: '16px 18px', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
           <h2 style={{ margin: '0 0 12px', fontSize: 15, color: '#0f172a', fontWeight: 700 }}>Langkah 1: Lengkapi &amp; Simpan Profil Pakar</h2>
           
-          <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <form onSubmit={handleSaveProfile} className="tour-profile-form" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: 10 }}>
               <div>
                 <label style={{ fontSize: 11.5, fontWeight: 600, display: 'block', marginBottom: 2, color: '#334155' }}>Gelar Depan</label>
@@ -771,7 +863,7 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            <div>
+            <div className="tour-ktp">
               <label style={{ fontSize: 11.5, fontWeight: 600, display: 'block', marginBottom: 2, color: '#334155' }}>Unggah Foto KTP (Verifikasi Identitas Pakar)</label>
               <input 
                 type="file" 
@@ -802,7 +894,7 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            <div style={{
+            <div className="tour-consent" style={{
               marginTop: 10,
               marginBottom: 10,
               background: '#f8fafc',
@@ -843,6 +935,7 @@ function ExpertSelesaiContent() {
             <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
               <button 
                 type="submit" 
+                className="tour-save-profile"
                 disabled={savingProfile || (formData.isPublic && !agreedToTerms) || Boolean(waError)} 
                 style={{ 
                   padding: '12px 16px', 
@@ -919,7 +1012,7 @@ function ExpertSelesaiContent() {
                 <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sertifikat siap diunduh dan disimpan sebagai PDF</p>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                {/* 🟢 TOMBOL BARU MENGGUNAKAN HTML2PDF */}
+                {/* 🟢 TOMBOL HTML2PDF TETAP ADA */}
                 <button 
                   onClick={handleDownloadPDF} 
                   disabled={isGeneratingPdf}
@@ -934,7 +1027,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* 🟢 TAMBAHAN ID "certificate-download-area" PADA DIV UTAMA */}
             <div id="certificate-download-area" className="certificate-print-area" style={{ border: '8px solid #1e3a8a', padding: '28px 30px 20px 30px', borderRadius: 10, background: '#ffffff', color: '#1e293b', textAlign: 'center', fontFamily: "'Georgia', serif", boxSizing: 'border-box', position: 'relative', isolation: 'isolate' }}>
               
               {appLogoUrl && (
@@ -996,7 +1088,6 @@ function ExpertSelesaiContent() {
                   </div>
                 </div>
                 
-                {/* Kolom 2: Peneliti Utama dengan Latar Belakang Putih Transparan pada TTD */}
                 <div style={{ display: 'table-cell', width: '35%', verticalAlign: 'bottom', textAlign: 'center', padding: '0 6px' }}>
                   <div style={{ fontSize: 10, fontFamily: 'Arial, sans-serif', color: '#64748b', fontWeight: 'bold', marginBottom: 2, letterSpacing: 1 }}>DITERBITKAN DI</div>
                   <div style={{ fontSize: 11, fontWeight: 'bold', color: '#0f172a', marginBottom: 4 }}>Mataram, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
@@ -1020,7 +1111,7 @@ function ExpertSelesaiContent() {
                             maxWidth: 140, 
                             objectFit: 'contain',
                             mixBlendMode: 'multiply',
-			    opacity: 0.99
+                            opacity: 0.99
                           }} 
                         />
                       </div>
@@ -1034,7 +1125,6 @@ function ExpertSelesaiContent() {
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{project.fasilitatorlembaga}</div>
                 </div>
 
-                {/* Kolom 3: Pengesah System (Admin/Superadmin) */}
                 <div style={{ display: 'table-cell', width: '35%', verticalAlign: 'bottom', textAlign: 'center', padding: '0 6px' }}>
                   <div style={{ position: 'relative', width: '100%' }}>
                     
