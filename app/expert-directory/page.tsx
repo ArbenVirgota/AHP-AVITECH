@@ -7,7 +7,14 @@ import { useRouter } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 
 // 🟢 1. IMPORT REACT-JOYRIDE
-import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride';
+import { CallBackProps, STATUS, Step } from 'react-joyride';
+import dynamic from 'next/dynamic';
+
+// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
+const Joyride = dynamic(
+  () => import('react-joyride').then((mod: any) => mod.default || mod),
+  { ssr: false }
+) as any;
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 

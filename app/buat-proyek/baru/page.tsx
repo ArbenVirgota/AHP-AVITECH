@@ -11,7 +11,14 @@ import { countUserProjects, PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
 // 🟢 1. IMPORT REACT-JOYRIDE
-import Joyride, { CallBackProps, STATUS, Step } from 'react-joyride'
+import { CallBackProps, STATUS, Step } from 'react-joyride';
+import dynamic from 'next/dynamic';
+
+// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
+const Joyride = dynamic(
+  () => import('react-joyride').then((mod: any) => mod.default || mod),
+  { ssr: false }
+) as any;
 
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || 
