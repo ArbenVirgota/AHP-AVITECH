@@ -10,15 +10,8 @@ import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride'
 
 const API_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec'
@@ -44,36 +37,12 @@ interface Project {
   updated_at: string
 }
 
-interface RawExpert {
-  id?: string
-  expertid?: string
-  expert_id?: string
-  projectid?: string
-  project_id?: string
-  expertindex?: number
-  expert_index?: number
-  expertname?: string
-  expert_name?: string
-  expertemail?: string
-  expert_email?: string
-  expertwhatsapp?: string
-  expert_whatsapp?: string
-  role?: string
-  status?: string
-  responsestatus?: string
-  response_status?: string
-}
-
-interface Expert {
-  id: string
-  project_id: string
-  expert_index: number
-  name: string
-  email: string
-  whatsapp: string
-  role: string
-  status: string
-  response_status: string
+interface UserProfileData {
+  nama: string
+  institusi: string
+  city: string
+  digital_signature: string
+  foto_profil?: string
 }
 
 interface ConsultationTicket {
@@ -88,14 +57,6 @@ interface ConsultationTicket {
   created_at?: string
   jawabanExpert?: string
   fileUrl?: string
-}
-
-interface UserProfileData {
-  nama: string
-  institusi: string
-  city: string
-  digital_signature: string
-  foto_profil?: string
 }
 
 interface RawConsultation {
@@ -208,7 +169,6 @@ function formatRupiah(amount: number) {
   }).format(amount)
 }
 
-// 🟢 SAFE FETCH HELPER (Mencegah Crash jika salah satu endpoint gagal)
 async function safeFetchJson(url: string) {
   try {
     const res = await fetch(url, { method: 'GET', cache: 'no-store' })
@@ -270,106 +230,6 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
-
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR MENGGUNAKAN JOYRIDE
-// ============================================================================
-function OnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    // Cek di localStorage apakah user sudah pernah melihat tutorial ini
-    const hasSeenTutorial = localStorage.getItem('ahp_has_seen_tutorial');
-    
-    // Jika belum pernah melihat, jalankan tour setelah 1.5 detik agar halaman ter-render sempurna
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1500); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      // Jika user klik "Lewati Tur" atau sudah selesai sampai akhir, catat di memori
-      localStorage.setItem('ahp_has_seen_tutorial', 'true');
-      setRun(false);
-    }
-  };
-
-  // Definisikan langkah-langkah dan elemen mana yang akan disorot menggunakan CSS Class
-  const steps: Step[] = [
-    {
-      target: 'body', 
-      content: 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
-      title: '👋 Selamat Datang!',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-step-profile',
-      content: 'Sebelum memulai riset, pastikan Anda melengkapi profil dan mengunggah tanda tangan digital agar e-sertifikat riset Anda sah secara administratif.',
-      title: '⚙️ Lengkapi Profil Anda',
-    },
-    {
-      target: '.tour-step-project',
-      content: 'Di sinilah ruang kerja Anda berada. Buka menu ini untuk melihat daftar proyek riset AHP Anda atau membuat proyek baru.',
-      title: '📁 Proyek AHP Saya',
-    },
-    {
-      target: '.tour-step-expert',
-      content: 'Butuh responden berkualitas? Cari dan temukan pakar yang relevan dengan riset Anda di menu Direktori Pakar.',
-      title: '👥 Direktori Pakar',
-    },
-    {
-      target: '.tour-step-consultation',
-      content: 'Jika Anda memiliki kendala atau butuh masukan dari pakar, gunakan fitur Pusat Konsultasi untuk mengirim tiket pertanyaan.',
-      title: '💬 Pusat Konsultasi',
-    },
-    {
-      target: '.tour-step-create-project',
-      content: 'Setelah profil lengkap, klik tombol ini untuk mulai membangun struktur hirarki dan membuat proyek riset AHP pertama Anda!',
-      title: '🚀 Mulai Riset Sekarang',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true} // Melanjutkan otomatis saat klik lanjut
-      showSkipButton={true} // Tombol untuk melewati tutorial
-      showProgress={true} // Menampilkan "1 dari 6"
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#2563eb', // Warna biru 
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none', // Sembunyikan tombol (X) kecil agar user fokus ke tombol "Lewati Tur"
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Selesai',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
 
 function FeatureComparisonModal({
   dynamicPlans,
@@ -1281,7 +1141,7 @@ function DashboardSidebar({
       badgeColor: '#2563eb',
       active: pathname === '/user/projects',
       onClick: () => router.push('/user/projects'),
-      tourClass: 'tour-step-project' // 🟢 Tambahan untuk Joyride
+      tourClass: 'tour-step-project'
     },
     {
       label: 'Pusat Konsultasi',
@@ -1290,14 +1150,14 @@ function DashboardSidebar({
       badgeColor: '#10b981',
       active: pathname === '/user/consultations',
       onClick: () => router.push('/user/consultations'),
-      tourClass: 'tour-step-consultation' // 🟢 Tambahan untuk Joyride
+      tourClass: 'tour-step-consultation'
     },
     {
       label: 'Direktori Pakar',
       icon: '👥',
       active: pathname === '/expert-directory' || pathname === '/expert/directory',
       onClick: () => router.push('/expert-directory'),
-      tourClass: 'tour-step-expert' // 🟢 Tambahan untuk Joyride
+      tourClass: 'tour-step-expert'
     },
     {
       label: 'Profil & Pengesahan',
@@ -1305,7 +1165,7 @@ function DashboardSidebar({
       badge: !isProfileComplete ? '!' : undefined,
       badgeColor: '#ef4444',
       onClick: onOpenProfile,
-      tourClass: 'tour-step-profile' // 🟢 Tambahan untuk Joyride
+      tourClass: 'tour-step-profile'
     },
     {
       label: 'Panduan Sistem',
@@ -1394,7 +1254,7 @@ function DashboardSidebar({
             type="button"
             onClick={item.onClick}
             title={isCollapsed ? item.label : undefined}
-            className={item.tourClass} // 🟢 Menyisipkan Class untuk Joyride
+            className={item.tourClass}
             style={{
               ...sidebarStyles.navButton,
               justifyContent: isCollapsed ? 'center' : 'flex-start',
@@ -1442,7 +1302,6 @@ function DashboardSidebar({
   )
 }
 
-// 🟢 Komponen isi utama dashboard
 function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1460,7 +1319,6 @@ function DashboardContent() {
   const [showUpgrade, setShowUpgrade] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
-  // State Konfirmasi Pembayaran
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [paymentTicket, setPaymentTicket] = useState<any>(null)
   const [paymentReceiptUrl, setPaymentReceiptUrl] = useState('')
@@ -1490,7 +1348,6 @@ function DashboardContent() {
     )
   }, [userProfile])
 
-  // 🟢 LOAD DASHBOARD SUPER CEPAT & RESILIEN (TANPA N+1 QUERY)
   const loadDashboard = useCallback(async (user: UserSession, isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
@@ -1500,7 +1357,6 @@ function DashboardContent() {
     try {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
 
-      // Fetch semua endpoint esensial secara paralel dengan safe fetch
       const [subJson, projJson, consultJson, userJson, statsJson, planJson] = await Promise.all([
         safeFetchJson(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
         safeFetchJson(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
@@ -1513,7 +1369,6 @@ function DashboardContent() {
       let currentSub: any = null
       let fallbackPlanFromUser: PlanType = 'free'
 
-      // 1. Profil Pengguna
       if (userJson && userJson.data) {
         setUserProfile({
           nama: userJson.data.nama || user.nama || '',
@@ -1529,7 +1384,6 @@ function DashboardContent() {
         }
       }
 
-      // 2. Subscription Data
       if (subJson) {
         const parsed = normalizeSubscriptionData(subJson, cleanUserEmail)
         if (parsed) currentSub = parsed
@@ -1545,7 +1399,6 @@ function DashboardContent() {
       }
       setSubscription(currentSub)
 
-      // 3. Plan Config
       if (planJson && planJson.success && Array.isArray(planJson.data)) {
         const map: Record<string, DynamicPlanSetting> = {}
         planJson.data.forEach((p: DynamicPlanSetting) => {
@@ -1556,7 +1409,6 @@ function DashboardContent() {
         setDynamicPlans(map)
       }
 
-      // 4. Visitor Stats
       if (statsJson && statsJson.success) {
         const totalVisits = typeof statsJson.data === 'object' && statsJson.data !== null 
           ? (statsJson.data.total_visits || statsJson.data.total_public_visits || 0)
@@ -1564,7 +1416,6 @@ function DashboardContent() {
         setVisitorStats(totalVisits)
       }
 
-      // 5. Proyek Data (Instan, Tanpa N+1 query per project)
       const rawProjectList = projJson?.data || (Array.isArray(projJson) ? projJson : [])
       if (Array.isArray(rawProjectList)) {
         setProjects(rawProjectList.map(normalizeProject))
@@ -1572,7 +1423,6 @@ function DashboardContent() {
         setProjects([])
       }
 
-      // 6. Konsultasi Data
       if (consultJson && consultJson.success && Array.isArray(consultJson.data)) {
         const myTickets: ConsultationTicket[] = (consultJson.data as RawConsultation[])
           .filter((item: RawConsultation) => {
@@ -1775,6 +1625,42 @@ function DashboardContent() {
     router.push('/buat-proyek/baru')
   }
 
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK SAFEJOYRIDE
+  const dashboardSteps: Step[] = [
+    {
+      target: 'body', 
+      content: 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
+      title: '👋 Selamat Datang!',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-step-profile',
+      content: 'Sebelum memulai riset, pastikan Anda melengkapi profil dan mengunggah tanda tangan digital agar e-sertifikat riset Anda sah secara administratif.',
+      title: '⚙️ Lengkapi Profil Anda',
+    },
+    {
+      target: '.tour-step-project',
+      content: 'Di sinilah ruang kerja Anda berada. Buka menu ini untuk melihat daftar proyek riset AHP Anda atau membuat proyek baru.',
+      title: '📁 Proyek AHP Saya',
+    },
+    {
+      target: '.tour-step-expert',
+      content: 'Butuh responden berkualitas? Cari dan temukan pakar yang relevan dengan riset Anda di menu Direktori Pakar.',
+      title: '👥 Direktori Pakar',
+    },
+    {
+      target: '.tour-step-consultation',
+      content: 'Jika Anda memiliki kendala atau butuh masukan dari pakar, gunakan fitur Pusat Konsultasi untuk mengirim tiket pertanyaan.',
+      title: '💬 Pusat Konsultasi',
+    },
+    {
+      target: '.tour-step-create-project',
+      content: 'Setelah profil lengkap, klik tombol ini untuk mulai membangun struktur hirarki dan membuat proyek riset AHP pertama Anda!',
+      title: '🚀 Mulai Riset Sekarang',
+    }
+  ];
+
   const S = styles
 
   if (loading) {
@@ -1790,8 +1676,8 @@ function DashboardContent() {
   return (
     <div style={S.layoutWrapper}>
       
-      {/* 🟢 SISIPKAN KOMPONEN ONBOARDING TOUR JOYRIDE */}
-      <OnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      <SafeJoyride steps={dashboardSteps} storageKey="ahp_tour_dashboard" />
 
       {/* 🟢 SIDEBAR BERSIH */}
       <DashboardSidebar

@@ -8,15 +8,8 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { getSession, clearSession } from '@/lib/auth';
 import type { UserSession } from '@/lib/auth';
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL ||
   process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL ||
@@ -294,107 +287,6 @@ const RI_MAP: Record<number, number> = {
 };
 
 const PIE_COLORS = ['#38bdf8', '#34d399', '#f47f7f', '#fbbf24', '#a78bfa', '#fb7185', '#22d3ee', '#818cf8'];
-
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS LAPORAN
-// ============================================================================
-function LaporanOnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    const hasSeenTutorial = localStorage.getItem('ahp_tour_laporan');
-    
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1500); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem('ahp_tour_laporan', 'true');
-      setRun(false);
-    }
-  };
-
-  const steps: Step[] = [
-    {
-      target: 'body',
-      content: 'Selamat datang di Halaman Laporan Eksekutif! Di sini Anda dapat melihat hasil akhir sintesis AHP Anda secara keseluruhan.',
-      title: '📄 Laporan Proyek',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-ai-report',
-      content: 'Jika paket Anda mendukung, Anda bisa membuat draf narasi analisis secara otomatis menggunakan AI berdasarkan hasil perhitungan AHP ini.',
-      title: '🤖 Analisis AI',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-download-pdf',
-      content: 'Gunakan tombol ini untuk mengunduh seluruh hasil laporan dan matriks ini menjadi dokumen PDF resmi yang siap dicetak.',
-      title: '🖨️ Unduh Laporan PDF',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-pie-chart',
-      content: 'Grafik ini menunjukkan proporsi dan persentase bobot prioritas akhir secara global dengan mudah.',
-      title: '📊 Grafik Proporsi',
-      placement: 'right',
-    },
-    {
-      target: '.tour-ranking',
-      content: 'Ini adalah tabel hasil akhir dari seluruh perhitungan AHP. Peringkat teratas (Rank #1) adalah alternatif atau kriteria dengan prioritas terbaik.',
-      title: '🏆 Ranking Prioritas',
-      placement: 'left',
-    },
-    {
-      target: '.tour-progress-pakar',
-      content: 'Anda juga bisa memantau dan melampirkan daftar pakar yang validitas datanya ikut terhitung di dalam sintesis laporan ini.',
-      title: '👥 Responden Terlibat',
-      placement: 'top',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true}
-      showSkipButton={true}
-      showProgress={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#2563eb', // Warna biru 
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none',
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Selesai',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
 
 function sortByOrder<T extends { urutan?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => Number(a.urutan || 0) - Number(b.urutan || 0));
@@ -1105,470 +997,6 @@ function AppTopBar() {
   );
 }
 
-// 🟢 SIDEBAR BERSIH TANPA LIST DAFTAR PROYEK DI BAWAH
-function DashboardSidebar({
-  user,
-  userProfile,
-  userPlan,
-  projectsCount,
-  isProfileComplete,
-  isCollapsed,
-  consultationCount,
-  onToggleCollapse,
-  onOpenProfile,
-  onOpenUpgrade,
-  onLogout,
-}: {
-  user: UserSession | null;
-  userProfile: { nama: string; foto_profil?: string };
-  userPlan: string;
-  projectsCount: number;
-  isProfileComplete: boolean;
-  isCollapsed: boolean;
-  consultationCount: number;
-  onToggleCollapse: () => void;
-  onOpenProfile: () => void;
-  onOpenUpgrade: () => void;
-  onLogout: () => void;
-}) {
-  const router = useRouter();
-  const pathname = usePathname();
-
-  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`;
-  const planBadgeColor = 
-    userPlan === 'premium' ? '#9333ea' : 
-    userPlan === 'plus' ? '#2563eb' : 
-    userPlan === 'pro' ? '#16a34a' : '#64748b';
-
-  const navItems = [
-    {
-      label: planLabelFormatted,
-      icon: '⭐',
-      badgeColor: planBadgeColor,
-      isPlan: true,
-      onClick: onOpenUpgrade
-    },
-    {
-      label: 'Dashboard Utama',
-      icon: '📊',
-      active: pathname === '/dashboard',
-      onClick: () => router.push('/dashboard')
-    },
-    {
-      label: 'Proyek AHP Saya',
-      icon: '📁',
-      active: pathname === '/user/projects' || pathname.startsWith('/proyek/'),
-      badge: projectsCount > 0 ? String(projectsCount) : undefined,
-      badgeColor: '#2563eb',
-      onClick: () => router.push('/user/projects')
-    },
-    {
-      label: 'Pusat Konsultasi',
-      icon: '💬',
-      active: pathname === '/user/consultations',
-      badge: consultationCount > 0 ? String(consultationCount) : undefined,
-      badgeColor: '#10b981',
-      onClick: () => router.push('/user/consultations')
-    },
-    {
-      label: 'Direktori Pakar',
-      icon: '👥',
-      active: pathname === '/expert-directory',
-      onClick: () => router.push('/expert-directory')
-    },
-    {
-      label: 'Profil & Pengesahan',
-      icon: '⚙️',
-      badge: !isProfileComplete ? '!' : undefined,
-      badgeColor: '#ef4444',
-      onClick: onOpenProfile
-    },
-    {
-      label: 'Panduan Sistem',
-      icon: '📖',
-      active: pathname === '/panduan',
-      onClick: () => router.push('/panduan')
-    }
-  ];
-
-  return (
-    <aside className="no-print" style={{
-      ...sidebarStyles.aside,
-      width: isCollapsed ? 76 : 260,
-      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-    }}>
-      <div style={sidebarStyles.brandContainer}>
-        {!isCollapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
-            <div style={sidebarStyles.brandLogo}>AHP</div>
-            <div>
-              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
-              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
-            </div>
-          </div>
-        )}
-        <button 
-          type="button" 
-          onClick={onToggleCollapse} 
-          style={sidebarStyles.collapseBtn}
-          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
-        >
-          <svg 
-            width="16" 
-            height="16" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-            style={{
-              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: 'transform 0.25s ease'
-            }}
-          >
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-      </div>
-
-      <div style={{
-        ...sidebarStyles.userCard,
-        justifyContent: isCollapsed ? 'center' : 'flex-start',
-        padding: isCollapsed ? '10px 4px' : '12px'
-      }}>
-        {/* AVATAR FOTO PROFIL */}
-        <div style={{
-          ...sidebarStyles.userAvatar,
-          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
-        }}>
-          {userProfile.foto_profil ? (
-            <img 
-              src={userProfile.foto_profil} 
-              alt="Avatar" 
-              style={sidebarStyles.userAvatarImg} 
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
-          )}
-        </div>
-
-        {!isCollapsed && (
-          <div style={sidebarStyles.userInfo}>
-            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
-            <div style={sidebarStyles.userEmail}>{user?.email}</div>
-          </div>
-        )}
-      </div>
-
-      <nav style={sidebarStyles.nav}>
-        {navItems.map((item, idx) => (
-          <button
-            key={idx}
-            type="button"
-            onClick={item.onClick}
-            title={isCollapsed ? item.label : undefined}
-            style={{
-              ...sidebarStyles.navButton,
-              justifyContent: isCollapsed ? 'center' : 'flex-start',
-              padding: isCollapsed ? '12px 0' : '10px 14px',
-              ...(item.active ? sidebarStyles.navButtonActive : {}),
-              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
-            }}
-          >
-            <span style={sidebarStyles.navIcon}>{item.icon}</span>
-            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
-            {item.badge && (
-              <span style={{
-                ...sidebarStyles.badgeWarn,
-                background: item.badgeColor || '#ef4444',
-                position: isCollapsed ? 'absolute' : 'relative',
-                top: isCollapsed ? 4 : 'auto',
-                right: isCollapsed ? 12 : 'auto'
-              }}>
-                {item.badge}
-              </span>
-            )}
-            {idx === 0 && !isCollapsed && (
-              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
-                Upgrade
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      <div style={{
-        ...sidebarStyles.footer,
-        padding: isCollapsed ? '12px 6px' : '16px'
-      }}>
-        <button 
-          type="button" 
-          onClick={onLogout} 
-          style={sidebarStyles.btnLogout}
-          title={isCollapsed ? "Logout" : undefined}
-        >
-          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-// 🟢 MODAL PROFIL & PENGESAHAN
-function ProfileModal({
-  user,
-  profile,
-  onClose,
-  onSaveSuccess,
-}: {
-  user: UserSession;
-  profile: UserProfileData;
-  onClose: () => void;
-  onSaveSuccess: (updated: UserProfileData) => void;
-}) {
-  const [formData, setFormData] = useState<UserProfileData>({
-    nama: profile.nama || user?.nama || '',
-    institusi: profile.institusi || '',
-    city: profile.city || '',
-    digital_signature: profile.digital_signature || '',
-    foto_profil: profile.foto_profil || '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [previewSig, setPreviewSig] = useState(profile.digital_signature || '');
-  const [previewFoto, setPreviewFoto] = useState(profile.foto_profil || '');
-
-  const handleFotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        alert('Harap pilih file gambar (JPG/PNG).');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setPreviewFoto(base64);
-        setFormData((prev) => ({ ...prev, foto_profil: base64 }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSigFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (!file.type.startsWith('image/')) {
-        alert('Harap pilih file gambar tanda tangan (PNG/JPG).');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setPreviewSig(base64);
-        setFormData((prev) => ({ ...prev, digital_signature: base64 }));
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setErrorMsg('');
-
-    try {
-      const payload = {
-        action: 'updateuserprofile',
-        email: user.email,
-        user_id: user.id || '',
-        nama: formData.nama,
-        institusi: formData.institusi,
-        city: formData.city,
-        digital_signature: formData.digital_signature || '',
-        foto_profil: formData.foto_profil || '',
-      };
-
-      const response = await fetch(GOOGLESCRIPTURL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-        redirect: 'follow',
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        onSaveSuccess({ 
-          ...formData, 
-          digital_signature: formData.digital_signature || '',
-          foto_profil: formData.foto_profil || '' 
-        });
-        alert('✅ ' + result.message);
-        onClose();
-      } else {
-        alert('❌ Gagal dari Server: ' + result.message);
-        setErrorMsg(result.message);
-      }
-    } catch (err: any) {
-      setErrorMsg('Gagal menyambung ke server: ' + err.toString());
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div style={modalStyles.overlay} onClick={onClose}>
-      <div 
-        style={{ 
-          ...modalStyles.modal, 
-          maxWidth: 540, 
-          maxHeight: '90vh', 
-          display: 'flex', 
-          flexDirection: 'column', 
-          overflow: 'hidden',
-          padding: '24px 28px'
-        }} 
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div style={{ ...modalStyles.header, marginBottom: 12, flexShrink: 0 }}>
-          <h2 style={modalStyles.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
-          <button onClick={onClose} style={modalStyles.closeBtn} type="button">✕</button>
-        </div>
-
-        <p style={{ ...modalStyles.desc, flexShrink: 0, marginBottom: 12 }}>
-          Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
-        </p>
-
-        {errorMsg && (
-          <div style={{ ...modalStyles.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626', flexShrink: 0 }}>
-            {errorMsg}
-          </div>
-        )}
-
-        <form 
-          onSubmit={handleSubmit} 
-          style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: 12, 
-            overflowY: 'auto', 
-            paddingRight: 4,
-            flexGrow: 1,
-            marginBottom: 12
-          }}
-        >
-          <div>
-            <label style={formStyles.label}>Nama Lengkap &amp; Gelar *</label>
-            <input
-              type="text"
-              required
-              value={formData.nama}
-              onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
-              placeholder="Contoh: Dr. Arben Virgota, S.Pi., M.Si"
-              style={formStyles.input}
-            />
-          </div>
-
-          <div>
-            <label style={formStyles.label}>Nama Institusi / Afiliasi *</label>
-            <input
-              type="text"
-              required
-              value={formData.institusi}
-              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
-              placeholder="Contoh: Universitas Mataram"
-              style={formStyles.input}
-            />
-          </div>
-
-          <div>
-            <label style={formStyles.label}>Kota *</label>
-            <input
-              type="text"
-              required
-              value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-              placeholder="Contoh: Mataram"
-              style={formStyles.input}
-            />
-          </div>
-
-          <div>
-            <label style={formStyles.label}>Foto Profil (Upload File Gambar)</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFotoFileChange}
-              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
-            />
-            <div style={formStyles.previewBox}>
-              {previewFoto ? (
-                <img 
-                  src={previewFoto} 
-                  alt="Pratinjau Foto Profil" 
-                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} 
-                />
-              ) : (
-                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
-                  Belum ada foto yang dipilih
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label style={formStyles.label}>Tanda Tangan Digital (.png Transparan)</label>
-            <input
-              type="file"
-              accept="image/*"
-              required={!previewSig}
-              onChange={handleSigFileChange}
-              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
-            />
-            <div style={formStyles.previewBox}>
-              {previewSig ? (
-                <img 
-                  src={previewSig} 
-                  alt="Pratinjau Tanda Tangan" 
-                  style={{ maxHeight: 45, objectFit: 'contain' }} 
-                />
-              ) : (
-                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
-                  Belum ada tanda tangan yang dipilih
-                </span>
-              )}
-            </div>
-          </div>
-        </form>
-
-        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
-          <button onClick={onClose} style={modalStyles.btnClose} type="button">
-            Batal
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving}
-            style={{
-              ...modalStyles.btnClose,
-              background: '#2563eb',
-              color: 'white',
-              fontWeight: 700,
-            }}
-          >
-            {saving ? 'Menyimpan...' : 'Simpan Profil'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ProjectReportContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1587,7 +1015,6 @@ function ProjectReportContent() {
   const [totalProjectsCount, setTotalProjectsCount] = useState<number>(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  // 🟢 State untuk proses Unduh PDF HTML2PDF
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const [data, setData] = useState<BundleState | null>(null);
@@ -1710,7 +1137,6 @@ function ProjectReportContent() {
 
         setCanUseAi(isAiEnabled);
 
-        // Hitung total proyek untuk badge
         try {
           const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
           if (projRes?.success && Array.isArray(projRes.data)) {
@@ -1722,7 +1148,6 @@ function ProjectReportContent() {
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
-        // 🟢 Fetching Bundle Proyek dengan Multi-Key & Resilient Fallback
         let bundleRes: any = null;
         let responsesRes: any = null;
 
@@ -2004,7 +1429,6 @@ function ProjectReportContent() {
     }
   };
 
-  // 🟢 FUNGSI BARU: CETAK / DOWNLOAD MENGGUNAKAN HTML2PDF
   const handlePrintDocument = async () => {
     if (typeof window === 'undefined' || isGeneratingPdf) return;
 
@@ -2017,21 +1441,20 @@ function ProjectReportContent() {
         return;
       }
 
-      // Dinamis import library (Hanya di-load saat tombol diklik)
       const html2pdfModule = await import('html2pdf.js' as any);
       const html2pdf = html2pdfModule.default || html2pdfModule;
 
       const cleanProjectName = (data?.project?.namaproyek || 'Laporan_AHP').replace(/[\/\\:\*\?"<>\|]/g, '-');
 
       const opt = {
-        margin:       [15, 10, 15, 10], // Margin atas, kiri, bawah, kanan
+        margin:       [15, 10, 15, 10],
         filename:     `Laporan_AHP_${cleanProjectName}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
           scale: 2, 
           useCORS: true, 
-          windowWidth: 1024, // Memastikan lebar render seukuran laptop (anti gepeng di HP)
-          ignoreElements: (el: Element) => el.classList?.contains('no-print') // Mengabaikan elemen UI seperti tombol
+          windowWidth: 1024, 
+          ignoreElements: (el: Element) => el.classList?.contains('no-print')
         },
         jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
       };
@@ -2040,7 +1463,6 @@ function ProjectReportContent() {
 
     } catch (err) {
       console.error('Gagal membuat PDF:', err);
-      // Fallback Darurat: Gunakan print bawaan browser jika html2pdf gagal
       window.print();
     } finally {
       setIsGeneratingPdf(false);
@@ -2053,6 +1475,47 @@ function ProjectReportContent() {
       router.replace('/login');
     }
   };
+
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN LAPORAN
+  const laporanSteps: Step[] = [
+    {
+      target: 'body',
+      content: 'Selamat datang di Halaman Laporan Eksekutif! Di sini Anda dapat melihat hasil akhir sintesis AHP Anda secara keseluruhan.',
+      title: '📄 Laporan Proyek',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-ai-report',
+      content: 'Jika paket Anda mendukung, Anda bisa membuat draf narasi analisis secara otomatis menggunakan AI berdasarkan hasil perhitungan AHP ini.',
+      title: '🤖 Analisis AI',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-download-pdf',
+      content: 'Gunakan tombol ini untuk mengunduh seluruh hasil laporan dan matriks ini menjadi dokumen PDF resmi yang siap dicetak.',
+      title: '🖨️ Unduh Laporan PDF',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-pie-chart',
+      content: 'Grafik ini menunjukkan proporsi dan persentase bobot prioritas akhir secara global dengan mudah.',
+      title: '📊 Grafik Proporsi',
+      placement: 'right',
+    },
+    {
+      target: '.tour-ranking',
+      content: 'Ini adalah tabel hasil akhir dari seluruh perhitungan AHP. Peringkat teratas (Rank #1) adalah alternatif atau kriteria dengan prioritas terbaik.',
+      title: '🏆 Ranking Prioritas',
+      placement: 'left',
+    },
+    {
+      target: '.tour-progress-pakar',
+      content: 'Anda juga bisa memantau dan melampirkan daftar pakar yang validitas datanya ikut terhitung di dalam sintesis laporan ini.',
+      title: '👥 Responden Terlibat',
+      placement: 'top',
+    }
+  ];
 
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
@@ -2099,8 +1562,8 @@ function ProjectReportContent() {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
       
-      {/* 🟢 SISIPKAN KOMPONEN TOUR JOYRIDE DI SINI */}
-      <LaporanOnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      <SafeJoyride steps={laporanSteps} storageKey="ahp_tour_laporan" />
 
       {/* 🟢 MODAL PROFIL & PENGESAHAN */}
       {showProfileModal && session && (
@@ -2210,7 +1673,6 @@ function ProjectReportContent() {
               <p style={STYLES.pageDesc}>Dokumen rekapitulasi analitis proyek riset dan evaluasi kepakaran.</p>
             </div>
             
-            {/* 🟢 TOMBOL AKSI AKAN DISEMBUNYIKAN OTOMATIS SAAT PROSES PDF KARENA ADA CLASS "no-print" */}
             <div style={STYLES.headerActions}>
               {canUseAi ? (
                 <button 
@@ -2233,7 +1695,6 @@ function ProjectReportContent() {
                 </button>
               )}
 
-              {/* 🟢 TOMBOL CETAK PDF YANG DIPERBARUI */}
               <button 
                 type="button" 
                 onClick={handlePrintDocument} 
@@ -2250,7 +1711,6 @@ function ProjectReportContent() {
             </div>
           </div>
 
-          {/* 1. RINGKASAN EKSEKUTIF */}
           {fullAiReport && (fullAiReport.section_overview || fullAiReport.overview || fullAiReport.main_summary) && (
             <div id="ai-report-section" style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginBottom: 12 }} className="print-card">
               <h3 style={{ margin: '0 0 10px', color: '#1e40af', borderBottom: '2px solid #bfdbfe', paddingBottom: '6px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2272,7 +1732,6 @@ function ProjectReportContent() {
             </div>
           )}
 
-          {/* KOTAK PROYEK & FASILITATOR */}
           <section style={STYLES.card} className="print-card">
             <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 8, marginBottom: 10 }}>
               <span style={STYLES.badgeSoft}>{formatMethodLabel(data.project.metode)}</span>
@@ -2327,7 +1786,6 @@ function ProjectReportContent() {
             </div>
           </section>
 
-          {/* GRAFIK & RANKING GLOBAL */}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(300px, 1fr) minmax(360px, 1.2fr)', gap: 12, alignItems: 'stretch' }}>
             
             <section style={STYLES.card} className="print-card tour-pie-chart">
@@ -2373,7 +1831,6 @@ function ProjectReportContent() {
                 </table>
               </div>
 
-              {/* 2. ANALISIS KRITERIA & ALTERNATIF */}
               {fullAiReport && (fullAiReport.section_criteria || fullAiReport.section_alternatives || fullAiReport.key_findings) && (
                 <div style={{ marginTop: 12, background: '#eff6ff', border: '1px solid #bfdbfe', padding: '10px 12px', borderRadius: '6px' }}>
                   <h4 style={{ margin: '0 0 6px', color: '#1e40af', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -2401,11 +1858,9 @@ function ProjectReportContent() {
 
           </div>
 
-          {/* STATUS RESPONDEN */}
           <section style={STYLES.card} className="print-card tour-progress-pakar">
             <h2 style={{ ...STYLES.sectionTitle, fontSize: 13, marginBottom: 6 }}>Daftar Responden Pakar &amp; Progress</h2>
             
-            {/* 3. NARASI KONSISTENSI GLOBAL */}
             {fullAiReport && fullAiReport.section_consistency?.narrative && (
               <div style={{ marginBottom: 10, background: '#f8fafc', borderLeft: '3px solid #2563eb', padding: '8px 12px', fontSize: 11.5, color: '#334155', lineHeight: 1.4 }}>
                 <strong style={{ color: '#1e40af' }}>Evaluasi Konsistensi:</strong> {cleanAiText(fullAiReport.section_consistency.narrative)}
@@ -2442,7 +1897,6 @@ function ProjectReportContent() {
             </table>
           </section>
 
-          {/* DETAIL SESI MATRIKS PERBANDINGAN & EVALUASI FASILITATOR */}
           {tasks.map((task) => {
             const facilitatorMatrix = facilitatorMap[task.key] || getDefaultMatrix(task.itemnames.length);
             const facilitatorAnalysis = calculateAHP(facilitatorMatrix);
@@ -2574,7 +2028,6 @@ function ProjectReportContent() {
             );
           })}
 
-          {/* 5. REKOMENDASI STRATEGIS AKHIR */}
           {fullAiReport && ((fullAiReport.section_final_recommendations && fullAiReport.section_final_recommendations.length > 0) || (fullAiReport.recommendations && fullAiReport.recommendations.length > 0)) && (
             <div style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginTop: 12, marginBottom: 20 }} className="print-card">
               <h3 style={{ margin: '0 0 10px', color: '#1e40af', borderBottom: '2px solid #bfdbfe', paddingBottom: '6px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>

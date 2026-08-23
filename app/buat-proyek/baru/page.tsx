@@ -10,15 +10,8 @@ import type { UserSession } from '@/lib/auth'
 import { countUserProjects, PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride'
 
 const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || 
@@ -139,101 +132,6 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   };
 }
 
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS BUAT PROYEK
-// ============================================================================
-function BuatProyekOnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    const hasSeenTutorial = localStorage.getItem('ahp_tour_buat_proyek');
-    
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1200); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem('ahp_tour_buat_proyek', 'true');
-      setRun(false);
-    }
-  };
-
-  const steps: Step[] = [
-    {
-      target: 'body',
-      content: 'Mari kita mulai membuat ruang kerja proyek riset AHP pertama Anda. Ikuti petunjuk singkat ini.',
-      title: '📁 Buat Proyek Baru',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-info-proyek',
-      content: 'Pertama, isi nama proyek Anda dan pilih metode evaluasi. Opsi "Kombinasi dengan Alternatif" akan memunculkan isian tambahan untuk pilihan alternatif Anda.',
-      title: '1. Informasi Proyek',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-kriteria',
-      content: 'Ketik daftar kriteria utama Anda di sini (pisahkan dengan tombol Enter). Jika Anda berlangganan fitur AI, Anda dapat menyusunnya secara otomatis.',
-      title: '2. Kriteria Utama',
-      placement: 'top',
-    },
-    {
-      target: '.tour-pakar',
-      content: 'Tentukan jumlah pakar responden dan isi data kontaknya. Jika paket Anda mendukung, Anda bisa mencari dan memilih langsung dari Direktori Pakar.',
-      title: '3. Tim Pakar',
-      placement: 'top',
-    },
-    {
-      target: '.tour-simpan',
-      content: 'Periksa kembali kelengkapan data. Kriteria, Alternatif, dan daftar Pakar tidak dapat diedit setelah disimpan. Jika sudah yakin, klik tombol ini!',
-      title: '💾 Simpan Proyek',
-      placement: 'top',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true}
-      showSkipButton={true}
-      showProgress={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#2563eb', // Warna biru (blue-600)
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none',
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Paham!',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
-
 // 🟢 TOP HEADER RESMI AHP
 function AppTopBar() {
   return (
@@ -249,7 +147,7 @@ function AppTopBar() {
   )
 }
 
-// 🟢 SIDEBAR PENGGUNA STANDAR (BERSIH TANPA LIST DAFTAR PROYEK DI BAWAH)
+// 🟢 SIDEBAR PENGGUNA STANDAR
 function DashboardSidebar({
   user,
   userProfile,
@@ -461,7 +359,6 @@ function DashboardSidebar({
   )
 }
 
-// 🟢 MODAL PROFIL & PENGESAHAN LENGKAP
 function ProfileModal({
   user,
   profile,
@@ -754,7 +651,6 @@ function BuatProyekContent() {
   const [userPlan, setUserPlan] = useState<string>('free')
   const [showProfileModal, setShowProfileModal] = useState(false)
   
-  // State hak akses
   const [hasSubcriteriaAccess, setHasSubcriteriaAccess] = useState(false)
   const [hasAlternativesAccess, setHasAlternativesAccess] = useState(false)
   const [hasAiAccess, setHasAiAccess] = useState(false)
@@ -803,7 +699,6 @@ function BuatProyekContent() {
     )
   }, [userProfile])
 
-  // 🟢 PENGATURAN SINGLE SOURCE OF TRUTH DENGAN OVERRIDE MUTLAK
   const loadInitialData = useCallback(async () => {
     const s = getSession()
     if (!s || !s.email) {
@@ -1305,14 +1200,49 @@ function BuatProyekContent() {
     router.replace('/login')
   }
 
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK SAFEJOYRIDE
+  const buatProyekSteps: Step[] = [
+    {
+      target: 'body',
+      content: 'Mari kita mulai membuat ruang kerja proyek riset AHP pertama Anda. Ikuti petunjuk singkat ini.',
+      title: '📁 Buat Proyek Baru',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-info-proyek',
+      content: 'Pertama, isi nama proyek Anda dan pilih metode evaluasi. Opsi "Kombinasi dengan Alternatif" akan memunculkan isian tambahan untuk pilihan alternatif Anda.',
+      title: '1. Informasi Proyek',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-kriteria',
+      content: 'Ketik daftar kriteria utama Anda di sini (pisahkan dengan tombol Enter). Jika Anda berlangganan fitur AI, Anda dapat menyusunnya secara otomatis.',
+      title: '2. Kriteria Utama',
+      placement: 'top',
+    },
+    {
+      target: '.tour-pakar',
+      content: 'Tentukan jumlah pakar responden dan isi data kontaknya. Jika paket Anda mendukung, Anda bisa mencari dan memilih langsung dari Direktori Pakar.',
+      title: '3. Tim Pakar',
+      placement: 'top',
+    },
+    {
+      target: '.tour-simpan',
+      content: 'Periksa kembali kelengkapan data. Kriteria, Alternatif, dan daftar Pakar tidak dapat diedit setelah disimpan. Jika sudah yakin, klik tombol ini!',
+      title: '💾 Simpan Proyek',
+      placement: 'top',
+    }
+  ];
+
   const S = styles
   if (initLoading) return <div style={S.loadingPage}><div style={S.spinner} /><div style={{ fontSize: 13, color: '#334155', fontWeight: 600 }}>Memuat halaman...</div></div>
   if (success) return <div style={S.loadingPage}><div style={{ fontSize: 44 }}>✅</div><h2 style={{ fontSize: 18, fontWeight: 700, color: '#166534', margin: 0 }}>Proyek Berhasil Dibuat!</h2><p style={{ fontSize: 13, color: '#475569', margin: 0 }}>Mengalihkan ke halaman kelola...</p></div>
 
   return (
     <div style={S.layoutWrapper}>
-      {/* 🟢 SISIPKAN KOMPONEN ONBOARDING TOUR JOYRIDE */}
-      <BuatProyekOnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      <SafeJoyride steps={buatProyekSteps} storageKey="ahp_tour_buat_proyek" />
       
       {/* 🟢 MODAL PROFIL & PENGESAHAN */}
       {showProfileModal && session && (
@@ -1625,7 +1555,7 @@ export default function BuatProyekPage() {
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     }>
-      <BuatProyekPageContent />
+      <BuatProyekContent />
     </Suspense>
   )
 }

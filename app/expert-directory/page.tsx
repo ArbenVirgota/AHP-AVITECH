@@ -6,15 +6,8 @@ import React, { useEffect, useState, useCallback, useMemo, CSSProperties } from 
 import { useRouter } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
 
@@ -181,95 +174,6 @@ function renderStarRating(rating?: number, totalReviews?: number) {
   );
 }
 
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS DIREKTORI PAKAR
-// ============================================================================
-function ExpertDirectoryOnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_directory');
-    
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1200); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem('ahp_tour_expert_directory', 'true');
-      setRun(false);
-    }
-  };
-
-  const steps: Step[] = [
-    {
-      target: 'body',
-      content: 'Selamat datang di Direktori Pakar! Di sini Anda dapat menemukan dan terhubung dengan berbagai pakar terverifikasi.',
-      title: '👥 Direktori Pakar',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-gabung',
-      content: 'Jika Anda memiliki kepakaran khusus, Anda juga dapat bergabung ke direktori ini untuk membantu peneliti lain dan mendapatkan benefit khusus.',
-      title: '🌟 Gabung Sebagai Pakar',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-search',
-      content: 'Gunakan kolom pencarian ini untuk menemukan pakar berdasarkan nama, bidang keahlian, atau asal institusi mereka.',
-      title: '🔍 Cari Pakar',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-konsultasi',
-      content: 'Klik tombol ini untuk mengirimkan pertanyaan atau tiket konsultasi langsung kepada pakar yang bersangkutan. (Membutuhkan Login)',
-      title: '💬 Ajukan Konsultasi',
-      placement: 'top',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true}
-      showSkipButton={true}
-      showProgress={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#2563eb', // Warna biru 
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none',
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Paham!',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
-
 export default function ExpertDirectoryPage() {
   const router = useRouter();
   const [experts, setExperts] = useState<ExpertDirectoryItem[]>([]);
@@ -350,7 +254,6 @@ export default function ExpertDirectoryPage() {
       setUserPlan('PUBLIC');
     }
 
-    // 🟢 SINKRONISASI PLAN DINAMIS: Ambil status plan terbaru langsung dari database/subscriptions
     if (activeEmail && GOOGLESCRIPTURL) {
       fetch(`${GOOGLESCRIPTURL}?action=getsubscription&email=${encodeURIComponent(activeEmail)}`, { cache: 'no-store' })
         .then(res => res.json())
@@ -392,7 +295,6 @@ export default function ExpertDirectoryPage() {
 
   const processedExperts = useMemo(() => {
     let list = experts.filter(exp => {
-      // 🟢 SINKRONISASI STATUS: Hanya ambil pakar yang berstatus AKTIF atau kosong (dianggap aktif)
       const statusValue = String(exp.status || 'Aktif').trim().toLowerCase();
       const isActive = statusValue === 'aktif' || statusValue === 'active' || statusValue === '';
       
@@ -415,7 +317,7 @@ export default function ExpertDirectoryPage() {
     list.sort((a, b) => {
       const ratingA = Number(a.average_rating || a.rating || 0);
       const ratingB = Number(b.average_rating || b.rating || 0);
-      return ratingB - ratingA; // Urutkan dari rating tertinggi ke terendah
+      return ratingB - ratingA;
     });
 
     const limit = PLAN_LIMITS[userPlan] || PLAN_LIMITS.PUBLIC;
@@ -809,11 +711,40 @@ export default function ExpertDirectoryPage() {
     }
   };
 
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK DIREKTORI PAKAR
+  const directorySteps: Step[] = [
+    {
+      target: 'body',
+      content: 'Selamat datang di Direktori Pakar! Di sini Anda dapat menemukan dan terhubung dengan berbagai pakar terverifikasi.',
+      title: '👥 Direktori Pakar',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-gabung',
+      content: 'Jika Anda memiliki kepakaran khusus, Anda juga dapat bergabung ke direktori ini untuk membantu peneliti lain dan mendapatkan benefit khusus.',
+      title: '🌟 Gabung Sebagai Pakar',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-search',
+      content: 'Gunakan kolom pencarian ini untuk menemukan pakar berdasarkan nama, bidang keahlian, atau asal institusi mereka.',
+      title: '🔍 Cari Pakar',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-konsultasi',
+      content: 'Klik tombol ini untuk mengirimkan pertanyaan atau tiket konsultasi langsung kepada pakar yang bersangkutan. (Membutuhkan Login)',
+      title: '💬 Ajukan Konsultasi',
+      placement: 'top',
+    }
+  ];
+
   return (
     <div style={STYLES.page}>
       
-      {/* 🟢 SISIPKAN KOMPONEN TOUR JOYRIDE DI SINI */}
-      <ExpertDirectoryOnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      <SafeJoyride steps={directorySteps} storageKey="ahp_tour_expert_directory" />
 
       <div style={STYLES.container}>
         <div style={STYLES.headerRow}>

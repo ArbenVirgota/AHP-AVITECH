@@ -5,15 +5,8 @@
 import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
@@ -164,95 +157,6 @@ function calculateAHP(matrix: number[][]) {
   const cr = n <= 2 || ri === 0 ? 0 : ci / ri;
   return { weights, cr };
 }
-
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS HALAMAN EXPERT (PENGISIAN MATRIKS)
-// ============================================================================
-function MatrixOnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    // Cek apakah pakar sudah pernah melihat panduan ini
-    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_matrix');
-    
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1200); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem('ahp_tour_expert_matrix', 'true');
-      setRun(false);
-    }
-  };
-
-  const steps: Step[] = [
-    {
-      target: 'body',
-      content: 'Mari kita pelajari cara mengisi kuesioner matriks perbandingan berpasangan ini dengan benar.',
-      title: '📋 Petunjuk Pengisian',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-slider',
-      content: 'Pilih kriteria mana yang lebih penting di antara keduanya. Geser slider ke kiri/kanan. Angka 9 berarti mutlak sangat penting, angka 1 berarti sama penting.',
-      title: '⚖️ Skala Penilaian Saaty',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-cr',
-      content: 'Indikator ini mengukur konsistensi logika jawaban Anda. Usahakan nilai CR tetap di bawah 0.1 (KONSISTEN) agar penilaian Anda rasional dan valid.',
-      title: '📊 Consistency Ratio (CR)',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-submit',
-      content: 'Jika Anda sudah yakin dengan seluruh penilaian di halaman ini, klik tombol ini untuk menyimpan dan beralih ke halaman matriks berikutnya.',
-      title: '💾 Simpan & Lanjut',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true}
-      showSkipButton={true}
-      showProgress={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#0f766e', // Warna tema expert (teal-700)
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none',
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Paham!',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
 
 function ExpertMainContent() {
   const searchParams = useSearchParams();
@@ -620,7 +524,6 @@ function ExpertMainContent() {
       margin-left: 0 !important;
       padding-left: 0 !important;
     }
-    /* Kustom Scrollbar untuk Area Evaluasi Matriks */
     .eval-scroll::-webkit-scrollbar {
       width: 6px;
     }
@@ -636,6 +539,34 @@ function ExpertMainContent() {
       background-color: #94a3b8;
     }
   `;
+
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KUESIONER EXPERT
+  const expertMatrixSteps: Step[] = [
+    {
+      target: 'body',
+      content: 'Mari kita pelajari cara mengisi kuesioner matriks perbandingan berpasangan ini dengan benar.',
+      title: '📋 Petunjuk Pengisian',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-slider',
+      content: 'Pilih kriteria mana yang lebih penting di antara keduanya. Geser slider ke kiri/kanan. Angka 9 berarti mutlak sangat penting, angka 1 berarti sama penting.',
+      title: '⚖️ Skala Penilaian Saaty',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-cr',
+      content: 'Indikator ini mengukur konsistensi logika jawaban Anda. Usahakan nilai CR tetap di bawah 0.1 (KONSISTEN) agar penilaian Anda rasional dan valid.',
+      title: '📊 Consistency Ratio (CR)',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-submit',
+      content: 'Jika Anda sudah yakin dengan seluruh penilaian di halaman ini, klik tombol ini untuk menyimpan dan beralih ke halaman matriks berikutnya.',
+      title: '💾 Simpan & Lanjut',
+    }
+  ];
 
   if (loading) {
     return (
@@ -736,8 +667,8 @@ function ExpertMainContent() {
     <div style={STYLES.page}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
-      {/* 🟢 3. MEMASANG KOMPONEN TOUR SAAT MASUK KE MODE MATRIKS */}
-      <MatrixOnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE DENGAN TEMA WARNA EXPERT */}
+      <SafeJoyride steps={expertMatrixSteps} storageKey="ahp_tour_expert_matrix" primaryColor="#0f766e" />
 
       <div style={STYLES.container}>
         <div style={{...STYLES.card, display: 'flex', flexDirection: 'column', height: '90vh', maxHeight: '90vh', padding: '20px 24px'}}>
@@ -761,8 +692,6 @@ function ExpertMainContent() {
               {pairs.map((p, idx) => {
                 const saatyVal = currentMatrix[p.i]?.[p.j] ?? 1;
                 const state = saatyToSliderState(saatyVal);
-                
-                // 🟢 TARGET CLASS: .tour-slider (Hanya disorot pada kotak slider pertama)
                 const isFirstSlider = idx === 0;
 
                 return (

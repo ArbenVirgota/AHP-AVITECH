@@ -5,15 +5,8 @@
 import React, { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
-// 🟢 1. IMPORT REACT-JOYRIDE
-import { CallBackProps, STATUS, Step } from 'react-joyride';
-import dynamic from 'next/dynamic';
-
-// Menggunakan dynamic import untuk mem-bypass error ESM & mencegah error SSR Next.js
-const Joyride = dynamic(
-  () => import('react-joyride').then((mod: any) => mod.default || mod),
-  { ssr: false }
-) as any;
+// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
+import SafeJoyride from '@/components/SafeJoyride';
 
 const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
   'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
@@ -105,102 +98,6 @@ function processPhoneNumber(phoneInput?: any): { displayPhone: string; waLinkPho
 
   return { displayPhone: localFormat, waLinkPhone: internationalFormat, isValid: true, errorMsg: '' };
 }
-
-// ============================================================================
-// 🟢 2. KOMPONEN ONBOARDING TOUR KHUSUS HALAMAN PENYELESAIAN EXPERT
-// ============================================================================
-function SelesaiOnboardingTour() {
-  const [run, setRun] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-    // Cek apakah pakar sudah pernah melihat panduan ini
-    const hasSeenTutorial = localStorage.getItem('ahp_tour_expert_selesai');
-    
-    if (!hasSeenTutorial) {
-      setTimeout(() => setRun(true), 1200); 
-    }
-  }, []);
-
-  const handleJoyrideCallback = (data: CallBackProps) => {
-    const { status } = data;
-    const finishedStatuses: string[] = [STATUS.FINISHED, STATUS.SKIPPED];
-
-    if (finishedStatuses.includes(status)) {
-      localStorage.setItem('ahp_tour_expert_selesai', 'true');
-      setRun(false);
-    }
-  };
-
-  const steps: Step[] = [
-    {
-      target: 'body',
-      content: 'Terima kasih telah menyelesaikan evaluasi matriks! Ini adalah tahap akhir untuk menyimpan profil Anda dan mengunduh E-Sertifikat Apresiasi.',
-      title: '🎉 Tahap Penyelesaian',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-profile-form',
-      content: 'Mohon lengkapi Nama Utama dan Gelar Anda dengan benar. Data ini akan dicetak secara permanen di E-Sertifikat Anda.',
-      title: '📝 Lengkapi Profil',
-      placement: 'top',
-    },
-    {
-      target: '.tour-ktp',
-      content: 'Anda diwajibkan untuk mengunggah gambar/foto KTP sebagai bukti validasi identitas dan kepakaran sesuai dengan standar riset administratif.',
-      title: '🪪 Verifikasi Identitas',
-      placement: 'top',
-    },
-    {
-      target: '.tour-consent',
-      content: 'Jangan lupa mencentang kotak persetujuan ini agar Anda dapat bergabung di Direktori Pakar dan menerbitkan sertifikat.',
-      title: '✅ Persetujuan',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-save-profile',
-      content: 'Setelah semua formulir terisi, klik tombol Simpan. Opsi pengunduhan PDF E-Sertifikat akan otomatis muncul setelah data Anda tersimpan!',
-      title: '💾 Simpan Profil & Unduh',
-      placement: 'top',
-    }
-  ];
-
-  if (!isMounted) return null;
-
-  return (
-    <Joyride
-      steps={steps}
-      run={run}
-      continuous={true}
-      showSkipButton={true}
-      showProgress={true}
-      callback={handleJoyrideCallback}
-      styles={{
-        options: {
-          primaryColor: '#0f766e', // Warna tema expert (teal-700)
-          textColor: '#334155',
-          zIndex: 100000,
-        },
-        buttonClose: {
-          display: 'none',
-        },
-        tooltipContainer: {
-          textAlign: 'left'
-        }
-      }}
-      locale={{
-        back: 'Kembali',
-        close: 'Tutup',
-        last: 'Paham!',
-        next: 'Lanjut',
-        skip: 'Lewati Tur',
-      }}
-    />
-  );
-}
-// ============================================================================
 
 function ExpertSelesaiContent() {
   const searchParams = useSearchParams();
@@ -767,6 +664,41 @@ function ExpertSelesaiContent() {
     }
   `;
 
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN SELESAI EXPERT
+  const selesaiSteps: Step[] = [
+    {
+      target: 'body',
+      content: 'Terima kasih telah menyelesaikan evaluasi matriks! Ini adalah tahap akhir untuk menyimpan profil Anda dan mengunduh E-Sertifikat Apresiasi.',
+      title: '🎉 Tahap Penyelesaian',
+      placement: 'center',
+      disableBeacon: true,
+    },
+    {
+      target: '.tour-profile-form',
+      content: 'Mohon lengkapi Nama Utama dan Gelar Anda dengan benar. Data ini akan dicetak secara permanen di E-Sertifikat Anda.',
+      title: '📝 Lengkapi Profil',
+      placement: 'top',
+    },
+    {
+      target: '.tour-ktp',
+      content: 'Anda diwajibkan untuk mengunggah gambar/foto KTP sebagai bukti validasi identitas dan kepakaran sesuai dengan standar riset administratif.',
+      title: '🪪 Verifikasi Identitas',
+      placement: 'top',
+    },
+    {
+      target: '.tour-consent',
+      content: 'Jangan lupa mencentang kotak persetujuan ini agar Anda dapat bergabung di Direktori Pakar dan menerbitkan sertifikat.',
+      title: '✅ Persetujuan',
+      placement: 'bottom',
+    },
+    {
+      target: '.tour-save-profile',
+      content: 'Setelah semua formulir terisi, klik tombol Simpan. Opsi pengunduhan PDF E-Sertifikat akan otomatis muncul setelah data Anda tersimpan!',
+      title: '💾 Simpan Profil & Unduh',
+      placement: 'top',
+    }
+  ];
+
   if (loading) return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Segoe UI, sans-serif' }}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
@@ -803,8 +735,8 @@ function ExpertSelesaiContent() {
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'url("/bg-expert.png") center/cover no-repeat fixed, #f8fafc', zIndex: 2147483647, overflowY: 'auto', padding: '16px 12px', fontFamily: 'Segoe UI, sans-serif', boxSizing: 'border-box' }}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
-      {/* 🟢 KOMPONEN TUR ONBOARDING */}
-      <SelesaiOnboardingTour />
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE DENGAN TEMA TEAL */}
+      <SafeJoyride steps={selesaiSteps} storageKey="ahp_tour_expert_selesai" primaryColor="#0f766e" />
 
       <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }} className="no-print">
         
@@ -1019,7 +951,6 @@ function ExpertSelesaiContent() {
                 <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sertifikat siap diunduh dan disimpan sebagai PDF</p>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                {/* 🟢 TOMBOL HTML2PDF TETAP ADA */}
                 <button 
                   onClick={handleDownloadPDF} 
                   disabled={isGeneratingPdf}
