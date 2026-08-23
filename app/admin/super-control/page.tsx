@@ -65,8 +65,16 @@ interface UserSubscriptionItem {
   max_experts_manual?: number | string
   max_experts_directory?: number | string
   max_consultation_per_expert?: number | string
+  custom_max_projects?: number | string
+  custom_max_experts?: number | string
+  custom_max_experts_directory?: number | string
+  custom_max_consultation_per_expert?: number | string
+  allow_ai_features?: boolean
+  allow_subcriteria?: boolean
+  allow_alternative_method?: boolean
   custom_features?: string
   notes?: string
+  plan_details?: any
   [key: string]: any
 }
 
@@ -107,9 +115,9 @@ export default function SuperAdminControlPage() {
     notes: ''
   });
 
-  // State Config Plans
+  // State Config Plans (Sesuai Konfigurasi Default Aktif)
   const [plans, setPlans] = useState<PlanSetting[]>([
-    { plan_key: 'FREE', label: 'FREE', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 5, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: true, allow_alternative_method: false, allow_ai_features: false },
+    { plan_key: 'FREE', label: 'Free Pass', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 4, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: false, allow_alternative_method: false, allow_ai_features: true },
     { plan_key: 'PRO', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
     { plan_key: 'PLUS', label: 'PLUS', price: 350000, duration_months: 6, max_projects: 10, max_experts_manual: 15, max_experts_directory: 10, max_consultation_per_expert: 5, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true },
     { plan_key: 'PREMIUM', label: 'PREMIUM', price: 750000, duration_months: 6, max_projects: 999999, max_experts_manual: 999999, max_experts_directory: 999999, max_consultation_per_expert: 15, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true }
@@ -181,13 +189,14 @@ export default function SuperAdminControlPage() {
       setLoading(true);
       setApiError('');
 
+      // Panggil endpoint backend secara paralel
       const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData, systemAssetsData, retentionData] = await Promise.all([
         fetchWithCatch('getadmins'),
         fetchWithCatch('getadminlogs'),
         fetchWithCatch('getpaymentsettings'),
         fetchWithCatch('getdiditsettings'),
         fetchWithCatch('getplansettings'),
-        fetchWithCatch('getallusersubscriptions'),
+        fetchWithCatch('getsubscriptions'),
         fetchWithCatch('get_system_assets'),
         fetchWithCatch('getprojectexpirationsettings')
       ]);
@@ -242,10 +251,20 @@ export default function SuperAdminControlPage() {
         }
       }
 
+      // Normalisasi config plans dinamis dari sheet plan_settings
       if (Array.isArray(planSettingsData) && planSettingsData.length > 0) {
         const normalizedPlans = planSettingsData.map((p: any) => ({
           ...p,
-          plan_key: String(p.plan_key || p.label || 'FREE').toUpperCase()
+          plan_key: String(p.plan_key || p.label || 'FREE').toUpperCase(),
+          price: Number(p.price || 0),
+          duration_months: Number(p.duration_months || 6),
+          max_projects: Number(p.max_projects !== undefined ? p.max_projects : 1),
+          max_experts_manual: Number(p.max_experts_manual !== undefined ? p.max_experts_manual : 4),
+          max_experts_directory: Number(p.max_experts_directory !== undefined ? p.max_experts_directory : 0),
+          max_consultation_per_expert: Number(p.max_consultation_per_expert !== undefined ? p.max_consultation_per_expert : 0),
+          allow_ai_features: p.allow_ai_features === true || String(p.allow_ai_features).toUpperCase() === 'TRUE',
+          allow_subcriteria: p.allow_subcriteria === true || String(p.allow_subcriteria).toUpperCase() === 'TRUE',
+          allow_alternative_method: p.allow_alternative_method === true || String(p.allow_alternative_method).toUpperCase() === 'TRUE'
         }));
         setPlans(normalizedPlans);
       }
@@ -553,10 +572,10 @@ export default function SuperAdminControlPage() {
       plan: String(item.plan || 'FREE').toUpperCase(),
       status: String(item.status || 'ACTIVE').toUpperCase(),
       expired_date: String(item.expired_date || item.expired || '').slice(0, 10),
-      custom_max_projects: String(item.max_projects || ''),
-      custom_max_experts: String(item.max_experts || item.max_experts_manual || ''),
-      custom_max_experts_directory: String(item.max_experts_directory || ''),
-      custom_max_consultation_per_expert: String(item.max_consultation_per_expert || ''),
+      custom_max_projects: item.custom_max_projects !== undefined ? String(item.custom_max_projects) : '',
+      custom_max_experts: item.custom_max_experts !== undefined ? String(item.custom_max_experts) : '',
+      custom_max_experts_directory: item.custom_max_experts_directory !== undefined ? String(item.custom_max_experts_directory) : '',
+      custom_max_consultation_per_expert: item.custom_max_consultation_per_expert !== undefined ? String(item.custom_max_consultation_per_expert) : '',
       custom_features: String(item.custom_features || ''),
       notes: String(item.notes || '')
     });
@@ -660,6 +679,7 @@ export default function SuperAdminControlPage() {
 
       if (json.success !== false) {
         alert('✅ Pengaturan Config Paket & Batasan berhasil disimpan!');
+        fetchSuperData();
       } else {
         alert('Gagal menyimpan: ' + (json.message || 'Error tidak diketahui'));
       }
@@ -753,7 +773,7 @@ export default function SuperAdminControlPage() {
     }
   };
 
-  // 🟢 SIMPAN PENGATURAN RETENSI PROYEK
+  // SIMPAN PENGATURAN RETENSI PROYEK
   const handleSaveProjectRetention = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!GOOGLE_SCRIPT_URL) return;
@@ -842,10 +862,10 @@ export default function SuperAdminControlPage() {
       <div style={STYLES.container}>
         <div style={STYLES.tabsRow} className="no-print">
           <button onClick={() => setActiveTab('admin_performance')} style={activeTab === 'admin_performance' ? STYLES.tabActive : STYLES.tabInactive}>
-            📊 Kinerja & Audit Aktivitas Admin ({adminLogsList.length})
+            📊 Kinerja &amp; Audit Aktivitas Admin ({adminLogsList.length})
           </button>
           <button onClick={() => setActiveTab('admins_management')} style={activeTab === 'admins_management' ? STYLES.tabActive : STYLES.tabInactive}>
-            👥 Pengaturan Akun Admin & Wewenang Modul ({admins.length})
+            👥 Pengaturan Akun Admin &amp; Wewenang Modul ({admins.length})
           </button>
           <button onClick={() => setActiveTab('subscriptions')} style={activeTab === 'subscriptions' ? STYLES.tabActive : STYLES.tabInactive}>
             📜 Subscriptions Komersial ({filteredUserSubs.length})
@@ -854,9 +874,8 @@ export default function SuperAdminControlPage() {
             ⚙️ Config Batasan Paket ({plans.length})
           </button>
           <button onClick={() => setActiveTab('signature_stamp')} style={activeTab === 'signature_stamp' ? STYLES.tabActive : STYLES.tabInactive}>
-            ✍️ Pengaturan Tanda Tangan & Pembayaran
+            ✍️ Pengaturan Tanda Tangan &amp; Pembayaran
           </button>
-          {/* 🟢 TOMBOL TAB RETENSI & ARSIP */}
           <button onClick={() => setActiveTab('project_retention')} style={activeTab === 'project_retention' ? STYLES.tabActive : STYLES.tabInactive}>
             ⏳ Retensi &amp; Arsip Proyek
           </button>
@@ -871,7 +890,7 @@ export default function SuperAdminControlPage() {
             <div>
               <div style={STYLES.cardTitleRow}>
                 <div>
-                  <h3 style={STYLES.cardTitle}>📊 Audit Trail & Ringkasan Kinerja Admin Pembantu</h3>
+                  <h3 style={STYLES.cardTitle}>📊 Audit Trail &amp; Ringkasan Kinerja Admin Pembantu</h3>
                   <p style={STYLES.cardDesc}>Rekam jejak tindakan admin secara transparan dan terukur.</p>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -941,7 +960,7 @@ export default function SuperAdminControlPage() {
             <div>
               <div style={STYLES.cardTitleRow}>
                 <div>
-                  <h3 style={STYLES.cardTitle}>👥 Kelola Akun Admin & Wewenang Modul</h3>
+                  <h3 style={STYLES.cardTitle}>👥 Kelola Akun Admin &amp; Wewenang Modul</h3>
                   <p style={STYLES.cardDesc}>Atur centangan akses modul harian untuk Admin Pembantu.</p>
                 </div>
                 <button onClick={handleOpenAddAdmin} style={STYLES.btnAdd}>+ Tambah Admin Baru</button>
@@ -987,7 +1006,7 @@ export default function SuperAdminControlPage() {
             </div>
           )}
 
-          {/* 3. USER SUBSCRIPTIONS */}
+          {/* 3. USER SUBSCRIPTIONS (100% DINAMIS TERHUBUNG DENGAN plan_settings) */}
           {activeTab === 'subscriptions' && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1020,7 +1039,7 @@ export default function SuperAdminControlPage() {
                       <th style={STYLES.th}>Paket (Plan)</th>
                       <th style={STYLES.th}>Status Akses</th>
                       <th style={STYLES.th}>Expired Date</th>
-                      <th style={STYLES.th}>Rincian Privilese & Custom Limits</th>
+                      <th style={STYLES.th}>Rincian Privilese &amp; Batasan Aktif</th>
                       <th style={STYLES.th}>Catatan SuperAdmin</th>
                       <th style={{ ...STYLES.th, textAlign: 'center' }}>Aksi Privilese</th>
                     </tr>
@@ -1036,11 +1055,36 @@ export default function SuperAdminControlPage() {
                         const status = String(item.status || item.Status || 'ACTIVE').toUpperCase();
                         const exp = item.expired_date || item.expired || '-';
                         
-                        const maxProj = item.max_projects;
-                        const maxExp = item.max_experts || item.max_experts_manual;
-                        const maxExpDir = item.max_experts_directory;
-                        const maxConsult = item.max_consultation_per_expert;
-                        const custFeatures = item.custom_features;
+                        // CARI DATA DINAMIS DARI plan_settings
+                        const matchedPlan = plans.find(p => p.plan_key.toUpperCase() === plan) || item.plan_details;
+
+                        // Evaluasi custom overrides secara aman
+                        const hasCustomProj = item.custom_max_projects !== undefined && item.custom_max_projects !== '' && item.custom_max_projects !== null;
+                        const hasCustomExpMan = item.custom_max_experts !== undefined && item.custom_max_experts !== '' && item.custom_max_experts !== null;
+                        const hasCustomExpDir = item.custom_max_experts_directory !== undefined && item.custom_max_experts_directory !== '' && item.custom_max_experts_directory !== null;
+                        const hasCustomCons = item.custom_max_consultation_per_expert !== undefined && item.custom_max_consultation_per_expert !== '' && item.custom_max_consultation_per_expert !== null;
+
+                        const maxProj = hasCustomProj ? item.custom_max_projects : (matchedPlan?.max_projects ?? 1);
+                        const maxExp = hasCustomExpMan ? item.custom_max_experts : (matchedPlan?.max_experts_manual ?? 4);
+                        const maxExpDir = hasCustomExpDir ? item.custom_max_experts_directory : (matchedPlan?.max_experts_directory ?? 0);
+                        const maxConsult = hasCustomCons ? item.custom_max_consultation_per_expert : (matchedPlan?.max_consultation_per_expert ?? 0);
+
+                        // RESOLVE STATUS FITUR
+                        const custFeatures = item.custom_features ? String(item.custom_features).toLowerCase() : '';
+                        const hasCustomOverride = custFeatures.length > 0;
+
+                        const allowSub = hasCustomOverride 
+                          ? custFeatures.includes('subcriteria') 
+                          : (matchedPlan?.allow_subcriteria ?? false);
+
+                        const allowAlt = hasCustomOverride 
+                          ? custFeatures.includes('alternative') 
+                          : (matchedPlan?.allow_alternative_method ?? false);
+
+                        const allowAi = hasCustomOverride 
+                          ? custFeatures.includes('ai') 
+                          : (matchedPlan?.allow_ai_features ?? true);
+
                         const notes = item.notes || '-';
                         
                         let badgeBg = '#f1f5f9';
@@ -1066,12 +1110,22 @@ export default function SuperAdminControlPage() {
                               </span>
                             </td>
                             <td style={{ ...STYLES.td, color: '#64748b', fontSize: 12 }}>{exp}</td>
-                            <td style={{ ...STYLES.td, fontSize: 11.5, color: '#334155', lineHeight: 1.4 }}>
-                              <div><strong>• Max Projects:</strong> {maxProj ? maxProj : 'Default Plan'}</div>
-                              <div><strong>• Max Experts:</strong> {maxExp ? maxExp : 'Default Plan'}</div>
-                              {maxExpDir && <div><strong>• Max Dir Experts:</strong> {maxExpDir}</div>}
-                              {maxConsult && <div><strong>• Max Consultation:</strong> {maxConsult}</div>}
-                              {custFeatures && <div style={{ color: '#1d4ed8', fontWeight: 600 }}><strong>• Features:</strong> {custFeatures}</div>}
+                            <td style={{ ...STYLES.td, fontSize: 11.5, color: '#334155', lineHeight: 1.5 }}>
+                              <div><strong>• Max Projects:</strong> {maxProj === 999999 ? 'Unlimited' : maxProj}</div>
+                              <div><strong>• Expert Manual:</strong> {maxExp === 999999 ? 'Unlimited' : maxExp}</div>
+                              <div><strong>• Expert Direktori:</strong> {maxExpDir === 999999 ? 'Unlimited' : maxExpDir}</div>
+                              <div><strong>• Konsultasi/Pakar:</strong> {maxConsult}</div>
+                              <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowAi ? '#dcfce7' : '#fee2e2', color: allowAi ? '#15803d' : '#b91c1c' }}>
+                                  AI: {allowAi ? 'AKTIF' : 'NON-AKTIF'}
+                                </span>
+                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowSub ? '#eff6ff' : '#f1f5f9', color: allowSub ? '#1d4ed8' : '#64748b' }}>
+                                  Subkriteria: {allowSub ? 'YA' : 'TIDAK'}
+                                </span>
+                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowAlt ? '#eff6ff' : '#f1f5f9', color: allowAlt ? '#1d4ed8' : '#64748b' }}>
+                                  Alternatif: {allowAlt ? 'YA' : 'TIDAK'}
+                                </span>
+                              </div>
                             </td>
                             <td style={{ ...STYLES.td, fontSize: 11.5, color: '#64748b', fontStyle: 'italic', maxWidth: 160 }}>
                               {notes}
@@ -1099,7 +1153,7 @@ export default function SuperAdminControlPage() {
             <div>
               <div style={STYLES.cardTitleRow}>
                 <div>
-                  <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Harga & Batasan Paket (Semester Pass)</h3>
+                  <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Harga &amp; Batasan Paket (Semester Pass)</h3>
                   <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan.</p>
                 </div>
                 <button onClick={handleSavePlans} disabled={saving} style={STYLES.btnAdd}>
@@ -1151,7 +1205,7 @@ export default function SuperAdminControlPage() {
 
                           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
                             <input type="checkbox" checked={p.allow_alternative_method} onChange={(e) => handlePlanChange(idx, 'allow_alternative_method', e.target.checked)} />
-                            <span>Bobot & Ranking Alternatif</span>
+                            <span>Bobot &amp; Ranking Alternatif</span>
                           </label>
 
                           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
@@ -1324,7 +1378,7 @@ export default function SuperAdminControlPage() {
             </div>
           )}
 
-          {/* 🟢 6. TAB: PENGATURAN RETENSI & ARSIP PROYEK */}
+          {/* 6. TAB: PENGATURAN RETENSI & ARSIP PROYEK */}
           {activeTab === 'project_retention' && (
             <div>
               <div style={STYLES.cardTitleRow}>
@@ -1600,7 +1654,7 @@ export default function SuperAdminControlPage() {
                       checked={isCustomFeatureChecked('alternative')}
                       onChange={() => toggleCustomFeatureCheck('alternative')}
                     />
-                    <span>Bobot & Ranking Alternatif (<code style={{ fontSize: 11, background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>alternative</code>)</span>
+                    <span>Bobot &amp; Ranking Alternatif (<code style={{ fontSize: 11, background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>alternative</code>)</span>
                   </label>
 
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#0f172a' }}>

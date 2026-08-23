@@ -494,7 +494,6 @@ function ExpertMainContent() {
 
       if (currentTaskIndex < tasks.length - 1) {
         setCurrentTaskIndex((prev) => prev + 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         // 🟢 DIARAHKAN KE app/expert/selesai/page.tsx
         router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`);
@@ -522,6 +521,21 @@ function ExpertMainContent() {
       max-width: 100% !important;
       margin-left: 0 !important;
       padding-left: 0 !important;
+    }
+    /* Kustom Scrollbar untuk Area Evaluasi Matriks */
+    .eval-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .eval-scroll::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 8px;
+    }
+    .eval-scroll::-webkit-scrollbar-thumb {
+      background-color: #cbd5e1;
+      border-radius: 8px;
+    }
+    .eval-scroll::-webkit-scrollbar-thumb:hover {
+      background-color: #94a3b8;
     }
   `;
 
@@ -624,90 +638,98 @@ function ExpertMainContent() {
     <div style={STYLES.page}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
       <div style={STYLES.container}>
-        <div style={STYLES.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-            <span style={STYLES.badge}>Tugas {currentTaskIndex + 1} dari {tasks.length}</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: analysis.cr <= 0.1 ? '#16a34a' : '#dc2626' }}>
-              CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
-            </span>
+        <div style={{...STYLES.card, display: 'flex', flexDirection: 'column', height: '90vh', maxHeight: '90vh', padding: '20px 24px'}}>
+          
+          {/* HEADER MATRIKS (TETAP DIAM DI ATAS) */}
+          <div style={{ flexShrink: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
+              <span style={STYLES.badge}>Tugas {currentTaskIndex + 1} dari {tasks.length}</span>
+              <span style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
+                CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
+              </span>
+            </div>
+
+            <h2 style={STYLES.title}>{task.title}</h2>
+            <p style={STYLES.desc}>{task.description}</p>
           </div>
 
-          <h2 style={STYLES.title}>{task.title}</h2>
-          <p style={STYLES.desc}>{task.description}</p>
+          {/* 🟢 AREA MATRIKS YANG BISA DI-SCROLL VERTIKAL */}
+          <div className="eval-scroll" style={STYLES.scrollableArea}>
+            <div style={{ display: 'grid', gap: 16 }}>
+              {pairs.map((p) => {
+                const saatyVal = currentMatrix[p.i]?.[p.j] ?? 1;
+                const state = saatyToSliderState(saatyVal);
 
-          <div style={{ display: 'grid', gap: 16, marginTop: 16 }}>
-            {pairs.map((p) => {
-              const saatyVal = currentMatrix[p.i]?.[p.j] ?? 1;
-              const state = saatyToSliderState(saatyVal);
-
-              return (
-                <div key={`${p.i}-${p.j}`} style={STYLES.sliderCard}>
-                  <div style={STYLES.sliderHeader}>
-                    <strong>{p.left}</strong>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>vs</span>
-                    <strong>{p.right}</strong>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 6, margin: '8px 0' }}>
-                    <button
-                      type="button"
-                      style={{
-                        ...STYLES.dirBtn,
-                        background: state.dir === 'left' ? '#0f172a' : '#f1f5f9',
-                        color: state.dir === 'left' ? '#fff' : '#475569',
-                      }}
-                      onClick={() => handleSliderChange(task.key, p.i, p.j, state.val === 1 ? 2 : state.val, 'left')}
-                    >
-                      ← {p.left} Lebih Penting
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        ...STYLES.dirBtn,
-                        background: state.dir === 'center' ? '#0f172a' : '#f1f5f9',
-                        color: state.dir === 'center' ? '#fff' : '#475569',
-                      }}
-                      onClick={() => handleSliderChange(task.key, p.i, p.j, 1, 'center')}
-                    >
-                      Sama Penting (1)
-                    </button>
-                    <button
-                      type="button"
-                      style={{
-                        ...STYLES.dirBtn,
-                        background: state.dir === 'right' ? '#0f172a' : '#f1f5f9',
-                        color: state.dir === 'right' ? '#fff' : '#475569',
-                      }}
-                      onClick={() => handleSliderChange(task.key, p.i, p.j, state.val === 1 ? 2 : state.val, 'right')}
-                    >
-                      {p.right} Lebih Penting →
-                    </button>
-                  </div>
-
-                  {state.dir !== 'center' && (
-                    <div style={{ marginTop: 6, padding: '0 4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
-                        <span>1 (Lemah)</span>
-                        <span>Intensitas: {state.val}</span>
-                        <span>9 (Ekstrem)</span>
-                      </div>
-                      <input
-                        type="range" min={1} max={9} step={1} value={state.val}
-                        onChange={(e) => handleSliderChange(task.key, p.i, p.j, Number(e.target.value), state.dir)}
-                        style={{ width: '100%', cursor: 'pointer' }}
-                      />
+                return (
+                  <div key={`${p.i}-${p.j}`} style={STYLES.sliderCard}>
+                    <div style={STYLES.sliderHeader}>
+                      <strong>{p.left}</strong>
+                      <span style={{ fontSize: 12, color: '#64748b' }}>vs</span>
+                      <strong>{p.right}</strong>
                     </div>
-                  )}
 
-                  <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, marginTop: 8, color: '#1e293b' }}>
-                    {sliderLabel(saatyVal, p.left, p.right)}
+                    <div style={{ display: 'flex', gap: 6, margin: '8px 0' }}>
+                      <button
+                        type="button"
+                        style={{
+                          ...STYLES.dirBtn,
+                          background: state.dir === 'left' ? '#0f172a' : '#f1f5f9',
+                          color: state.dir === 'left' ? '#fff' : '#475569',
+                        }}
+                        onClick={() => handleSliderChange(task.key, p.i, p.j, state.val === 1 ? 2 : state.val, 'left')}
+                      >
+                        ← {p.left} Lebih Penting
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          ...STYLES.dirBtn,
+                          background: state.dir === 'center' ? '#0f172a' : '#f1f5f9',
+                          color: state.dir === 'center' ? '#fff' : '#475569',
+                        }}
+                        onClick={() => handleSliderChange(task.key, p.i, p.j, 1, 'center')}
+                      >
+                        Sama Penting (1)
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          ...STYLES.dirBtn,
+                          background: state.dir === 'right' ? '#0f172a' : '#f1f5f9',
+                          color: state.dir === 'right' ? '#fff' : '#475569',
+                        }}
+                        onClick={() => handleSliderChange(task.key, p.i, p.j, state.val === 1 ? 2 : state.val, 'right')}
+                      >
+                        {p.right} Lebih Penting →
+                      </button>
+                    </div>
+
+                    {state.dir !== 'center' && (
+                      <div style={{ marginTop: 6, padding: '0 4px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#94a3b8', marginBottom: 2 }}>
+                          <span>1 (Lemah)</span>
+                          <span>Intensitas: {state.val}</span>
+                          <span>9 (Ekstrem)</span>
+                        </div>
+                        <input
+                          type="range" min={1} max={9} step={1} value={state.val}
+                          onChange={(e) => handleSliderChange(task.key, p.i, p.j, Number(e.target.value), state.dir)}
+                          style={{ width: '100%', cursor: 'pointer' }}
+                        />
+                      </div>
+                    )}
+
+                    <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, marginTop: 8, color: '#1e293b' }}>
+                      {sliderLabel(saatyVal, p.left, p.right)}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24 }}>
+          {/* FOOTER TOMBOL AKSI (TETAP DIAM DI BAWAH) */}
+          <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
             {currentTaskIndex > 0 ? (
               <button onClick={() => setCurrentTaskIndex((prev) => prev - 1)} style={STYLES.btnSecondary}>← Sebelumnya</button>
             ) : <div />}
@@ -751,8 +773,7 @@ const STYLES: Record<string, React.CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 2147483647,
-    overflowY: 'auto'
+    zIndex: 2147483647
   },
   container: { width: '100%', maxWidth: 720 },
   card: { background: '#fff', borderRadius: 16, padding: 28, boxShadow: '0 6px 24px rgba(15,23,42,0.06)' },
@@ -760,7 +781,13 @@ const STYLES: Record<string, React.CSSProperties> = {
   desc: { margin: '0 0 16px', color: '#475569', fontSize: 13.5, lineHeight: 1.6 },
   btnPrimary: { padding: '12px 20px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, transition: 'all 0.2s', cursor: 'pointer' },
   btnSecondary: { padding: '12px 20px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
-  badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block', marginBottom: 12 },
+  badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block' },
+  
+  // 🟢 Penambahan Gaya Baru untuk Sticky dan Scroll
+  crSuccess: { fontSize: 12.5, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '4px 10px', borderRadius: 999, border: '1px solid #bbf7d0' },
+  crError: { fontSize: 12.5, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '4px 10px', borderRadius: 999, border: '1px solid #fecaca' },
+  scrollableArea: { flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', paddingBottom: '16px' },
+
   sliderCard: { border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' },
   sliderHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 13.5, color: '#0f172a' },
   dirBtn: { flex: 1, padding: '6px 8px', fontSize: 11, fontWeight: 600, border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer' },

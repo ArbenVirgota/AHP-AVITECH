@@ -1476,6 +1476,9 @@ function ProjectReportContent() {
   const [totalProjectsCount, setTotalProjectsCount] = useState<number>(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // 🟢 State untuk proses Unduh PDF HTML2PDF
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
   const [data, setData] = useState<BundleState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1890,18 +1893,47 @@ function ProjectReportContent() {
     }
   };
 
-  const handlePrintDocument = () => {
-    if (typeof window === 'undefined') return;
+  // 🟢 FUNGSI BARU: CETAK / DOWNLOAD MENGGUNAKAN HTML2PDF
+  const handlePrintDocument = async () => {
+    if (typeof window === 'undefined' || isGeneratingPdf) return;
 
-    window.requestAnimationFrame(() => {
-      setTimeout(() => {
-        try {
-          window.print();
-        } catch (e) {
-          console.warn('window.print() gagal:', e);
-        }
-      }, 150);
-    });
+    try {
+      setIsGeneratingPdf(true);
+      const element = document.getElementById('report-download-area');
+      
+      if (!element) {
+        alert('Area laporan tidak ditemukan.');
+        return;
+      }
+
+      // Dinamis import library (Hanya di-load saat tombol diklik)
+      const html2pdfModule = await import('html2pdf.js' as any);
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+
+      const cleanProjectName = (data?.project?.namaproyek || 'Laporan_AHP').replace(/[\/\\:\*\?"<>\|]/g, '-');
+
+      const opt = {
+        margin:       [15, 10, 15, 10], // Margin atas, kiri, bawah, kanan
+        filename:     `Laporan_AHP_${cleanProjectName}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+          scale: 2, 
+          useCORS: true, 
+          windowWidth: 1024, // Memastikan lebar render seukuran laptop (anti gepeng di HP)
+          ignoreElements: (el: Element) => el.classList?.contains('no-print') // Mengabaikan elemen UI seperti tombol
+        },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+
+    } catch (err) {
+      console.error('Gagal membuat PDF:', err);
+      // Fallback Darurat: Gunakan print bawaan browser jika html2pdf gagal
+      window.print();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   const handleLogout = () => {
@@ -1981,7 +2013,8 @@ function ProjectReportContent() {
         onLogout={handleLogout}
       />
 
-      <main style={STYLES.page}>
+      {/* 🟢 AREA LAPORAN DIBERI ID "report-download-area" UNTUK PDF */}
+      <main style={STYLES.page} id="report-download-area">
         <style jsx global>{`
           @media print {
             @page { 
@@ -2062,12 +2095,14 @@ function ProjectReportContent() {
               <h1 style={STYLES.pageTitle}>Laporan Eksekutif &amp; Hasil AHP</h1>
               <p style={STYLES.pageDesc}>Dokumen rekapitulasi analitis proyek riset dan evaluasi kepakaran.</p>
             </div>
+            
+            {/* 🟢 TOMBOL AKSI AKAN DISEMBUNYIKAN OTOMATIS SAAT PROSES PDF KARENA ADA CLASS "no-print" */}
             <div style={STYLES.headerActions}>
               {canUseAi ? (
                 <button 
                   onClick={handleGenerateAiReport} 
-                  disabled={loadingAi}
-                  style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: loadingAi ? 'not-allowed' : 'pointer' }}
+                  disabled={loadingAi || isGeneratingPdf}
+                  style={{ ...STYLES.btnPrimary, background: '#2563eb', cursor: (loadingAi || isGeneratingPdf) ? 'not-allowed' : 'pointer' }}
                 >
                   {loadingAi ? '⏳ Menyusun...' : 'Analisis Draf Otomatis'}
                 </button>
@@ -2075,13 +2110,26 @@ function ProjectReportContent() {
                 <button 
                   title="Fitur Analisis Otomatis hanya tersedia untuk paket PLUS dan PREMIUM atau akun dengan akses kustom"
                   onClick={() => alert('Fasilitas Analisis Draf Otomatis terkunci. Silakan tingkatkan paket langganan Anda ke PLUS atau PREMIUM.')}
+                  disabled={isGeneratingPdf}
                   style={{ ...STYLES.btnPrimary, background: '#94a3b8', color: '#f8fafc', cursor: 'not-allowed', border: '1px solid #cbd5e1' }}
                 >
                   🔒 Analisis Draf Otomatis
                 </button>
               )}
 
-              <button type="button" onClick={handlePrintDocument} style={STYLES.btnGhost}>🖨️ Cetak Dokumen (PDF)</button>
+              {/* 🟢 TOMBOL CETAK PDF YANG DIPERBARUI */}
+              <button 
+                type="button" 
+                onClick={handlePrintDocument} 
+                disabled={isGeneratingPdf}
+                style={{
+                  ...STYLES.btnGhost, 
+                  cursor: isGeneratingPdf ? 'not-allowed' : 'pointer',
+                  opacity: isGeneratingPdf ? 0.7 : 1
+                }}
+              >
+                {isGeneratingPdf ? '⏳ Menyiapkan PDF...' : '🖨️ Unduh Laporan (PDF)'}
+              </button>
             </div>
           </div>
 
@@ -2792,16 +2840,22 @@ const STYLES: Record<string, CSSProperties> = {
   pageDesc: { margin: '2px 0 0', color: '#64748b', fontSize: 11.5 },
   sectionTitle: { margin: 0, fontSize: 14, fontWeight: 700, color: '#1e293b', letterSpacing: '-0.3px' },
   metaText: { color: '#64748b', margin: '2px 0 0', fontSize: 11, lineHeight: 1.4 },
+  
+  // 🟢 Penambahan flex styling untuk header expert
+  panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 },
+  subTitle: { margin: 0, fontSize: 13, fontWeight: 700, color: '#0f172a' },
+  subTitleDisabled: { margin: 0, fontSize: 13, fontWeight: 700, color: '#94a3b8' },
+
   expertBlock: { marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1' },
   expertBlockDisabled: { marginTop: 10, paddingTop: 10, borderTop: '1px dashed #e2e8f0', opacity: 0.8 },
-  lockedPanel: { background: '#f1f5f9', color: '#64748b', padding: 8, borderRadius: 6, textAlign: 'center', fontSize: 11, border: '1px dashed #cbd5e1' },
+  lockedPanel: { background: '#f1f5f9', color: '#64748b', padding: 8, borderRadius: 6, textAlign: 'center', fontSize: 11, border: '1px dashed #cbd5e1', marginTop: 8 },
   table: { width: '100%', borderCollapse: 'collapse', background: '#fff', fontSize: 11 },
   th: { textAlign: 'left', padding: '6px 8px', background: '#f8fafc', color: '#475569', fontSize: 10.5, fontWeight: 600, borderBottom: '1px solid #e2e8f0' },
   td: { padding: '6px 8px', borderBottom: '1px solid #f1f5f9', color: '#334155', fontSize: 11, verticalAlign: 'middle' },
   tdHead: { padding: '6px 8px', borderBottom: '1px solid #f1f5f9', color: '#0f172a', fontWeight: 600, fontSize: 11, verticalAlign: 'middle' },
   badgeSoft: { background: '#f1f5f9', color: '#334155', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 },
-  badgeSuccess: { background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 },
-  badgeWarning: { background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700 },
+  badgeSuccess: { background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, border: '1px solid #bbf7d0' },
+  badgeWarning: { background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700, border: '1px solid #fde68a' },
   badgeLocked: { background: '#f1f5f9', color: '#94a3b8', padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 600, border: '1px solid #e2e8f0' },
   btnPrimary: { background: '#0f172a', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 700, fontSize: 11 },
   btnGhost: { background: 'transparent', color: '#64748b', border: '1px solid #cbd5e1', borderRadius: 6, padding: '5px 10px', cursor: 'pointer', fontWeight: 600, fontSize: 11 },

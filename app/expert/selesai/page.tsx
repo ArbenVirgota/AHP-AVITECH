@@ -119,6 +119,9 @@ function ExpertSelesaiContent() {
 
   const [showCertModal, setShowCertModal] = useState(false);
   const [officialCertId, setOfficialCertId] = useState<string>(''); 
+  
+  // 🟢 State untuk proses Unduh PDF
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // 🟢 State Aset Sistem dari Sheet system_assets / app_settings
   const [systemAssets, setSystemAssets] = useState<{
@@ -559,6 +562,45 @@ function ExpertSelesaiContent() {
     }
   };
 
+  // 🟢 FUNGSI BARU: UNDUH PDF (SUPPORT ANDROID & IOS)
+  const handleDownloadPDF = async () => {
+    if (isGeneratingPdf) return;
+    
+    try {
+      setIsGeneratingPdf(true);
+      const element = document.getElementById('certificate-download-area');
+      
+      if (!element) {
+        alert('Elemen sertifikat tidak ditemukan.');
+        return;
+      }
+
+      // Dinamis import library (Hanya di-load saat tombol diklik agar Next.js tidak error)
+      const html2pdfModule = await import('html2pdf.js' as any);
+      const html2pdf = html2pdfModule.default || html2pdfModule;
+
+      const cleanFileNameId = (officialCertId || 'AHP-EXP').replace(/[\/\\:]/g, '-');
+
+      const opt = {
+        margin:       0,
+        filename:     `Sertifikat_Apresiasi_${cleanFileNameId}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        // windowWidth: 1122 mensimulasikan layar PC agar sertifikat tidak gepeng di Android
+        html2canvas:  { scale: 2, useCORS: true, letterRendering: true, windowWidth: 1122 },
+        jsPDF:        { unit: 'mm', format: [297, 185], orientation: 'landscape' }
+      };
+
+      await html2pdf().set(opt).from(element).save();
+
+    } catch (err) {
+      console.error('Gagal membuat PDF:', err);
+      // Fallback Darurat: Gunakan print bawaan browser
+      window.print();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   const activeCertNo = (officialCertId || 'AHP-EXP-001-2026').replace(/\//g, '-');
 
   const getFullFormattedExpertName = () => {
@@ -874,19 +916,26 @@ function ExpertSelesaiContent() {
             <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: 12, marginBottom: 16 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 16, color: '#0f172a' }}>E-Sertifikat Apresiasi Pakar</h3>
-                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sertifikat siap dicetak/disimpan sebagai file PDF A4 Landscape</p>
+                <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>Sertifikat siap diunduh dan disimpan sebagai PDF</p>
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => window.print()} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                  🖨️ Cetak / Simpan ke PDF
+                {/* 🟢 TOMBOL BARU MENGGUNAKAN HTML2PDF */}
+                <button 
+                  onClick={handleDownloadPDF} 
+                  disabled={isGeneratingPdf}
+                  style={{ background: isGeneratingPdf ? '#94a3b8' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: isGeneratingPdf ? 'not-allowed' : 'pointer' }}
+                >
+                  {isGeneratingPdf ? '⏳ Menyiapkan PDF...' : '🖨️ Cetak / Unduh PDF'}
                 </button>
+                
                 <button onClick={() => setShowCertModal(false)} style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                   ✕ Tutup
                 </button>
               </div>
             </div>
 
-            <div className="certificate-print-area" style={{ border: '8px solid #1e3a8a', padding: '28px 30px 20px 30px', borderRadius: 10, background: '#ffffff', color: '#1e293b', textAlign: 'center', fontFamily: "'Georgia', serif", boxSizing: 'border-box', position: 'relative', isolation: 'isolate' }}>
+            {/* 🟢 TAMBAHAN ID "certificate-download-area" PADA DIV UTAMA */}
+            <div id="certificate-download-area" className="certificate-print-area" style={{ border: '8px solid #1e3a8a', padding: '28px 30px 20px 30px', borderRadius: 10, background: '#ffffff', color: '#1e293b', textAlign: 'center', fontFamily: "'Georgia', serif", boxSizing: 'border-box', position: 'relative', isolation: 'isolate' }}>
               
               {appLogoUrl && (
                 <div style={{ 
