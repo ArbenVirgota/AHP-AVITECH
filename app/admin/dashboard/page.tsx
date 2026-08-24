@@ -16,6 +16,7 @@ import {
   Filler 
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import SafeJoyride from '@/components/SafeJoyride'
 
 ChartJS.register(
   CategoryScale, 
@@ -1044,14 +1045,71 @@ export default function AdminDashboardPage() {
     return { label: '🟡 NETRAL', style: STYLES.badgePending };
   };
 
+  // 🟢 LANGKAH-LANGKAH PANDUAN INTERAKTIF ADMIN
+  const adminDashboardSteps = useMemo(() => [
+    {
+      target: 'body',
+      title: '👋 Panel Operasional Admin',
+      content: 'Selamat datang di Panel Kontrol Administrator AHP! Mari pelajari modul pengelolaan data dan layanan pelanggan.',
+      placement: 'center' as const,
+    },
+    {
+      target: '.tour-admin-tabs',
+      title: '📑 Modul Operasional',
+      content: 'Gunakan tab-tab ini untuk berpindah antara Direktori Pakar, Akun User, Produk Platform, Tiket Konsultasi, dan Log Statistik.',
+      placement: 'bottom' as const,
+    },
+    {
+      target: '.tour-admin-content',
+      title: '📊 Tabel Data & Manajemen',
+      content: 'Di area ini Anda dapat mencari, memverifikasi data pakar, menjawab tiket konsultasi, hingga mengubah paket langganan pengguna.',
+      placement: 'top' as const,
+    },
+    {
+      target: '.tour-admin-quick-actions',
+      title: '⚡ Navigasi Khusus',
+      content: 'Bagi SuperAdmin, tombol ini memberikan akses langsung ke Repositori Arsip Dokumen dan Kontrol Akses Sistem Tingkat Lanjut.',
+      placement: 'left' as const,
+    }
+  ], []);
+
+  const handleStartAdminTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_admin_dashboard'));
+  };
+
   return (
     <div style={STYLES.page}>
+      {/* 🟢 KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
+      <SafeJoyride steps={adminDashboardSteps} storageKey="ahp_tour_admin_dashboard" primaryColor="#1e3a8a" />
+
       <header style={STYLES.header}>
         <div>
           <h2 style={STYLES.headerTitle}>Panel Dashboard Operasional Admin</h2>
           <p style={STYLES.headerSubtitle}>Operator: <strong>{adminName}</strong> ({adminRole})</p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }} className="tour-admin-quick-actions">
+          {/* 🟢 TOMBOL PANDUAN INTERAKTIF ADMIN */}
+          <button
+            type="button"
+            onClick={handleStartAdminTour}
+            style={{
+              padding: '8px 12px',
+              background: '#eff6ff',
+              color: '#1e3a8a',
+              border: '1px solid #bfdbfe',
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+            title="Buka panduan interaktif panel admin"
+          >
+            💡 Panduan Admin
+          </button>
+
           {isSuperAdmin && (
             <>
               <button onClick={() => router.push('/admin/archives')} style={{ ...STYLES.btnAdd, background: '#0284c7' }}>
@@ -1067,7 +1125,8 @@ export default function AdminDashboardPage() {
       </header>
 
       <div style={STYLES.container}>
-        <div style={STYLES.tabsRow}>
+        {/* 🟢 TARGET KELAS: tour-admin-tabs */}
+        <div style={STYLES.tabsRow} className="tour-admin-tabs">
           {canAccessTab('expert_directory') && <button onClick={() => setActiveTab('expert_directory')} style={activeTab === 'expert_directory' ? STYLES.tabActive : STYLES.tabInactive}>Direktori Pakar ({experts.length})</button>}
           {canAccessTab('users') && <button onClick={() => setActiveTab('users')} style={activeTab === 'users' ? STYLES.tabActive : STYLES.tabInactive}>Manajemen User Pakar ({filteredUsers.length})</button>}
           {canAccessTab('products') && <button onClick={() => setActiveTab('products')} style={activeTab === 'products' ? STYLES.tabActive : STYLES.tabInactive}>Produk Platform ({products.length})</button>}
@@ -1080,7 +1139,8 @@ export default function AdminDashboardPage() {
 
         {apiError && <div style={STYLES.errorBox}>{apiError}</div>}
 
-        <div style={STYLES.contentCard}>
+        {/* 🟢 TARGET KELAS: tour-admin-content */}
+        <div style={STYLES.contentCard} className="tour-admin-content">
           
           {/* TAB 1: EXPERT DIRECTORY */}
           {activeTab === 'expert_directory' && canAccessTab('expert_directory') && (
@@ -1590,7 +1650,7 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 6: STATISTIK KUNJUNGAN (DENGAN KOLOM IP ADDRESS) */}
+          {/* TAB 6: STATISTIK KUNJUNGAN */}
           {activeTab === 'visitor_stats' && canAccessTab('visitor_stats') && (
             <div>
               <div style={STYLES.cardTitleRow}>

@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useEffect, useState, useCallback, Suspense } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 // 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
@@ -411,7 +411,7 @@ function ExpertSelesaiContent() {
         canvas.width = width;
         canvas.height = height;
         const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+        ctx?.drawImage(img, 0, 0, width, height) ;
         
         const compressed = canvas.toDataURL('image/jpeg', 0.5);
         setFormData((prev) => ({ ...prev, ktpUrl: compressed }));
@@ -664,40 +664,43 @@ function ExpertSelesaiContent() {
     }
   `;
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN SELESAI EXPERT
-  const selesaiSteps: Step[] = [
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN SELESAI EXPERT (DIBUNGKUS useMemo)
+  const selesaiSteps = useMemo(() => [
     {
       target: 'body',
       content: 'Terima kasih telah menyelesaikan evaluasi matriks! Ini adalah tahap akhir untuk menyimpan profil Anda dan mengunduh E-Sertifikat Apresiasi.',
       title: '🎉 Tahap Penyelesaian',
-      placement: 'center',
-      disableBeacon: true,
+      placement: 'center' as const,
     },
     {
       target: '.tour-profile-form',
       content: 'Mohon lengkapi Nama Utama dan Gelar Anda dengan benar. Data ini akan dicetak secara permanen di E-Sertifikat Anda.',
       title: '📝 Lengkapi Profil',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-ktp',
       content: 'Anda diwajibkan untuk mengunggah gambar/foto KTP sebagai bukti validasi identitas dan kepakaran sesuai dengan standar riset administratif.',
       title: '🪪 Verifikasi Identitas',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-consent',
       content: 'Jangan lupa mencentang kotak persetujuan ini agar Anda dapat bergabung di Direktori Pakar dan menerbitkan sertifikat.',
       title: '✅ Persetujuan',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-save-profile',
       content: 'Setelah semua formulir terisi, klik tombol Simpan. Opsi pengunduhan PDF E-Sertifikat akan otomatis muncul setelah data Anda tersimpan!',
       title: '💾 Simpan Profil & Unduh',
-      placement: 'top',
+      placement: 'top' as const,
     }
-  ];
+  ], []);
+
+  const handleStartSelesaiTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_expert_selesai'));
+  };
 
   if (loading) return (
     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 2147483647, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Segoe UI, sans-serif' }}>
@@ -740,11 +743,35 @@ function ExpertSelesaiContent() {
 
       <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }} className="no-print">
         
-        <div style={{ background: 'white', padding: '14px 18px', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>
-          <h1 style={{ margin: 0, fontSize: 18, color: '#0f172a', fontWeight: 700 }}>Terima Kasih! Evaluasi Selesai</h1>
-          <p style={{ color: '#475569', margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.4 }}>
-            Penilaian matriks untuk proyek: <strong>{project.namaproyek}</strong> telah selesai. Silakan periksa dan lengkapi profil Anda di bawah ini.
-          </p>
+        <div style={{ background: 'white', padding: '14px 18px', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 18, color: '#0f172a', fontWeight: 700 }}>Terima Kasih! Evaluasi Selesai</h1>
+            <p style={{ color: '#475569', margin: '4px 0 0', fontSize: 12.5, lineHeight: 1.4 }}>
+              Penilaian matriks untuk proyek: <strong>{project.namaproyek}</strong> telah selesai. Silakan periksa dan lengkapi profil Anda di bawah ini.
+            </p>
+          </div>
+          
+          {/* 🟢 TOMBOL PANDUAN INTERAKTIF SELESAI */}
+          <button
+            type="button"
+            onClick={handleStartSelesaiTour}
+            style={{
+              padding: '6px 12px',
+              background: '#f0fdfa',
+              color: '#0f766e',
+              border: '1px solid #99f6e4',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4
+            }}
+            title="Buka panduan pengisian formulir & klaim sertifikat"
+          >
+            💡 Panduan Selesai
+          </button>
         </div>
 
         <div style={{ background: 'white', padding: '16px 18px', borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}>

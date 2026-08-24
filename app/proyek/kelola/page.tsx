@@ -42,20 +42,24 @@ function extractRowData(res: any, targetEmail: string): any {
 
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
+  
+  // 🟢 Ekstraksi respons bertingkat dari Apps Script
   let dataObj = raw.data || raw.result || raw.payload || raw;
+  
   if (Array.isArray(dataObj)) {
     dataObj = dataObj.find((item: any) => {
-      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      const em = String(item.user_email || item.email || item.useremail || '').trim().toLowerCase();
       return em === targetEmail.trim().toLowerCase();
     }) || dataObj[0] || null;
   }
+  
   if (!dataObj || typeof dataObj !== 'object') return null;
 
   const getField = (keys: string[]) => {
     for (const k of keys) {
       for (const objKey of Object.keys(dataObj)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
         if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
           return dataObj[objKey];
         }
@@ -64,25 +68,25 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     return undefined;
   };
 
-  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']);
   const rawStatus = getField(['status', 'subscription_status']);
-  const rawExpDate = getField(['expired_date', 'expireddate']);
+  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']);
   
   const rawMaxProjects = getField(['max_projects', 'maxprojects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual']);
   const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
   const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
   const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
 
   return {
-    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    user_email: String(getField(['user_email', 'email', 'useremail']) || targetEmail).trim().toLowerCase(),
     plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
     status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
     expired_date: rawExpDate ? String(rawExpDate) : '',
-    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
-    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
-    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
-    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? Number(rawMaxConsult) : null,
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
@@ -491,22 +495,31 @@ function normalizeAlternative(raw: Record<string, unknown> | any): AlternatifIte
   };
 }
 
+// 🟢 Normalisasi Pakar Disertai Seluruh Variasi Header Asal Instansi dari Sheet experts
 function normalizeExpert(raw: Record<string, unknown>): ExpertItem {
   return {
     id: String(raw.id || raw.expertid || raw.expert_id || raw.expertId || '').trim(),
     projectid: String(raw.projectid || raw.project_id || raw.projectId || '').trim(),
     expertindex: Number(raw.expertindex || raw.expert_index || 0),
-    expertname: String(raw.expertname || raw.expert_name || raw.nama || ''),
-    expertemail: String(raw.expertemail || raw.expert_email || raw.email || ''),
-    expertwhatsapp: String(raw.expertwhatsapp || raw.expert_whatsapp || raw.whatsapp || ''),
+    expertname: String(raw.expertname || raw.expert_name || raw.nama || raw.name || '').trim(),
+    expertemail: String(raw.expertemail || raw.expert_email || raw.email || '').trim(),
+    expertwhatsapp: String(raw.expertwhatsapp || raw.expert_whatsapp || raw.whatsapp || '').trim(),
     gelardepan: String(raw.gelardepan || raw.gelar_depan || ''),
     gelarbelakang: String(raw.gelarbelakang || raw.gelar_belakang || ''),
     token: String(raw.token || ''),
     status: String(raw.status || ''),
     role: String(raw.role || ''),
-    asalinstansi: String(raw.asalinstansi || raw.asal_instansi || raw.instansi || ''),
-    pendidikanterakhir: String(raw.pendidikanterakhir || raw.pendidikan_terakhir || ''),
-    bidangkeahlian: String(raw.bidangkeahlian || raw.bidang_keahlian || ''),
+    asalinstansi: String(
+      raw.asalinstansi || 
+      raw.asal_instansi || 
+      raw.instansi || 
+      raw.institution || 
+      raw.lembaga || 
+      raw.asal_lembaga || 
+      ''
+    ).trim(),
+    pendidikanterakhir: String(raw.pendidikanterakhir || raw.pendidikan_terakhir || raw.pendidikan || ''),
+    bidangkeahlian: String(raw.bidangkeahlian || raw.bidang_keahlian || raw.keahlian || ''),
     invitechannel: String(raw.invitechannel || raw.invite_channel || ''),
     invitesentat: String(raw.invitesentat || raw.invite_sent_at || ''),
     confirmedat: String(raw.confirmedat || raw.confirmed_at || ''),
@@ -1300,7 +1313,7 @@ function ProfileModal({
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64 = reader.result as string;
+        const base64 = reader.result as string
         setPreviewFoto(base64);
         setFormData((prev) => ({ ...prev, foto_profil: base64 }));
       };
@@ -1317,7 +1330,7 @@ function ProfileModal({
       }
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64 = reader.result as string;
+        const base64 = reader.result as string
         setPreviewSig(base64);
         setFormData((prev) => ({ ...prev, digital_signature: base64 }));
       };
@@ -1366,7 +1379,7 @@ function ProfileModal({
     } catch (err: any) {
       setErrorMsg('Gagal menyambung ke server: ' + err.toString());
     } finally {
-      setSaving(false);
+      setSaving(false)
     }
   };
 
@@ -1406,9 +1419,9 @@ function ProfileModal({
             flexDirection: 'column', 
             gap: 12, 
             overflowY: 'auto', 
-            paddingRight: 4,
-            flexGrow: 1,
-            marginBottom: 12
+            paddingRight: 4, 
+            flexGrow: 1, 
+            marginBottom: 12 
           }}
         >
           <div>
@@ -1566,34 +1579,37 @@ function ProjectKelolaContent() {
   
   const [dismissWarning, setDismissWarning] = useState(false);
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KELOLA PROYEK (TANPA STICKY)
-  const kelolaSteps: Step[] = [
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KELOLA PROYEK
+  const kelolaSteps = useMemo(() => [
     {
       target: 'body',
       content: 'Selamat datang di Ruang Kerja Proyek. Di sini Anda akan mengelola distribusi kuesioner pakar dan memantau perkembangan riset Anda.',
       title: '⚙️ Ruang Kerja Proyek',
-      placement: 'center',
-      disableBeacon: true,
+      placement: 'center' as const,
     },
     {
       target: '.tour-responden-section', 
       content: 'Di tabel ini, Anda dapat memantau status pakar, menyalin tautan kuesioner unik, atau mengirimkan undangan otomatis via email.',
       title: '👥 Kelola Responden',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-matriks-fasilitator',
       content: 'Sebagai peneliti utama, Anda dapat menetapkan "Bobot Standar" Anda sendiri di sini. Bobot ini dapat disintesis bersama dengan jawaban para pakar nantinya.',
       title: '⭐ Matriks Fasilitator',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-draft-laporan',
       content: 'Setelah semua atau sebagian pakar selesai mengisi, klik tombol ini untuk membuka halaman Laporan Eksekutif dan melihat hasil akhir sintesis AHP Anda.',
       title: '📄 Tampilkan Draft Laporan',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     }
-  ];
+  ], []);
+
+  const handleStartKelolaTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_kelola'));
+  };
 
   const isProfileComplete = useMemo(() => {
     return Boolean(
@@ -1611,6 +1627,10 @@ function ProjectKelolaContent() {
       return;
     }
     setSession(s);
+    const sessionObj = s as Record<string, any>;
+    const rawEmail = String(s.email || '').trim().toLowerCase();
+    const rawUserId = String(sessionObj.user_id || sessionObj.userId || sessionObj.id || '').trim();
+
     setUserProfile({
       nama: s.nama || s.email || 'Pengguna',
       institusi: '',
@@ -1625,65 +1645,52 @@ function ProjectKelolaContent() {
         setError('');
         setMessage('');
 
-        const rawEmail = String(s.email || '').trim().toLowerCase();
-        const rawUserId = String(s.id || '').trim();
+        // 🟢 1. PENARIKAN DATA PARALEL SESUAI POLA SSOT
+        const [subRes, userRes, projRes] = await Promise.all([
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&user_email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`).catch(() => null),
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`).catch(() => null),
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`).catch(() => null)
+        ]);
 
-        let resolvedPlan = '';
-
-        if (rawEmail || rawUserId) {
-          try {
-            const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
-            const userRes = await fetchJson<any>(userUrl);
-            const uData = extractRowData(userRes, rawEmail);
-
-            if (uData && Object.keys(uData).length > 0) {
-              setUserProfile({
-                nama: uData.nama || s.nama || 'Pengguna',
-                institusi: uData.institusi || '',
-                city: uData.city || uData.kota || '',
-                digital_signature: uData.digital_signature || uData.tandatangan || '',
-                foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
-              });
-
-              const userPlanDirect = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim();
-              if (['free', 'pro', 'plus', 'premium'].includes(userPlanDirect)) {
-                resolvedPlan = userPlanDirect;
-              }
-            }
-          } catch (errUser) {
-            console.warn('Gagal membaca profil pengguna:', errUser);
-          }
-
-          try {
-            const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
-            const subRes = await fetchJson<any>(subUrl);
-            const parsed = normalizeSubscriptionData(subRes, rawEmail);
-
-            if (parsed && parsed.plan) {
-              const cleanP = cleanPlanType(parsed.plan);
-              if (cleanP) {
-                resolvedPlan = cleanP;
-              }
-            }
-          } catch (errSub) {
-            console.warn('Gagal membaca sheet subscriptions:', errSub);
+        // A. Ambil profil user murni untuk nama & foto (Abaikan plan dari users)
+        if (userRes) {
+          const uData = extractRowData(userRes, rawEmail);
+          if (uData && Object.keys(uData).length > 0) {
+            setUserProfile({
+              nama: uData.nama || s.nama || 'Pengguna',
+              institusi: uData.institusi || '',
+              city: uData.city || uData.kota || '',
+              digital_signature: uData.digital_signature || uData.tandatangan || '',
+              foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
+            });
           }
         }
 
-        if (!resolvedPlan) {
-          resolvedPlan = String(s.status_user || s.plan || 'free');
+        // B. Ambil jumlah proyek
+        if (projRes?.success && Array.isArray(projRes.data)) {
+          setTotalProjectsCount(projRes.data.length);
         }
 
-        setUserPlan(cleanPlanType(resolvedPlan));
-
-        try {
-          const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
-          if (projRes?.success && Array.isArray(projRes.data)) {
-            setTotalProjectsCount(projRes.data.length);
-          }
-        } catch (e) {
-          console.warn('Gagal memuat total proyek:', e);
+        // C. Normalisasi Subscription murni dari endpoint getusersubscription
+        let currentSub: any = null;
+        if (subRes) {
+          const parsed = normalizeSubscriptionData(subRes, rawEmail);
+          if (parsed) currentSub = parsed;
         }
+
+        if (!currentSub || !currentSub.plan) {
+          currentSub = {
+            plan: 'free',
+            status: 'active',
+            user_email: rawEmail,
+            user_id: rawUserId
+          };
+        } else {
+          currentSub.plan = String(currentSub.plan).toLowerCase().trim();
+        }
+
+        const finalPlan = cleanPlanType(currentSub.plan);
+        setUserPlan(finalPlan);
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
@@ -1752,7 +1759,31 @@ function ProjectKelolaContent() {
         const criteria = Array.isArray(bundleRes.data.criteria) ? bundleRes.data.criteria.map(normalizeCriteria) : [];
         const subcriteria = Array.isArray(bundleRes.data.subcriteria) ? bundleRes.data.subcriteria.map(normalizeSubcriteria) : [];
         const alternatif = Array.isArray(bundleRes.data.alternatif) ? bundleRes.data.alternatif.map(normalizeAlternative) : [];
-        const experts = Array.isArray(bundleRes.data.experts) ? bundleRes.data.experts.map(normalizeExpert) : [];
+        
+        // 🟢 Ambil data pakar lengkap dengan pemetaan asal_instansi
+        let experts = Array.isArray(bundleRes.data.experts) ? bundleRes.data.experts.map(normalizeExpert) : [];
+
+        // 🟢 Mekanisme sinkronisasi cadangan dari getprojectexperts jika ada instansi pakar yang belum terisi
+        if (experts.some(e => !e.asalinstansi)) {
+          try {
+            const expRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojectexperts&project_id=${encodeURIComponent(projectId)}&_t=${Date.now()}`);
+            if (expRes?.success && Array.isArray(expRes.data)) {
+              const expMap: Record<string, string> = {};
+              expRes.data.forEach((item: any) => {
+                const eid = String(item.expert_id || item.expertid || item.id || '').trim();
+                const inst = String(item.asal_instansi || item.asalinstansi || item.instansi || '').trim();
+                if (eid && inst) expMap[eid] = inst;
+              });
+              
+              experts = experts.map(exp => ({
+                ...exp,
+                asalinstansi: exp.asalinstansi || expMap[exp.id] || ''
+              }));
+            }
+          } catch (e) {
+            console.warn('Gagal sinkronisasi data instansi pakar:', e);
+          }
+        }
         
         let rawResponses: any[] = [];
         if (responsesRes?.success && Array.isArray(responsesRes.data)) {
@@ -1985,7 +2016,6 @@ function ProjectKelolaContent() {
         ...(existingFacilitator || {}),
         id: existingFacilitator?.id || `TEMP-${Date.now()}`,
         projectid: data.project.id,
-        expertid: 'FACILITATOR',
         expertindex: 0,
         expertname: cleanName,
         matrixtype: task.matrixtype,
@@ -2176,10 +2206,10 @@ function ProjectKelolaContent() {
         onLogout={handleLogout}
       />
 
-      {/* 🟢 AREA KONTEN UTAMA (TANPA STICKY HEADER) */}
+      {/* 🟢 AREA KONTEN UTAMA */}
       <main style={STYLES.page}>
         
-        {/* Grafik dialihkan ke normal flow (tanpa position: sticky) */}
+        {/* Grafik dalam normal flow */}
         <div style={{ zIndex: 100, background: '#f8fafc', paddingBottom: 8, paddingTop: 4 }}>
           {/* TOP BAR UTAMA DENGAN LOGO RESMI */}
           <AppTopBar />
@@ -2277,6 +2307,28 @@ function ProjectKelolaContent() {
               <p style={STYLES.pageDesc}>Pengelolaan pakar, review konsistensi (CR), dan rekapitulasi pembobotan AHP.</p>
             </div>
             <div style={STYLES.headerActions}>
+              {/* 🟢 TOMBOL PANDUAN INTERAKTIF KELOLA */}
+              <button
+                type="button"
+                onClick={handleStartKelolaTour}
+                style={{
+                  padding: '7px 12px',
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+                title="Buka panduan interaktif ruang kerja proyek"
+              >
+                💡 Panduan Kelola
+              </button>
+
               <button 
                 type="button" 
                 className="tour-draft-laporan"

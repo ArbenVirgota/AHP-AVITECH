@@ -711,34 +711,38 @@ export default function ExpertDirectoryPage() {
     }
   };
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK DIREKTORI PAKAR
-  const directorySteps: Step[] = [
+  // 🟢 LANGKAH-LANGKAH TOUR DIREKTORI PAKAR (DIBUNGKUS useMemo)
+  const directorySteps = useMemo(() => [
     {
       target: 'body',
       content: 'Selamat datang di Direktori Pakar! Di sini Anda dapat menemukan dan terhubung dengan berbagai pakar terverifikasi.',
       title: '👥 Direktori Pakar',
-      placement: 'center',
+      placement: 'center' as const,
       disableBeacon: true,
     },
     {
       target: '.tour-gabung',
       content: 'Jika Anda memiliki kepakaran khusus, Anda juga dapat bergabung ke direktori ini untuk membantu peneliti lain dan mendapatkan benefit khusus.',
       title: '🌟 Gabung Sebagai Pakar',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-search',
       content: 'Gunakan kolom pencarian ini untuk menemukan pakar berdasarkan nama, bidang keahlian, atau asal institusi mereka.',
       title: '🔍 Cari Pakar',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-konsultasi',
       content: 'Klik tombol ini untuk mengirimkan pertanyaan atau tiket konsultasi langsung kepada pakar yang bersangkutan. (Membutuhkan Login)',
       title: '💬 Ajukan Konsultasi',
-      placement: 'top',
+      placement: 'top' as const,
     }
-  ];
+  ], []);
+
+  const handleStartDirectoryTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_expert_directory'));
+  };
 
   return (
     <div style={STYLES.page}>
@@ -758,6 +762,28 @@ export default function ExpertDirectoryPage() {
           </div>
           
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* 🟢 TOMBOL PANDUAN INTERAKTIF DIREKTORI */}
+            <button
+              type="button"
+              onClick={handleStartDirectoryTour}
+              style={{
+                padding: '8px 14px',
+                background: '#eff6ff',
+                color: '#1d4ed8',
+                border: '1px solid #bfdbfe',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              title="Buka panduan penggunaan direktori pakar"
+            >
+              💡 Panduan Direktori
+            </button>
+
             <button type="button" onClick={() => setShowApplyModal(true)} className="tour-gabung" style={STYLES.btnApplyExpert}>
               🌟 Gabung Sebagai Pakar
             </button>

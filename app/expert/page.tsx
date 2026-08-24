@@ -540,33 +540,37 @@ function ExpertMainContent() {
     }
   `;
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KUESIONER EXPERT
-  const expertMatrixSteps: Step[] = [
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KUESIONER EXPERT (DIBUNGKUS useMemo)
+  const expertMatrixSteps = useMemo(() => [
     {
       target: 'body',
-      content: 'Mari kita pelajari cara mengisi kuesioner matriks perbandingan berpasangan ini dengan benar.',
+      content: 'Mari pelajari cara mengisi kuesioner matriks perbandingan berpasangan ini dengan benar.',
       title: '📋 Petunjuk Pengisian',
-      placement: 'center',
-      disableBeacon: true,
+      placement: 'center' as const,
     },
     {
       target: '.tour-slider',
       content: 'Pilih kriteria mana yang lebih penting di antara keduanya. Geser slider ke kiri/kanan. Angka 9 berarti mutlak sangat penting, angka 1 berarti sama penting.',
       title: '⚖️ Skala Penilaian Saaty',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-cr',
       content: 'Indikator ini mengukur konsistensi logika jawaban Anda. Usahakan nilai CR tetap di bawah 0.1 (KONSISTEN) agar penilaian Anda rasional dan valid.',
       title: '📊 Consistency Ratio (CR)',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-submit',
       content: 'Jika Anda sudah yakin dengan seluruh penilaian di halaman ini, klik tombol ini untuk menyimpan dan beralih ke halaman matriks berikutnya.',
       title: '💾 Simpan & Lanjut',
+      placement: 'top' as const,
     }
-  ];
+  ], []);
+
+  const handleStartExpertTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_expert_matrix'));
+  };
 
   if (loading) {
     return (
@@ -667,7 +671,7 @@ function ExpertMainContent() {
     <div style={STYLES.page}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
-      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE DENGAN TEMA WARNA EXPERT */}
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
       <SafeJoyride steps={expertMatrixSteps} storageKey="ahp_tour_expert_matrix" primaryColor="#0f766e" />
 
       <div style={STYLES.container}>
@@ -677,10 +681,34 @@ function ExpertMainContent() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12, alignItems: 'center' }}>
               <span style={STYLES.badge}>Tugas {currentTaskIndex + 1} dari {tasks.length}</span>
               
-              {/* 🟢 TARGET CLASS: .tour-cr */}
-              <span className="tour-cr" style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
-                CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
-              </span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {/* 🟢 TOMBOL PANDUAN INTERAKTIF EXPERT */}
+                <button
+                  type="button"
+                  onClick={handleStartExpertTour}
+                  style={{
+                    padding: '4px 10px',
+                    background: '#f0fdfa',
+                    color: '#0f766e',
+                    border: '1px solid #99f6e4',
+                    borderRadius: 999,
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}
+                  title="Buka panduan pengisian kuesioner"
+                >
+                  💡 Petunjuk Pengisian
+                </button>
+
+                {/* 🟢 TARGET CLASS: .tour-cr */}
+                <span className="tour-cr" style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
+                  CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
+                </span>
+              </div>
             </div>
 
             <h2 style={STYLES.title}>{task.title}</h2>

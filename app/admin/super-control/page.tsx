@@ -78,6 +78,61 @@ interface UserSubscriptionItem {
   [key: string]: any
 }
 
+function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
+  const str = String(raw || '').toUpperCase().trim();
+  if (str.includes('PREMIUM')) return 'premium';
+  if (str.includes('PLUS')) return 'plus';
+  if (str.includes('PRO')) return 'pro';
+  return 'free';
+}
+
+function normalizeSubscriptionItem(raw: any): UserSubscriptionItem {
+  if (!raw || typeof raw !== 'object') return {};
+
+  const getField = (keys: string[]) => {
+    for (const k of keys) {
+      for (const objKey of Object.keys(raw)) {
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
+        if (cleanObjKey === cleanTargetKey && raw[objKey] !== undefined && raw[objKey] !== '') {
+          return raw[objKey];
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const rawEmail = getField(['user_email', 'email', 'useremail', 'kontak_user', 'kontakuser']) || '';
+  const rawName = getField(['user_name', 'nama_user', 'namauser', 'nama', 'name']) || 'User Terdaftar';
+  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']) || 'FREE';
+  const rawStatus = getField(['status', 'subscription_status']) || 'ACTIVE';
+  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']) || '';
+
+  const rawMaxProjects = getField(['max_projects', 'maxprojects', 'custom_max_projects']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual', 'custom_max_experts']);
+  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory', 'custom_max_experts_directory']);
+  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert', 'custom_max_consultation_per_expert']);
+  const rawCustomFeatures = getField(['custom_features', 'customfeatures', 'features']) || '';
+  const rawNotes = getField(['notes', 'catatan', 'keterangan']) || '';
+
+  return {
+    ...raw,
+    user_email: String(rawEmail).trim().toLowerCase(),
+    email: String(rawEmail).trim().toLowerCase(),
+    user_name: String(rawName).trim(),
+    nama: String(rawName).trim(),
+    plan: String(rawPlan).toUpperCase().trim(),
+    status: String(rawStatus).toUpperCase().trim(),
+    expired_date: String(rawExpDate).trim(),
+    custom_max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? rawMaxProjects : '',
+    custom_max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? rawMaxExperts : '',
+    custom_max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? rawMaxExpDir : '',
+    custom_max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? rawMaxConsult : '',
+    custom_features: String(rawCustomFeatures),
+    notes: String(rawNotes)
+  };
+}
+
 export default function SuperAdminControlPage() {
   const router = useRouter();
 
@@ -203,7 +258,13 @@ export default function SuperAdminControlPage() {
 
       setAdmins(Array.isArray(admData) ? admData : []);
       setAdminLogsList(Array.isArray(logsData) ? logsData : []);
-      setUserSubscriptions(Array.isArray(userSubsData) ? userSubsData : []);
+
+      // 🟢 Normalisasi Subscriptions Komersial dengan SSOT
+      if (Array.isArray(userSubsData)) {
+        setUserSubscriptions(userSubsData.map(normalizeSubscriptionItem));
+      } else {
+        setUserSubscriptions([]);
+      }
 
       // Sinkronisasi data Aset Sistem
       let assetsMap: Record<string, string> = {};

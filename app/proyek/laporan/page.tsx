@@ -76,20 +76,24 @@ function extractRowData(res: any, targetEmail: string): any {
 
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
+  
+  // 🟢 Ekstraksi respons bertingkat dari Apps Script
   let dataObj = raw.data || raw.result || raw.payload || raw;
+  
   if (Array.isArray(dataObj)) {
     dataObj = dataObj.find((item: any) => {
-      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      const em = String(item.user_email || item.email || item.useremail || '').trim().toLowerCase();
       return em === targetEmail.trim().toLowerCase();
     }) || dataObj[0] || null;
   }
+  
   if (!dataObj || typeof dataObj !== 'object') return null;
 
   const getField = (keys: string[]) => {
     for (const k of keys) {
       for (const objKey of Object.keys(dataObj)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
         if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
           return dataObj[objKey];
         }
@@ -98,25 +102,25 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     return undefined;
   };
 
-  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']);
   const rawStatus = getField(['status', 'subscription_status']);
-  const rawExpDate = getField(['expired_date', 'expireddate']);
+  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']);
   
   const rawMaxProjects = getField(['max_projects', 'maxprojects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual']);
   const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
   const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
   const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
 
   return {
-    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    user_email: String(getField(['user_email', 'email', 'useremail']) || targetEmail).trim().toLowerCase(),
     plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
     status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
     expired_date: rawExpDate ? String(rawExpDate) : '',
-    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
-    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
-    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
-    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? Number(rawMaxConsult) : null,
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
@@ -983,21 +987,544 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<AppsScript
   return res.json();
 }
 
-function AppTopBar() {
+// 🟢 TOP BAR KHUSUS DOKUMEN CETAK & LAYAR
+function AppTopBar({ isPrint = false }: { isPrint?: boolean }) {
   return (
-    <div style={topBarStyles.container} className="no-print">
-      <div style={topBarStyles.brandGroup}>
-        <img src="/logo.png" alt="Logo AHP" style={topBarStyles.logo} className="print-logo" />
+    <div 
+      style={{
+        background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.95) 100%)',
+        border: '1.5px solid #86efac',
+        borderRadius: 8,
+        padding: isPrint ? '10px 14px' : '14px 20px',
+        marginBottom: isPrint ? 10 : 12,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxShadow: isPrint ? 'none' : '0 2px 8px rgba(15,23,42,0.05)',
+      }} 
+      className={isPrint ? "print-topbar" : "no-print"}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <img 
+          src="/logo.png" 
+          alt="Logo AHP" 
+          style={{ height: isPrint ? 48 : 70, width: 'auto', objectFit: 'contain', mixBlendMode: 'multiply' }} 
+          className="print-logo" 
+        />
         <div>
-          <h2 style={topBarStyles.title} className="print-title">ANALYTIC HIERARCHY PROCESS</h2>
-          <p style={topBarStyles.subtitle} className="print-subtitle">Sistem Pendukung Keputusan Multi-Kriteria Terintegrasi</p>
+          <h2 style={{ margin: 0, fontSize: isPrint ? 14 : 16, fontWeight: 800, color: '#064e3b', letterSpacing: '0.04em' }} className="print-title">
+            ANALYTIC HIERARCHY PROCESS
+          </h2>
+          <p style={{ margin: '2px 0 0', fontSize: isPrint ? 9.5 : 11, color: '#065f46', fontWeight: 600 }} className="print-subtitle">
+            Sistem Pendukung Keputusan Multi-Kriteria Terintegrasi • Platform Analisis Riset
+          </p>
+        </div>
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <span style={{ fontSize: 9.5, fontWeight: 800, color: '#065f46', background: '#dcfce7', border: '1px solid #86efac', padding: '3px 8px', borderRadius: 4, textTransform: 'uppercase' }}>
+          Dokumen Resmi
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// 🟢 FOOTNOTE RESMI PLATFORM UNTUK DOKUMEN CETAK LAPORAN
+function ReportFootnote({ projectId }: { projectId: string }) {
+  const currentDate = new Date().toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  return (
+    <div style={{ 
+      marginTop: 20, 
+      paddingTop: 12, 
+      borderTop: '1.5px solid #cbd5e1', 
+      display: 'flex', 
+      justifyContent: 'space-between', 
+      alignItems: 'center',
+      fontSize: 9.5,
+      color: '#64748b',
+      fontFamily: 'Arial, sans-serif'
+    }}>
+      <div>
+        <strong>AHP Avitech Decision Support System</strong> • ID Dokumen: <code style={{ color: '#0f172a', fontWeight: 700 }}>#{projectId || 'AHP-REPORT'}</code>
+        <div style={{ fontSize: 8.5, color: '#94a3b8', marginTop: 1 }}>
+          Dicetak otomatis melalui platform digital resmi pada {currentDate}. Keaslian perhitungan dijamin oleh algoritma agregasi Geometric Mean AHP.
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#166534', fontWeight: 700 }}>✓ Terverifikasi Digital</span>
+        <div style={{ fontSize: 8.5, color: '#94a3b8', marginTop: 1 }}>https://ahp.avitech.cloud</div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardSidebar({
+  user,
+  userProfile,
+  userPlan,
+  projectsCount,
+  isProfileComplete,
+  isCollapsed,
+  consultationCount,
+  onToggleCollapse,
+  onOpenProfile,
+  onOpenUpgrade,
+  onLogout,
+}: {
+  user: UserSession | null;
+  userProfile: { nama: string; foto_profil?: string };
+  userPlan: string;
+  projectsCount: number;
+  isProfileComplete: boolean;
+  isCollapsed: boolean;
+  consultationCount: number;
+  onToggleCollapse: () => void;
+  onOpenProfile: () => void;
+  onOpenUpgrade: () => void;
+  onLogout: () => void;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`;
+  const planBadgeColor = 
+    userPlan === 'premium' ? '#9333ea' : 
+    userPlan === 'plus' ? '#2563eb' : 
+    userPlan === 'pro' ? '#16a34a' : '#64748b';
+
+  const navItems = [
+    {
+      label: planLabelFormatted,
+      icon: '⭐',
+      badgeColor: planBadgeColor,
+      isPlan: true,
+      onClick: onOpenUpgrade
+    },
+    {
+      label: 'Dashboard Utama',
+      icon: '📊',
+      active: pathname === '/dashboard',
+      onClick: () => router.push('/dashboard')
+    },
+    {
+      label: 'Proyek AHP Saya',
+      icon: '📁',
+      active: pathname === '/user/projects' || pathname.startsWith('/proyek/'),
+      badge: projectsCount > 0 ? String(projectsCount) : undefined,
+      badgeColor: '#2563eb',
+      onClick: () => router.push('/user/projects')
+    },
+    {
+      label: 'Pusat Konsultasi',
+      icon: '💬',
+      active: pathname === '/user/consultations',
+      badge: consultationCount > 0 ? String(consultationCount) : undefined,
+      badgeColor: '#10b981',
+      onClick: () => router.push('/user/consultations')
+    },
+    {
+      label: 'Direktori Pakar',
+      icon: '👥',
+      active: pathname === '/expert-directory',
+      onClick: () => router.push('/expert-directory')
+    },
+    {
+      label: 'Profil & Pengesahan',
+      icon: '⚙️',
+      badge: !isProfileComplete ? '!' : undefined,
+      badgeColor: '#ef4444',
+      onClick: onOpenProfile
+    },
+    {
+      label: 'Panduan Sistem',
+      icon: '📖',
+      active: pathname === '/panduan',
+      onClick: () => router.push('/panduan')
+    }
+  ];
+
+  return (
+    <aside className="no-print" style={{
+      ...sidebarStyles.aside,
+      width: isCollapsed ? 76 : 260,
+      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
+    }}>
+      <div style={sidebarStyles.brandContainer}>
+        {!isCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+            <div style={sidebarStyles.brandLogo}>AHP</div>
+            <div>
+              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
+              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
+            </div>
+          </div>
+        )}
+        <button 
+          type="button" 
+          onClick={onToggleCollapse} 
+          style={sidebarStyles.collapseBtn}
+          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
+        >
+          <svg 
+            width="16" 
+            height="16" 
+            viewBox="0 0 24 24" 
+            fill="none" 
+            stroke="currentColor" 
+            strokeWidth="2.5" 
+            strokeLinecap="round" 
+            strokeLinejoin="round"
+            style={{
+              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.25s ease'
+            }}
+          >
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div style={{
+        ...sidebarStyles.userCard,
+        justifyContent: isCollapsed ? 'center' : 'flex-start',
+        padding: isCollapsed ? '10px 4px' : '12px'
+      }}>
+        <div style={{
+          ...sidebarStyles.userAvatar,
+          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
+        }}>
+          {userProfile.foto_profil ? (
+            <img 
+              src={userProfile.foto_profil} 
+              alt="Avatar" 
+              style={sidebarStyles.userAvatarImg} 
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
+          )}
+        </div>
+
+        {!isCollapsed && (
+          <div style={sidebarStyles.userInfo}>
+            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
+            <div style={sidebarStyles.userEmail}>{user?.email}</div>
+          </div>
+        )}
+      </div>
+
+      <nav style={sidebarStyles.nav}>
+        {navItems.map((item, idx) => (
+          <button
+            key={idx}
+            type="button"
+            onClick={item.onClick}
+            title={isCollapsed ? item.label : undefined}
+            style={{
+              ...sidebarStyles.navButton,
+              justifyContent: isCollapsed ? 'center' : 'flex-start',
+              padding: isCollapsed ? '12px 0' : '10px 14px',
+              ...(item.active ? sidebarStyles.navButtonActive : {}),
+              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
+            }}
+          >
+            <span style={sidebarStyles.navIcon}>{item.icon}</span>
+            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
+            {item.badge && (
+              <span style={{
+                ...sidebarStyles.badgeWarn,
+                background: item.badgeColor || '#ef4444',
+                position: isCollapsed ? 'absolute' : 'relative',
+                top: isCollapsed ? 4 : 'auto',
+                right: isCollapsed ? 12 : 'auto'
+              }}>
+                {item.badge}
+              </span>
+            )}
+            {idx === 0 && !isCollapsed && (
+              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
+                Upgrade
+              </span>
+            )}
+          </button>
+        ))}
+      </nav>
+
+      <div style={{
+        ...sidebarStyles.footer,
+        padding: isCollapsed ? '12px 6px' : '16px'
+      }}>
+        <button 
+          type="button" 
+          onClick={onLogout} 
+          style={sidebarStyles.btnLogout}
+          title={isCollapsed ? "Logout" : undefined}
+        >
+          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function ProfileModal({
+  user,
+  profile,
+  onClose,
+  onSaveSuccess,
+}: {
+  user: UserSession;
+  profile: UserProfileData;
+  onClose: () => void;
+  onSaveSuccess: (updated: UserProfileData) => void;
+}) {
+  const [formData, setFormData] = useState<UserProfileData>({
+    nama: profile.nama || user?.nama || '',
+    institusi: profile.institusi || '',
+    city: profile.city || '',
+    digital_signature: profile.digital_signature || '',
+    foto_profil: profile.foto_profil || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [previewSig, setPreviewSig] = useState(profile.digital_signature || '');
+  const [previewFoto, setPreviewFoto] = useState(profile.foto_profil || '');
+
+  const handleFotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar (JPG/PNG).');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setPreviewFoto(base64);
+        setFormData((prev) => ({ ...prev, foto_profil: base64 }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSigFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Harap pilih file gambar tanda tangan (PNG/JPG).');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setPreviewSig(base64);
+        setFormData((prev) => ({ ...prev, digital_signature: base64 }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErrorMsg('');
+
+    try {
+      const payload = {
+        action: 'updateuserprofile',
+        email: user.email,
+        user_id: user.id || '',
+        nama: formData.nama,
+        institusi: formData.institusi,
+        city: formData.city,
+        digital_signature: formData.digital_signature || '',
+        foto_profil: formData.foto_profil || '',
+      };
+
+      const response = await fetch(GOOGLESCRIPTURL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        redirect: 'follow',
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        onSaveSuccess({ 
+          ...formData, 
+          digital_signature: formData.digital_signature || '',
+          foto_profil: formData.foto_profil || '' 
+        });
+        alert('✅ ' + result.message);
+        onClose();
+      } else {
+        alert('❌ Gagal dari Server: ' + result.message);
+        setErrorMsg(result.message);
+      }
+    } catch (err: any) {
+      setErrorMsg('Gagal menyambung ke server: ' + err.toString());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={modalStyles.overlay} onClick={onClose}>
+      <div 
+        style={{ 
+          ...modalStyles.modal, 
+          maxWidth: 540, 
+          maxHeight: '90vh', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          overflow: 'hidden',
+          padding: '24px 28px'
+        }} 
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ ...modalStyles.header, marginBottom: 12, flexShrink: 0 }}>
+          <h2 style={modalStyles.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
+          <button onClick={onClose} style={modalStyles.closeBtn} type="button">✕</button>
+        </div>
+
+        <p style={{ ...modalStyles.desc, flexShrink: 0, marginBottom: 12 }}>
+          Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
+        </p>
+
+        {errorMsg && (
+          <div style={{ ...modalStyles.infoBox, background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626', flexShrink: 0 }}>
+            {errorMsg}
+          </div>
+        )}
+
+        <form 
+          onSubmit={handleSubmit} 
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 12, 
+            overflowY: 'auto', 
+            paddingRight: 4, 
+            flexGrow: 1, 
+            marginBottom: 12 
+          }}
+        >
+          <div>
+            <label style={formStyles.label}>Nama Lengkap &amp; Gelar *</label>
+            <input
+              type="text"
+              required
+              value={formData.nama}
+              onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
+              placeholder="Contoh: Dr. Arben Virgota, S.Pi., M.Si"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Nama Institusi / Afiliasi *</label>
+            <input
+              type="text"
+              required
+              value={formData.institusi}
+              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
+              placeholder="Contoh: Universitas Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Kota *</label>
+            <input
+              type="text"
+              required
+              value={formData.city}
+              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              placeholder="Contoh: Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Foto Profil (Upload File Gambar)</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFotoFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewFoto ? (
+                <img 
+                  src={previewFoto} 
+                  alt="Pratinjau Foto Profil" 
+                  style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada foto yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Tanda Tangan Digital (.png Transparan)</label>
+            <input
+              type="file"
+              accept="image/*"
+              required={!previewSig}
+              onChange={handleSigFileChange}
+              style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
+            />
+            <div style={formStyles.previewBox}>
+              {previewSig ? (
+                <img 
+                  src={previewSig} 
+                  alt="Pratinjau Tanda Tangan" 
+                  style={{ maxHeight: 45, objectFit: 'contain' }} 
+                />
+              ) : (
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
+                  Belum ada tanda tangan yang dipilih
+                </span>
+              )}
+            </div>
+          </div>
+        </form>
+
+        <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
+          <button onClick={onClose} style={modalStyles.btnClose} type="button">
+            Batal
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving}
+            style={{
+              ...modalStyles.btnClose,
+              background: '#2563eb',
+              color: 'white',
+              fontWeight: 700,
+            }}
+          >
+            {saving ? 'Menyimpan...' : 'Simpan Profil'}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function ProjectReportContent() {
+function ProjectReportPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('id');
@@ -1027,6 +1554,50 @@ function ProjectReportContent() {
   const [fullAiReport, setFullAiReport] = useState<any>(null);
   const [canUseAi, setCanUseAi] = useState(false);
 
+  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN LAPORAN
+  const laporanSteps: Step[] = useMemo(() => [
+    {
+      target: 'body',
+      content: 'Selamat datang di Halaman Laporan Eksekutif! Di sini Anda dapat melihat hasil akhir sintesis AHP Anda secara keseluruhan.',
+      title: '📄 Laporan Proyek',
+      placement: 'center' as const,
+    },
+    {
+      target: '.tour-ai-report',
+      content: 'Jika paket Anda mendukung, Anda bisa membuat draf narasi analisis secara otomatis menggunakan AI berdasarkan hasil perhitungan AHP ini.',
+      title: '🤖 Analisis AI',
+      placement: 'bottom' as const,
+    },
+    {
+      target: '.tour-download-pdf',
+      content: 'Gunakan tombol ini untuk mengunduh seluruh hasil laporan dan matriks ini menjadi dokumen PDF resmi yang siap dicetak.',
+      title: '🖨️ Unduh Laporan PDF',
+      placement: 'bottom' as const,
+    },
+    {
+      target: '.tour-pie-chart',
+      content: 'Grafik ini menunjukkan proporsi dan persentase bobot prioritas akhir secara global dengan mudah.',
+      title: '📊 Grafik Proporsi',
+      placement: 'right' as const,
+    },
+    {
+      target: '.tour-ranking',
+      content: 'Ini adalah tabel hasil akhir dari seluruh perhitungan AHP. Peringkat teratas (Rank #1) adalah alternatif atau kriteria dengan prioritas terbaik.',
+      title: '🏆 Ranking Prioritas',
+      placement: 'left' as const,
+    },
+    {
+      target: '.tour-progress-pakar',
+      content: 'Anda juga bisa memantau dan melampirkan daftar pakar yang validitas datanya ikut terhitung di dalam sintesis laporan ini.',
+      title: '👥 Responden Terlibat',
+      placement: 'top' as const,
+    }
+  ], []);
+
+  const handleStartLaporanTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_laporan'));
+  };
+
   const isProfileComplete = useMemo(() => {
     return Boolean(
       userProfile.nama?.trim() &&
@@ -1043,6 +1614,10 @@ function ProjectReportContent() {
       return;
     }
     setSession(s);
+    const sessionObj = s as Record<string, any>;
+    const rawEmail = String(s.email || '').trim().toLowerCase();
+    const rawUserId = String(sessionObj.user_id || sessionObj.userId || sessionObj.id || '').trim();
+
     setUserProfile({
       nama: s.nama || s.email || 'Pengguna',
       institusi: '',
@@ -1056,95 +1631,61 @@ function ProjectReportContent() {
         setLoading(true);
         setError('');
 
-        const rawEmail = String(s.email || '').trim().toLowerCase();
-        const rawUserId = String(s.id || '').trim();
+        // 🟢 1. PENARIKAN DATA PARALEL SESUAI POLA SSOT
+        const [subRes, userRes, projRes] = await Promise.all([
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&user_email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`).catch(() => null),
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`).catch(() => null),
+          fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`).catch(() => null)
+        ]);
 
-        let resolvedPlan = '';
-        let customAiDetected = false;
-        let isSubscriptionRowFound = false;
-
-        if (rawEmail || rawUserId) {
-          try {
-            const userUrl = `${GOOGLESCRIPTURL}?action=getuserprofile&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`;
-            const userRes = await fetchJson<any>(userUrl);
-            const uData = extractRowData(userRes, rawEmail);
-
-            if (uData && Object.keys(uData).length > 0) {
-              setUserProfile({
-                nama: uData.nama || s.nama || 'Pengguna',
-                institusi: uData.institusi || '',
-                city: uData.city || uData.kota || '',
-                digital_signature: uData.digital_signature || uData.tandatangan || '',
-                foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
-              });
-
-              const userPlanDirect = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim();
-              if (['free', 'pro', 'plus', 'premium'].includes(userPlanDirect)) {
-                resolvedPlan = userPlanDirect;
-              }
-
-              let userCustomVal = '';
-              for (const key of Object.keys(uData)) {
-                const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                if (['customfeatures', 'customfeature', 'features', 'privileges', 'akses'].includes(lowerKey)) {
-                  userCustomVal = String(uData[key] || '');
-                  break;
-                }
-              }
-              if (checkCustomAiPrivilege(userCustomVal) || checkCustomFeature(userCustomVal, 'ai') || checkCustomFeature(userCustomVal, 'gemini')) {
-                customAiDetected = true;
-              }
-            }
-          } catch (errUser) {
-            console.warn('Gagal membaca profil pengguna:', errUser);
-          }
-
-          try {
-            const subUrl = `${GOOGLESCRIPTURL}?action=getusersubscription&user_id=${encodeURIComponent(rawUserId)}&email=${encodeURIComponent(rawEmail)}&_t=${Date.now()}`;
-            const subRes = await fetchJson<any>(subUrl);
-            const parsed = normalizeSubscriptionData(subRes, rawEmail);
-
-            if (parsed && (parsed.plan || parsed.status)) {
-              isSubscriptionRowFound = true;
-
-              const cleanP = cleanPlanType(parsed.plan);
-              if (cleanP) {
-                resolvedPlan = cleanP;
-              }
-
-              const subCustomVal = String(parsed.custom_features || '');
-              if (subCustomVal.trim() !== '') {
-                customAiDetected = checkCustomAiPrivilege(subCustomVal) || checkCustomFeature(subCustomVal, 'ai') || checkCustomFeature(subCustomVal, 'gemini');
-              } else {
-                customAiDetected = false;
-              }
-            }
-          } catch (errSub) {
-            console.warn('Gagal membaca sheet subscriptions:', errSub);
+        // A. Ambil profil user murni untuk nama & foto (Abaikan plan dari users)
+        if (userRes) {
+          const uData = extractRowData(userRes, rawEmail);
+          if (uData && Object.keys(uData).length > 0) {
+            setUserProfile({
+              nama: uData.nama || s.nama || 'Pengguna',
+              institusi: uData.institusi || '',
+              city: uData.city || uData.kota || '',
+              digital_signature: uData.digital_signature || uData.tandatangan || '',
+              foto_profil: uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || ''
+            });
           }
         }
 
-        if (!resolvedPlan) {
-          resolvedPlan = String(s.status_user || s.plan || 'free');
+        // B. Ambil jumlah proyek
+        if (projRes?.success && Array.isArray(projRes.data)) {
+          setTotalProjectsCount(projRes.data.length);
         }
 
-        const finalCleanPlan = cleanPlanType(resolvedPlan);
+        // C. Normalisasi Subscription murni dari endpoint getusersubscription
+        let currentSub: any = null;
+        if (subRes) {
+          const parsed = normalizeSubscriptionData(subRes, rawEmail);
+          if (parsed) currentSub = parsed;
+        }
+
+        if (!currentSub || !currentSub.plan) {
+          currentSub = {
+            plan: 'free',
+            status: 'active',
+            user_email: rawEmail,
+            user_id: rawUserId
+          };
+        } else {
+          currentSub.plan = String(currentSub.plan).toLowerCase().trim();
+        }
+
+        const finalCleanPlan = cleanPlanType(currentSub.plan);
         setUserPlan(finalCleanPlan);
 
-        const isAiEnabled = isSubscriptionRowFound 
-          ? customAiDetected 
-          : (customAiDetected || finalCleanPlan === 'plus' || finalCleanPlan === 'premium');
+        // Evaluasi Hak Akses Fitur AI dari custom_features atau Plan Type
+        let isAiEnabled = finalCleanPlan === 'plus' || finalCleanPlan === 'premium';
+        const subCustomVal = String(currentSub.custom_features || '');
+        if (subCustomVal.trim() !== '') {
+          isAiEnabled = checkCustomAiPrivilege(subCustomVal) || checkCustomFeature(subCustomVal, 'ai') || checkCustomFeature(subCustomVal, 'gemini');
+        }
 
         setCanUseAi(isAiEnabled);
-
-        try {
-          const projRes = await fetchJson<any>(`${GOOGLESCRIPTURL}?action=getprojects&email=${encodeURIComponent(rawEmail)}&user_id=${encodeURIComponent(rawUserId)}&_t=${Date.now()}`);
-          if (projRes?.success && Array.isArray(projRes.data)) {
-            setTotalProjectsCount(projRes.data.length);
-          }
-        } catch (e) {
-          console.warn('Gagal memuat total proyek:', e);
-        }
 
         if (!projectId) throw new Error('Project ID tidak ditemukan.');
 
@@ -1242,7 +1783,7 @@ function ProjectReportContent() {
             };
           });
 
-          const facilitatorSaved = responses.find((item: SavedResponse) => {
+          const facilitatorSaved = responses.find((item) => {
             const rExpertId = String(item.expertid || '').trim();
             const isFacilitator = item.submittedby === 'Fasilitator' || item.submittedby === 'facilitator' || rExpertId === 'FACILITATOR';
             const sameType = normalizeMethod(item.matrixtype) === normalizeMethod(task.matrixtype);
@@ -1447,7 +1988,7 @@ function ProjectReportContent() {
       const cleanProjectName = (data?.project?.namaproyek || 'Laporan_AHP').replace(/[\/\\:\*\?"<>\|]/g, '-');
 
       const opt = {
-        margin:       [15, 10, 15, 10],
+        margin:       [12, 10, 15, 10],
         filename:     `Laporan_AHP_${cleanProjectName}.pdf`,
         image:        { type: 'jpeg', quality: 0.98 },
         html2canvas:  { 
@@ -1475,47 +2016,6 @@ function ProjectReportContent() {
       router.replace('/login');
     }
   };
-
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK HALAMAN LAPORAN
-  const laporanSteps: Step[] = [
-    {
-      target: 'body',
-      content: 'Selamat datang di Halaman Laporan Eksekutif! Di sini Anda dapat melihat hasil akhir sintesis AHP Anda secara keseluruhan.',
-      title: '📄 Laporan Proyek',
-      placement: 'center',
-      disableBeacon: true,
-    },
-    {
-      target: '.tour-ai-report',
-      content: 'Jika paket Anda mendukung, Anda bisa membuat draf narasi analisis secara otomatis menggunakan AI berdasarkan hasil perhitungan AHP ini.',
-      title: '🤖 Analisis AI',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-download-pdf',
-      content: 'Gunakan tombol ini untuk mengunduh seluruh hasil laporan dan matriks ini menjadi dokumen PDF resmi yang siap dicetak.',
-      title: '🖨️ Unduh Laporan PDF',
-      placement: 'bottom',
-    },
-    {
-      target: '.tour-pie-chart',
-      content: 'Grafik ini menunjukkan proporsi dan persentase bobot prioritas akhir secara global dengan mudah.',
-      title: '📊 Grafik Proporsi',
-      placement: 'right',
-    },
-    {
-      target: '.tour-ranking',
-      content: 'Ini adalah tabel hasil akhir dari seluruh perhitungan AHP. Peringkat teratas (Rank #1) adalah alternatif atau kriteria dengan prioritas terbaik.',
-      title: '🏆 Ranking Prioritas',
-      placement: 'left',
-    },
-    {
-      target: '.tour-progress-pakar',
-      content: 'Anda juga bisa memantau dan melampirkan daftar pakar yang validitas datanya ikut terhitung di dalam sintesis laporan ini.',
-      title: '👥 Responden Terlibat',
-      placement: 'top',
-    }
-  ];
 
   if (loading) return (
     <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
@@ -1596,19 +2096,7 @@ function ProjectReportContent() {
           @media print {
             @page { 
               size: A4 portrait !important; 
-              margin: 22mm 12mm 15mm 12mm !important; 
-              @top-center {
-                content: "PLATFORM ANALISIS DATA DIGITAL • AHP AVITECH";
-                font-family: 'Arial', sans-serif;
-                font-size: 8.5pt;
-                font-weight: bold;
-                color: #0284c7;
-                letter-spacing: 1.5px;
-                text-transform: uppercase;
-                border-bottom: 1.5px solid #1e3a8a;
-                padding-bottom: 4px;
-                width: 100%;
-              }
+              margin: 15mm 12mm 15mm 12mm !important; 
             }
             html, body {
               width: 100% !important;
@@ -1625,6 +2113,27 @@ function ProjectReportContent() {
               display: none !important; 
             }
             
+            /* MENCEGAH MATRIKS & TABEL TERPOTONG HALAMAN */
+            table {
+              page-break-inside: auto !important;
+              font-size: 8.5pt !important;
+            }
+            tr {
+              page-break-inside: avoid !important;
+              page-break-after: auto !important;
+            }
+            td, th {
+              page-break-inside: avoid !important;
+              padding: 4px 6px !important;
+            }
+            .print-card {
+              box-shadow: none !important;
+              border: 1px solid #cbd5e1 !important;
+              page-break-inside: avoid !important;
+              break-inside: avoid !important;
+              margin-bottom: 10px !important;
+            }
+
             .print-topbar {
               display: flex !important;
               background: linear-gradient(270deg, #15803d 0%, #ffffff 100%) !important;
@@ -1637,35 +2146,28 @@ function ProjectReportContent() {
               break-inside: avoid !important;
             }
             .print-logo {
-              height: 52px !important;
+              height: 48px !important;
               mix-blend-mode: multiply !important;
             }
             .print-title {
-              font-size: 13.5pt !important;
+              font-size: 13pt !important;
               font-weight: 800 !important;
               color: #064e3b !important;
               margin: 0 !important;
             }
             .print-subtitle {
-              font-size: 9pt !important;
+              font-size: 8.5pt !important;
               color: #065f46 !important;
               font-weight: 600 !important;
               margin: 2px 0 0 !important;
-            }
-
-            .print-card {
-              box-shadow: none !important;
-              border: 1px solid #cbd5e1 !important;
-              break-inside: avoid !important;
-              page-break-inside: avoid !important;
-              margin-bottom: 10px !important;
             }
           }
         `}</style>
 
         <div style={STYLES.container}>
           
-          <AppTopBar />
+          {/* HEADER CETAK / TOP BAR RESMI PLATFORM */}
+          <AppTopBar isPrint={true} />
 
           <div style={STYLES.headerRow} className="no-print">
             <div>
@@ -1674,6 +2176,28 @@ function ProjectReportContent() {
             </div>
             
             <div style={STYLES.headerActions}>
+              {/* 🟢 TOMBOL PANDUAN INTERAKTIF LAPORAN */}
+              <button
+                type="button"
+                onClick={handleStartLaporanTour}
+                style={{
+                  padding: '7px 12px',
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+                title="Buka panduan interaktif halaman laporan eksekutif"
+              >
+                💡 Panduan Laporan
+              </button>
+
               {canUseAi ? (
                 <button 
                   onClick={handleGenerateAiReport} 
@@ -1838,17 +2362,17 @@ function ProjectReportContent() {
                   </h4>
                   
                   {fullAiReport.section_criteria?.narrative && (
-                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4, textAlign: 'justify' }}>
+                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e40af', lineHeight: 1.4, textAlign: 'justify' }}>
                       {cleanAiText(fullAiReport.section_criteria.narrative)}
                     </p>
                   )}
                   {fullAiReport.section_alternatives?.narrative && (
-                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4, textAlign: 'justify' }}>
+                    <p style={{ margin: '0 0 6px', fontSize: 11, color: '#1e40af', lineHeight: 1.4, textAlign: 'justify' }}>
                       {cleanAiText(fullAiReport.section_alternatives.narrative)}
                     </p>
                   )}
                   {fullAiReport.key_findings?.map((item: any, idx: number) => (
-                    <p key={`kf-${idx}`} style={{ margin: '0 0 4px', fontSize: 11, color: '#1e3a8a', lineHeight: 1.4 }}>
+                    <p key={`kf-${idx}`} style={{ margin: '0 0 4px', fontSize: 11, color: '#1e40af', lineHeight: 1.4 }}>
                       <strong>{cleanAiText(item.title || item.kunci || `Temuan #${idx + 1}`)}:</strong> {cleanAiText(item.message || item.pesan || item.desc || JSON.stringify(item))}
                     </p>
                   ))}
@@ -1984,7 +2508,7 @@ function ProjectReportContent() {
                       </div>
 
                       {isSubmitted && aiExpertData && (
-                        <div style={{ background: '#eff6ff', borderLeft: '3px solid #3b82f6', padding: '6px 10px', marginTop: 8, marginBottom: 8, fontSize: 11, color: '#1e3a8a' }}>
+                        <div style={{ background: '#eff6ff', borderLeft: '3px solid #3b82f6', padding: '6px 10px', marginTop: 8, marginBottom: 8, fontSize: 11, color: '#1e40af' }}>
                            <strong>Catatan Evaluasi:</strong> {cleanAiText(aiExpertData.notes || aiExpertData.advice)}
                         </div>
                       )}
@@ -2029,7 +2553,7 @@ function ProjectReportContent() {
           })}
 
           {fullAiReport && ((fullAiReport.section_final_recommendations && fullAiReport.section_final_recommendations.length > 0) || (fullAiReport.recommendations && fullAiReport.recommendations.length > 0)) && (
-            <div style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginTop: 12, marginBottom: 20 }} className="print-card">
+            <div style={{ background: '#f8fafc', border: '1.5px solid #2563eb', padding: '16px 20px', borderRadius: '10px', marginTop: 12, marginBottom: 12 }} className="print-card">
               <h3 style={{ margin: '0 0 10px', color: '#1e40af', borderBottom: '2px solid #bfdbfe', paddingBottom: '6px', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
                 Rekomendasi Strategis Implementatif
               </h3>
@@ -2051,6 +2575,9 @@ function ProjectReportContent() {
             </div>
           )}
 
+          {/* FOOTNOTE OTENTIKASI RESMI PLATFORM */}
+          <ReportFootnote projectId={data.project.id} />
+
         </div>
       </main>
     </div>
@@ -2060,49 +2587,10 @@ function ProjectReportContent() {
 export default function ProjectReportPage() {
   return (
     <Suspense fallback={<div style={STYLES.loaderWrap}><div style={STYLES.loader}>Memuat Laporan...</div></div>}>
-      <ProjectReportContent />
+      <ProjectReportPageContent />
     </Suspense>
   );
 }
-
-const topBarStyles: Record<string, CSSProperties> = {
-  container: {
-    background: 'linear-gradient(270deg, #15803d 0%, rgba(255, 255, 255, 0.9) 100%)',
-    border: '1px solid #86efac',
-    borderRadius: 10,
-    padding: '14px 20px',
-    marginBottom: 12,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    boxShadow: '0 2px 8px rgba(15,23,42,0.05)',
-  },
-  brandGroup: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-  },
-  logo: {
-    height: 80,
-    width: 'auto',
-    objectFit: 'contain',
-    opacity: 0.85,
-    mixBlendMode: 'multiply',
-  },
-  title: {
-    margin: 0,
-    fontSize: 16,
-    fontWeight: 800,
-    color: '#064e3b',
-    letterSpacing: '0.04em',
-  },
-  subtitle: {
-    margin: '2px 0 0',
-    fontSize: 11,
-    color: '#065f46',
-    fontWeight: 600,
-  },
-};
 
 const sidebarStyles: Record<string, CSSProperties> = {
   aside: {

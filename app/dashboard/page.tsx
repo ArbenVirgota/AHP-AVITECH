@@ -186,20 +186,24 @@ async function safeFetchJson(url: string) {
 
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
+  
+  // 🟢 Ekstraksi respons bertingkat dari Apps Script
   let dataObj = raw.data || raw.result || raw.payload || raw;
+  
   if (Array.isArray(dataObj)) {
     dataObj = dataObj.find((item: any) => {
-      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      const em = String(item.user_email || item.email || item.useremail || '').trim().toLowerCase();
       return em === targetEmail.trim().toLowerCase();
     }) || dataObj[0] || null;
   }
+  
   if (!dataObj || typeof dataObj !== 'object') return null;
 
   const getField = (keys: string[]) => {
     for (const k of keys) {
       for (const objKey of Object.keys(dataObj)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
         if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
           return dataObj[objKey];
         }
@@ -208,25 +212,25 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     return undefined;
   };
 
-  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']);
   const rawStatus = getField(['status', 'subscription_status']);
-  const rawExpDate = getField(['expired_date', 'expireddate']);
+  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']);
   
   const rawMaxProjects = getField(['max_projects', 'maxprojects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual']);
   const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
   const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
   const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
 
   return {
-    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    user_email: String(getField(['user_email', 'email', 'useremail']) || targetEmail).trim().toLowerCase(),
     plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
     status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
     expired_date: rawExpDate ? String(rawExpDate) : '',
-    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
-    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
-    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
-    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? Number(rawMaxConsult) : null,
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
@@ -1358,7 +1362,7 @@ function DashboardContent() {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
 
       const [subJson, projJson, consultJson, userJson, statsJson, planJson] = await Promise.all([
-        safeFetchJson(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
+        safeFetchJson(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&user_email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
         safeFetchJson(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
         safeFetchJson(`${API_URL}?action=getconsultationrequests&_t=${Date.now()}`),
         safeFetchJson(`${API_URL}?action=getuserprofile&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
@@ -1367,7 +1371,6 @@ function DashboardContent() {
       ])
 
       let currentSub: any = null
-      let fallbackPlanFromUser: PlanType = 'free'
 
       if (userJson && userJson.data) {
         setUserProfile({
@@ -1377,11 +1380,6 @@ function DashboardContent() {
           digital_signature: userJson.data.digital_signature || userJson.data.tandatangan || '',
           foto_profil: userJson.data.foto_profil || userJson.data.fotoprofil || '',
         })
-
-        const userRawPlan = String(userJson.data.plan || userJson.data.role || userJson.data.status_user || '').toLowerCase().trim()
-        if (['free', 'pro', 'plus', 'premium'].includes(userRawPlan)) {
-          fallbackPlanFromUser = userRawPlan as PlanType
-        }
       }
 
       if (subJson) {
@@ -1389,13 +1387,16 @@ function DashboardContent() {
         if (parsed) currentSub = parsed
       }
 
-      if (!currentSub) {
+      // 🟢 SUMBER KEBENARAN UTAMA (SINGLE SOURCE OF TRUTH) UNTUK STATUS PLAN MURNI DARI SUBSCRIPTIONS
+      if (!currentSub || !currentSub.plan) {
         currentSub = {
-          plan: fallbackPlanFromUser,
+          plan: 'free',
           status: 'active',
           user_email: cleanUserEmail,
           user_id: user.id
         }
+      } else {
+        currentSub.plan = String(currentSub.plan).toLowerCase().trim()
       }
       setSubscription(currentSub)
 
@@ -1561,7 +1562,7 @@ function DashboardContent() {
     }
   }
 
-  const currentPlan: PlanType = subscription?.plan ?? 'free'
+  const currentPlan: PlanType = subscription?.plan ? (String(subscription.plan).toLowerCase().trim() as PlanType) : 'free'
   const planConfig = PLAN_CONFIG[currentPlan] || PLAN_CONFIG['free']
   const subscriptionLike = subscription as SubscriptionLike | null
   const globalDynamicPlan = dynamicPlans[currentPlan]
@@ -1611,6 +1612,11 @@ function DashboardContent() {
     void loadDashboard(session, true)
   }
 
+  // 🟢 Pemicu Mulai Ulang Tur Panduan
+  const handleStartDashboardTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_dashboard'));
+  };
+
   const handleCreateProject = () => {
     if (!isProfileComplete) {
       alert('⚠️ Mohon lengkapi Profil (Institusi, Kota, & Tanda Tangan Digital) terlebih dahulu sebelum membuat proyek baru.')
@@ -1625,13 +1631,13 @@ function DashboardContent() {
     router.push('/buat-proyek/baru')
   }
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK SAFEJOYRIDE
-  const dashboardSteps: Step[] = [
+  // 🟢 LANGKAH-LANGKAH TOUR DIBUNGKUS useMemo
+  const dashboardSteps = useMemo(() => [
     {
       target: 'body', 
       content: 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
       title: '👋 Selamat Datang!',
-      placement: 'center',
+      placement: 'center' as const,
       disableBeacon: true,
     },
     {
@@ -1659,7 +1665,7 @@ function DashboardContent() {
       content: 'Setelah profil lengkap, klik tombol ini untuk mulai membangun struktur hirarki dan membuat proyek riset AHP pertama Anda!',
       title: '🚀 Mulai Riset Sekarang',
     }
-  ];
+  ], []); 
 
   const S = styles
 
@@ -1676,7 +1682,7 @@ function DashboardContent() {
   return (
     <div style={S.layoutWrapper}>
       
-      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      {/* 🟢 KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
       <SafeJoyride steps={dashboardSteps} storageKey="ahp_tour_dashboard" />
 
       {/* 🟢 SIDEBAR BERSIH */}
@@ -1762,6 +1768,17 @@ function DashboardContent() {
               >
                 ⚙️ Profil {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
               </button>
+              
+              {/* 🟢 TOMBOL PANDUAN INTERAKTIF TERPASANG KEMBALI */}
+              <button
+                onClick={handleStartDashboardTour}
+                style={S.btnSecondary}
+                type="button"
+                title="Buka panduan interaktif dashboard"
+              >
+                💡 Panduan Interaktif
+              </button>
+
               <button onClick={handleRefresh} style={S.btnGhost} type="button">
                 {refreshing ? 'Memuat...' : '🔄 Refresh'}
               </button>

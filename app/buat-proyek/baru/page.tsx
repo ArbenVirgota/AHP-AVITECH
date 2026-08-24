@@ -87,20 +87,24 @@ function extractRowData(res: any, targetEmail: string): any {
 
 function normalizeSubscriptionData(raw: any, targetEmail: string): any {
   if (!raw) return null;
+  
+  // 🟢 Ekstraksi respons bertingkat dari Apps Script
   let dataObj = raw.data || raw.result || raw.payload || raw;
+  
   if (Array.isArray(dataObj)) {
     dataObj = dataObj.find((item: any) => {
-      const em = String(item.user_email || item.email || '').trim().toLowerCase();
+      const em = String(item.user_email || item.email || item.useremail || '').trim().toLowerCase();
       return em === targetEmail.trim().toLowerCase();
     }) || dataObj[0] || null;
   }
+  
   if (!dataObj || typeof dataObj !== 'object') return null;
 
   const getField = (keys: string[]) => {
     for (const k of keys) {
       for (const objKey of Object.keys(dataObj)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_]/g, '');
+        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
+        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
         if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
           return dataObj[objKey];
         }
@@ -109,25 +113,25 @@ function normalizeSubscriptionData(raw: any, targetEmail: string): any {
     return undefined;
   };
 
-  const rawPlan = getField(['plan', 'plantype', 'status_plan']);
+  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']);
   const rawStatus = getField(['status', 'subscription_status']);
-  const rawExpDate = getField(['expired_date', 'expireddate']);
+  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']);
   
   const rawMaxProjects = getField(['max_projects', 'maxprojects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts']);
+  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual']);
   const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
   const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
   const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
 
   return {
-    user_email: String(getField(['user_email', 'email']) || targetEmail).trim().toLowerCase(),
+    user_email: String(getField(['user_email', 'email', 'useremail']) || targetEmail).trim().toLowerCase(),
     plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
     status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
     expired_date: rawExpDate ? String(rawExpDate) : '',
-    max_projects: rawMaxProjects !== undefined ? Number(rawMaxProjects) : null,
-    max_experts: rawMaxExperts !== undefined ? Number(rawMaxExperts) : null,
-    max_experts_directory: rawMaxExpDir !== undefined ? Number(rawMaxExpDir) : null,
-    max_consultation_per_expert: rawMaxConsult !== undefined ? Number(rawMaxConsult) : null,
+    max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? Number(rawMaxProjects) : null,
+    max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? Number(rawMaxExperts) : null,
+    max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? Number(rawMaxExpDir) : null,
+    max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? Number(rawMaxConsult) : null,
     custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
   };
 }
@@ -723,8 +727,9 @@ function BuatProyekContent() {
     try {
       setInitLoading(true)
 
+      // 🟢 Penarikan Data Paralel dengan Endpoint SSOT
       const [subRes, userRes, planRes, count, dirRes, projRes] = await Promise.all([
-        fetch(`${GOOGLE_SCRIPT_URL}?action=getusersubscription&user_id=${encodeURIComponent(cleanId)}&email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
+        fetch(`${GOOGLE_SCRIPT_URL}?action=getusersubscription&user_id=${encodeURIComponent(cleanId)}&email=${encodeURIComponent(cleanEmail)}&user_email=${encodeURIComponent(cleanEmail)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         fetch(`${GOOGLE_SCRIPT_URL}?action=getuserprofile&email=${encodeURIComponent(cleanEmail)}&user_id=${encodeURIComponent(cleanId)}&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         fetch(`${GOOGLE_SCRIPT_URL}?action=getplansettings&_t=${Date.now()}`, { method: 'GET', cache: 'no-store' }).catch(() => null),
         countUserProjects(cleanEmail),
@@ -746,15 +751,7 @@ function BuatProyekContent() {
         }
       }
 
-      let isSubscriptionRowFound = false
-      let finalSourcePlan = 'free'
-      let finalSourceCustomFeatures = ''
-      let finalSourceMaxProj: number | null = null
-      let finalSourceMaxExpDir: number | null = null
-
-      let fallbackPlanFromUser: PlanType = 'free'
-      let fallbackCustomFeaturesUser = ''
-      
+      // 1. Ambil Profil User murni untuk data visual (Abaikan Plan dari Users)
       if (userRes) {
         const uJson = await userRes.json().catch(() => ({}))
         const uData = extractRowData(uJson, cleanEmail)
@@ -766,55 +763,35 @@ function BuatProyekContent() {
             digital_signature: String(uData.digital_signature || uData.tandatangan || ''),
             foto_profil: String(uData.foto_profil || uData.fotoprofil || uData.foto || s.foto_profil || s.fotoprofil || '')
           })
-
-          const userRawPlan = String(uData.plan || uData.role || uData.status_user || uData.status_plan || '').toLowerCase().trim()
-          if (['free', 'pro', 'plus', 'premium'].includes(userRawPlan)) {
-            fallbackPlanFromUser = userRawPlan as PlanType
-          }
-
-          for (const key of Object.keys(uData)) {
-            const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (['customfeatures', 'customfeature', 'features', 'privileges', 'akses'].includes(lowerKey)) {
-              fallbackCustomFeaturesUser = String(uData[key] || '');
-              break;
-            }
-          }
         }
       }
 
+      let currentSub: any = null
+
+      // 2. Normalisasi Data Langganan dari Sheet Subscriptions
       if (subRes && typeof subRes.json === 'function') {
         const subJson = await subRes.json().catch(() => ({}))
         const parsed = normalizeSubscriptionData(subJson, cleanEmail)
-        if (parsed) {
-          isSubscriptionRowFound = true
-          setSubscription(parsed)
-          finalSourcePlan = parsed.plan
-          finalSourceCustomFeatures = String(parsed.custom_features || '')
-          finalSourceMaxProj = parsed.max_projects !== undefined && parsed.max_projects !== null ? parsed.max_projects : null
-          finalSourceMaxExpDir = parsed.max_experts_directory !== undefined && parsed.max_experts_directory !== null ? parsed.max_experts_directory : null
-        }
+        if (parsed) currentSub = parsed
       }
 
-      if (!isSubscriptionRowFound) {
-        finalSourcePlan = fallbackPlanFromUser
-        finalSourceCustomFeatures = fallbackCustomFeaturesUser
-        setSubscription({
-          plan: fallbackPlanFromUser,
+      // 3. Single Source of Truth
+      if (!currentSub || !currentSub.plan) {
+        currentSub = {
+          plan: 'free',
           status: 'active',
           user_email: cleanEmail,
           user_id: cleanId
-        })
+        }
+      } else {
+        currentSub.plan = String(currentSub.plan).toLowerCase().trim()
       }
+      setSubscription(currentSub)
 
-      const finalCleanPlan = cleanPlanType(finalSourcePlan)
+      const finalCleanPlan = cleanPlanType(currentSub.plan)
       setUserPlan(finalCleanPlan)
 
-      let finalAllowAi = false
-      let finalAllowSub = false
-      let finalAllowAlt = false
-      let finalMaxProjects = 3
-      let finalMaxExpertsDir = 0
-
+      // Evaluasi Hak Akses Fitur & Batas Kuota
       const activeDynPlan = dynMap[finalCleanPlan]
       const activeCfg = PLAN_CONFIG[finalCleanPlan] || PLAN_CONFIG['free']
 
@@ -825,48 +802,20 @@ function BuatProyekContent() {
       const planDefaultMaxProj = activeDynPlan?.max_projects ?? activeCfg.maxProjects ?? 3
       const planDefaultMaxExpDir = activeDynPlan?.max_experts_directory ?? (finalCleanPlan === 'pro' ? 5 : finalCleanPlan === 'plus' ? 10 : finalCleanPlan === 'premium' ? 99999 : 0)
 
-      if (isSubscriptionRowFound) {
-        const rawFeatureText = finalSourceCustomFeatures.toLowerCase();
-        const customList = rawFeatureText.split(',').map(f => f.trim().replace(/[^a-z0-9_]/g, ''));
+      let finalAllowSub = planDefaultAllowSub
+      let finalAllowAlt = planDefaultAllowAlt
+      let finalAllowAi = planDefaultAllowAi
 
-        const hasCustomSub = customList.some(k => ['subcriteria', 'subkriteria', 'sub'].includes(k));
-        const hasCustomAlt = customList.some(k => ['alternative', 'alternatif', 'alternatives', 'alt'].includes(k));
-        const hasCustomAi = customList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
-
-        if (finalSourceCustomFeatures.trim() !== '') {
-          finalAllowSub = hasCustomSub;
-          finalAllowAlt = hasCustomAlt;
-          finalAllowAi = hasCustomAi;
-        } else {
-          finalAllowSub = planDefaultAllowSub;
-          finalAllowAlt = planDefaultAllowAlt;
-          finalAllowAi = planDefaultAllowAi;
-        }
-
-        finalMaxProjects = finalSourceMaxProj !== null ? finalSourceMaxProj : planDefaultMaxProj;
-        finalMaxExpertsDir = finalSourceMaxExpDir !== null ? finalSourceMaxExpDir : planDefaultMaxExpDir;
-
-      } else {
-        const rawUserFeatureText = finalSourceCustomFeatures.toLowerCase();
-        const customUserList = rawUserFeatureText.split(',').map(f => f.trim().replace(/[^a-z0-9_]/g, ''));
-        
-        const hasUserCustomSub = customUserList.some(k => ['subcriteria', 'subkriteria', 'sub'].includes(k));
-        const hasUserCustomAlt = customUserList.some(k => ['alternative', 'alternatif', 'alternatives', 'alt'].includes(k));
-        const hasUserCustomAi = customUserList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
-
-        if (finalSourceCustomFeatures.trim() !== '') {
-          finalAllowSub = hasUserCustomSub;
-          finalAllowAlt = hasUserCustomAlt;
-          finalAllowAi = hasUserCustomAi;
-        } else {
-          finalAllowSub = planDefaultAllowSub;
-          finalAllowAlt = planDefaultAllowAlt;
-          finalAllowAi = planDefaultAllowAi;
-        }
-        
-        finalMaxProjects = planDefaultMaxProj;
-        finalMaxExpertsDir = planDefaultMaxExpDir;
+      const customFeaturesStr = String(currentSub.custom_features || '')
+      if (customFeaturesStr.trim() !== '') {
+        const customList = customFeaturesStr.toLowerCase().split(',').map(f => f.trim().replace(/[^a-z0-9_]/g, ''));
+        finalAllowSub = customList.some(k => ['subcriteria', 'subkriteria', 'sub'].includes(k));
+        finalAllowAlt = customList.some(k => ['alternative', 'alternatif', 'alternatives', 'alt'].includes(k));
+        finalAllowAi = customList.some(k => ['ai', 'gemini', 'ai_analysis', 'analisis_ai'].includes(k));
       }
+
+      const finalMaxProjects = currentSub.max_projects !== null && currentSub.max_projects !== undefined ? currentSub.max_projects : planDefaultMaxProj
+      const finalMaxExpertsDir = currentSub.max_experts_directory !== null && currentSub.max_experts_directory !== undefined ? currentSub.max_experts_directory : planDefaultMaxExpDir
 
       setHasAiAccess(finalAllowAi)
       setHasSubcriteriaAccess(finalAllowSub)
@@ -903,7 +852,7 @@ function BuatProyekContent() {
     void loadInitialData()
   }, [loadInitialData])
 
-  const currentPlan: PlanType = subscription?.plan ?? 'free'
+  const currentPlan: PlanType = subscription?.plan ? (String(subscription.plan).toLowerCase().trim() as PlanType) : 'free'
   const isQuotaFull = resolvedMaxProjects !== Number.POSITIVE_INFINITY && projectCount >= resolvedMaxProjects
 
   const canUseSubcriteria = hasSubcriteriaAccess
@@ -1200,40 +1149,44 @@ function BuatProyekContent() {
     router.replace('/login')
   }
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK SAFEJOYRIDE
-  const buatProyekSteps: Step[] = [
+  // 🟢 FUNGSI PEMICU MULAI ULANG TUR
+  const handleStartBuatProyekTour = () => {
+    window.dispatchEvent(new Event('start-tour-ahp_tour_buat_proyek'));
+  };
+
+  // 🟢 LANGKAH-LANGKAH TOUR DIBUNGKUS useMemo
+  const buatProyekSteps = useMemo(() => [
     {
       target: 'body',
       content: 'Mari kita mulai membuat ruang kerja proyek riset AHP pertama Anda. Ikuti petunjuk singkat ini.',
       title: '📁 Buat Proyek Baru',
-      placement: 'center',
-      disableBeacon: true,
+      placement: 'center' as const,
     },
     {
       target: '.tour-info-proyek',
       content: 'Pertama, isi nama proyek Anda dan pilih metode evaluasi. Opsi "Kombinasi dengan Alternatif" akan memunculkan isian tambahan untuk pilihan alternatif Anda.',
       title: '1. Informasi Proyek',
-      placement: 'bottom',
+      placement: 'bottom' as const,
     },
     {
       target: '.tour-kriteria',
       content: 'Ketik daftar kriteria utama Anda di sini (pisahkan dengan tombol Enter). Jika Anda berlangganan fitur AI, Anda dapat menyusunnya secara otomatis.',
       title: '2. Kriteria Utama',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-pakar',
       content: 'Tentukan jumlah pakar responden dan isi data kontaknya. Jika paket Anda mendukung, Anda bisa mencari dan memilih langsung dari Direktori Pakar.',
       title: '3. Tim Pakar',
-      placement: 'top',
+      placement: 'top' as const,
     },
     {
       target: '.tour-simpan',
       content: 'Periksa kembali kelengkapan data. Kriteria, Alternatif, dan daftar Pakar tidak dapat diedit setelah disimpan. Jika sudah yakin, klik tombol ini!',
       title: '💾 Simpan Proyek',
-      placement: 'top',
+      placement: 'top' as const,
     }
-  ];
+  ], []);
 
   const S = styles
   if (initLoading) return <div style={S.loadingPage}><div style={S.spinner} /><div style={{ fontSize: 13, color: '#334155', fontWeight: 600 }}>Memuat halaman...</div></div>
@@ -1241,7 +1194,7 @@ function BuatProyekContent() {
 
   return (
     <div style={S.layoutWrapper}>
-      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE YANG AMAN */}
+      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE UNIVERSAL */}
       <SafeJoyride steps={buatProyekSteps} storageKey="ahp_tour_buat_proyek" />
       
       {/* 🟢 MODAL PROFIL & PENGESAHAN */}
@@ -1282,11 +1235,36 @@ function BuatProyekContent() {
               <h1 style={S.pageTitle}>Buat Proyek AHP Baru</h1>
               <p style={S.pageSubtitle}>Tentukan parameter hierarki, kriteria, subkriteria, dan alternatif.</p>
             </div>
-            <div style={S.quotaBadge}>
-              <span style={{ fontSize: 11, color: '#475569' }}>Proyek</span>
-              <strong style={{ color: isQuotaFull ? '#dc2626' : '#1d4ed8', marginLeft: 6 }}>
-                {projectCount}/{resolvedMaxProjects === Number.POSITIVE_INFINITY ? '∞' : resolvedMaxProjects}
-              </strong>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* 🟢 TOMBOL PANDUAN INTERAKTIF TERPASANG */}
+              <button
+                type="button"
+                onClick={handleStartBuatProyekTour}
+                style={{
+                  padding: '7px 12px',
+                  background: '#eff6ff',
+                  color: '#1d4ed8',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+                title="Buka panduan pengisian formulir pembuatan proyek"
+              >
+                💡 Panduan Interaktif
+              </button>
+
+              <div style={S.quotaBadge}>
+                <span style={{ fontSize: 11, color: '#475569' }}>Proyek</span>
+                <strong style={{ color: isQuotaFull ? '#dc2626' : '#1d4ed8', marginLeft: 6 }}>
+                  {projectCount}/{resolvedMaxProjects === Number.POSITIVE_INFINITY ? '∞' : resolvedMaxProjects}
+                </strong>
+              </div>
             </div>
           </div>
 
@@ -1558,10 +1536,6 @@ export default function BuatProyekPage() {
       <BuatProyekContent />
     </Suspense>
   )
-}
-
-function BuatProyekPageContent() {
-  return <BuatProyekContent />
 }
 
 const topBarStyles: Record<string, CSSProperties> = {
@@ -1861,6 +1835,41 @@ const modalStyles: Record<string, CSSProperties> = {
     color: '#64748b',
     marginBottom: 20,
   },
+  planGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 12,
+    marginBottom: 20,
+  },
+  planCard: {
+    border: '1.5px solid #e2e8f0',
+    borderRadius: 10,
+    padding: 14,
+    textAlign: 'center',
+  },
+  planCardActive: {
+    border: '1.5px solid #2563eb',
+    background: '#eff6ff',
+  },
+  planName: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  planDesc: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  planBadge: {
+    marginTop: 8,
+    fontSize: 10,
+    background: '#2563eb',
+    color: 'white',
+    borderRadius: 999,
+    padding: '2px 8px',
+    display: 'inline-block',
+  },
   infoBox: {
     background: '#fffbeb',
     border: '1px solid #fcd34d',
@@ -1909,7 +1918,7 @@ const styles: Record<string, CSSProperties> = {
   academicTag: { display: 'inline-block', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#93c5fd', background: 'rgba(30, 58, 138, 0.6)', padding: '3px 8px', borderRadius: 4, marginBottom: 4, border: '1px solid rgba(147, 197, 253, 0.3)' },
   pageTitle: { fontSize: 22, fontWeight: 800, color: '#ffffff', margin: '0 0 2px', textShadow: '0 2px 4px rgba(0,0,0,0.3)' },
   pageSubtitle: { fontSize: 12.5, color: '#e2e8f0', margin: 0 },
-  quotaBadge: { marginLeft: 'auto', background: 'rgba(255, 255, 255, 0.9)', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', display: 'flex', alignItems: 'center', flexShrink: 0 },
+  quotaBadge: { background: 'rgba(255, 255, 255, 0.9)', border: '1px solid #cbd5e1', borderRadius: 8, padding: '6px 12px', display: 'flex', alignItems: 'center', flexShrink: 0 },
   card: { background: 'rgba(255, 255, 255, 0.9)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255, 255, 255, 0.5)', borderRadius: 16, padding: '18px 22px', marginBottom: 14, boxShadow: '0 6px 20px rgba(0, 0, 0, 0.1)' },
   cardTitle: { fontSize: 15, fontWeight: 800, color: '#0f172a', margin: '0 0 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   badgeGlobal: { background: '#e0e7ff', color: '#3730a3', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700 },
