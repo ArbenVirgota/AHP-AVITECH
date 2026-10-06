@@ -55,11 +55,11 @@ export async function POST(request: Request) {
     let body;
     try { body = JSON.parse(bodyText); } catch { return NextResponse.json({ success: false, message: 'Format JSON tidak valid' }, { status: 400 }); }
 
-    const { action } = body;
+    const action = body.action ? String(body.action).trim().toLowerCase() : '';
 
     if (action === 'updateconsultationstatus') {
       const { ticket_id, new_status } = body;
-      await prisma.$executeRawUnsafe('UPDATE `AHP - ConsultationRequests` SET `status` = ? WHERE `ticket_id` = ?', new_status, ticket_id).catch(() => {});
+      await prisma.$executeRawUnsafe('UPDATE `AHP - ConsultationRequests` SET `status` = ? WHERE `ticket`_id = ?', new_status, ticket_id).catch(() => {});
       await prisma.$executeRawUnsafe('UPDATE `AHP - consultations` SET `Status` = ? WHERE `ID Tiket` = ?', new_status, ticket_id).catch(() => {});
       return NextResponse.json({ success: true, message: 'Status tiket berhasil diperbarui.' });
     }
@@ -84,6 +84,79 @@ export async function POST(request: Request) {
       try { await prisma.$executeRawUnsafe('UPDATE `AHP - users` SET `password_hash` = ? WHERE LOWER(`email`) = ?', hashedPassword, String(email).trim().toLowerCase()); } 
       catch { await prisma.$executeRawUnsafe('UPDATE `AHP - Users` SET `password_hash` = ? WHERE LOWER(`email`) = ?', hashedPassword, String(email).trim().toLowerCase()).catch(() => {}); }
       return NextResponse.json({ success: true, message: 'Kata sandi berhasil direset.' });
+    }
+
+    // PENANGANAN SIMPAN / UPDATE / TAMBAH DATA PAKAR (MENCAKUP SEMUA VARIASI NAMA ACTION)
+    if (
+      action === 'update_expert' || 
+      action === 'save_expert' || 
+      action === 'add_expert' || 
+      action === 'edit_expert' || 
+      action === 'saveexpert' || 
+      action === 'editexpert' || 
+      action === 'updateexpert' ||
+      action.includes('expert')
+    ) {
+      const { expert_id, gelar_depan, expert_name, gelar_belakang, expert_email, asal_instansi, expert_whatsapp, pendidikan_terakhir, bidang_keahlian, durasi_pengalaman, status, is_public, foto_url } = body;
+
+      const isPublicVal = String(is_public).toUpperCase() === 'PUBLIK' || is_public === 1 || is_public === true ? 1 : 0;
+      const safeExpertName = expert_name ? String(expert_name).trim() : '';
+      const safeExpertEmail = expert_email ? String(expert_email).trim() : '';
+
+      if (!safeExpertName || !safeExpertEmail) {
+        return NextResponse.json({ success: false, message: 'Nama Pakar dan Email Pakar wajib diisi.' }, { status: 400 });
+      }
+
+      try {
+        if (expert_id) {
+          // Update data pakar yang sudah ada
+          await prisma.$executeRawUnsafe(`
+            UPDATE \`AHP - experts\` 
+            SET \`gelar_depan\` = ?, \`expert_name\` = ?, \`gelar_belakang\` = ?, \`expert_email\` = ?, \`asal_instansi\` = ?, \`expert_whatsapp\` = ?, \`pendidikan_terakhir\` = ?, \`bidang_keahlian\` = ?, \`durasi_pengalaman\` = ?, \`status\` = ?, \`is_public\` = ?
+            WHERE \`expert_id\` = ?
+          `, 
+          gelar_depan || '', 
+          safeExpertName, 
+          gelar_belakang || '', 
+          safeExpertEmail, 
+          asal_instansi || '', 
+          expert_whatsapp || '', 
+          pendidikan_terakhir || '', 
+          bidang_keahlian || '', 
+          durasi_pengalaman || '', 
+          status || 'Aktif', 
+          isPublicVal, 
+          expert_id
+          );
+          
+          return NextResponse.json({ success: true, message: 'Data pakar berhasil diperbarui.' });
+        } else {
+          // Tambah data pakar baru
+          const newId = `EXP-${Date.now()}`;
+          await prisma.$executeRawUnsafe(`
+            INSERT INTO \`AHP - experts\` (\`expert_id\`, \`gelar_depan\`, \`expert_name\`, \`gelar_belakang\`, \`expert_email\`, \`asal_instansi\`, \`expert_whatsapp\`, \`pendidikan_terakhir\`, \`bidang_keahlian\`, \`durasi_pengalaman\`, \`status\`, \`is_public\`, \`foto_url\`)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, 
+          newId, 
+          gelar_depan || '', 
+          safeExpertName, 
+          gelar_belakang || '', 
+          safeExpertEmail, 
+          asal_instansi || '', 
+          expert_whatsapp || '', 
+          pendidikan_terakhir || '', 
+          bidang_keahlian || '', 
+          durasi_pengalaman || '', 
+          status || 'Aktif', 
+          isPublicVal, 
+          foto_url || ''
+          );
+
+          return NextResponse.json({ success: true, message: 'Pakar baru berhasil ditambahkan.' });
+        }
+      } catch (dbError: any) {
+        return NextResponse.json({ success: false, message: `Gagal database: ${dbError.message}` }, { status: 400 });
+      }
     }
 
     // 7. CATAT RIWAYAT PENGIRIMAN LINK 
@@ -131,7 +204,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, message: 'Tiket berhasil dihapus.' });
     }
 
-    return NextResponse.json({ success: false, message: 'Action tidak dikenali atau diabaikan.' }, { status: 400 });
+    return NextResponse.json({ success: false, message: `Action '${action}' tidak dikenali atau diabaikan.` }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ success: false, message: error.message || 'Gagal memproses.' }, { status: 500 });
   }
