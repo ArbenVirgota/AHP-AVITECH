@@ -29,8 +29,6 @@ ChartJS.register(
   Filler
 );
 
-const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || ''
-
 const PRODUCT_CATEGORIES = [
   'Modul Riset',
   'Lisensi Software',
@@ -40,6 +38,15 @@ const PRODUCT_CATEGORIES = [
   'Buku / Dokumen Panduan',
   'Layanan Verifikasi Data',
   'Umum'
+];
+
+const PRODUCT_STATUS_OPTIONS = [
+  'Tersedia',
+  'Tidak Tersedia',
+  'Segera Hadir',
+  'Habis',
+  'Pre-Order',
+  'Arsip / Non-Aktif'
 ];
 
 type TabType = 
@@ -202,7 +209,6 @@ export default function AdminDashboardPage() {
 
   const generateRandomExpPass = () => `EXP-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  // HELPER FORMAT TANGGAL
   const formatDisplayDate = (val: any) => {
     if (!val) return '-';
     try {
@@ -216,28 +222,104 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // TEMPLATE JAWABAN CEPAT 1 - 4
+  const getFormattedName = (exp: ExpertItem) => {
+    const rawGelarDepan = String(exp.gelar_depan || exp.gelardepan || '').trim();
+    const gDepan = rawGelarDepan && rawGelarDepan.toUpperCase() !== 'NULL' ? `${rawGelarDepan} ` : '';
+    const nameOnly = String(exp.expert_name || exp.expertname || exp.nama || exp.name || '').trim() || 'Pakar';
+    const rawGelarBelakang = String(exp.gelar_belakang || exp.gelarbelakang || '').trim();
+    const gBelakang = rawGelarBelakang && rawGelarBelakang.toUpperCase() !== 'NULL' ? `, ${rawGelarBelakang}` : '';
+    return `${gDepan}${nameOnly}${gBelakang}`;
+  };
+
   const applyTemplate = (templateIndex: number) => {
     if (!selectedTicket) return;
     const userName = selectedTicket.user_name || selectedTicket['Nama User'] || selectedTicket.nama_user || selectedTicket.namaUser || selectedTicket[3] || 'Pengguna';
-    const ticketId = selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket.id || selectedTicket[0] || '';
+    const ticketId = selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket[0] || '';
+    const pertanyaan = String(selectedTicket.pertanyaan || selectedTicket['Topik Pesan'] || selectedTicket[6] || '');
+
+    const planMatch = pertanyaan.match(/Peminatan Plan:\s*([A-Za-z]+)/i);
+    const targetPlan = planMatch ? planMatch[1].toUpperCase() : 'PRO';
+
+    const priceMap: Record<string, string> = {
+      PRO: 'Rp 150.000',
+      PLUS: 'Rp 350.000',
+      PREMIUM: 'Rp 750.000',
+    };
+    const nominal = priceMap[targetPlan] || 'Rp 150.000';
 
     let text = '';
-
     if (templateIndex === 1) {
-      text = `Halo ${userName},\n\nTerima kasih atas minat Anda untuk meningkatkan layanan ke Paket [PRO / PLUS / PREMIUM - Semester Pass].\n\nBerikut adalah rincian tagihan dan rekening resmi pembayaran:\n• Paket Langganan : Paket [PRO / PLUS / PREMIUM] (6 Bulan)\n• Total Nominal    : Rp [Contoh: 350.000]\n• Bank Tujuan      : Bank [BCA / Mandiri / BNI / BRI]\n• Nomor Rekening   : [1234-5678-9000]\n• Atas Nama        : [Nama Pemilik Rekening / Instansi]\n\nPetunjuk Konfirmasi:\nSetelah transfer berhasil dilakukan, silakan klik tombol "💸 Konfirmasi Telah Bayar (Upload Bukti)" di bawah pesan ini untuk mengunggah foto struk/bukti transfer Anda. Tim admin akan segera memverifikasi dan mengaktifkan hak akses akun Anda.\n\nSalam hangat,\nTim Layanan Pelanggan & Billing AHP`;
+      text = `Halo ${userName},
+
+Terima kasih atas minat Anda untuk berlangganan Paket ${targetPlan} Semester Pass (6 Bulan).
+
+Untuk proses aktivasi lisensi, silakan melakukan transfer pembayaran ke salah satu rekening resmi berikut:
+
+--------------------------------------------------
+1. Bank Mandiri
+   Nomor Rekening : 161-00-1234567-8
+   Atas Nama      : PT Avitech Solusi Digital
+
+2. Bank BCA
+   Nomor Rekening : 829-012-3456
+   Atas Nama      : PT Avitech Solusi Digital
+
+3. Bank BRI
+   Nomor Rekening : 0123-01-001234-56-7
+   Atas Nama      : PT Avitech Solusi Digital
+--------------------------------------------------
+Nominal Transfer : ${nominal} (Sesuai Paket ${targetPlan})
+Kode Referensi   : #${ticketId}
+--------------------------------------------------
+
+Petunjuk Konfirmasi:
+Setelah transfer selesai dilakukan, silakan balas tiket konsultasi ini dengan mengunggah foto/tangkapan layar bukti transfer agar lisensi akun Anda langsung kami aktifkan.
+
+Salam hormat,
+Tim Administrator & Billing AHP Avitech`;
       setReplyStatus('Menunggu');
     } else if (templateIndex === 2) {
-      text = `Halo ${userName},\n\nKabar baik! Pembayaran Anda telah terverifikasi dan akun Anda telah berhasil di-upgrade ke Paket [PRO / PLUS / PREMIUM].\n\nRincian Hak Akses Baru Anda:\n• Status Paket    : [PRO / PLUS / PREMIUM] (Aktif)\n• Masa Berlaku    : 6 Bulan (Semester Pass) hingga [Tanggal Expired]\n• Kuota Proyek    : [3 / 10 / Unlimited] Proyek AHP\n• Kuota Evaluator : Akses Evaluator Manual & Direktori Pakar Platform\n• Fitur Unggulan  : [Subkriteria / Bobot Alternatif / AI Analisis Riset]\n\nSilakan muat ulang (refresh) halaman Dashboard Anda untuk mulai menggunakan fasilitas paket baru. Terima kasih telah mempercayakan analisis riset Anda pada platform kami.\n\nSalam sukses,\nTim Administrator Sistem AHP`;
+      text = `Halo ${userName},
+
+Kabar baik! Pembayaran Anda telah kami verifikasi dengan sukses dan akun Anda telah resmi diaktifkan ke Paket ${targetPlan}.
+
+Rincian Hak Akses Baru Anda:
+• Status Paket    : ${targetPlan} (Aktif)
+• Masa Berlaku    : 6 Bulan (Semester Pass)
+• Kuota Proyek    : Akses Kuota Proyek & Fitur Analisis Penuh
+• Kuota Pakar     : Akses Evaluator Manual & Direktori Platform
+
+Silakan muat ulang (refresh) halaman Dashboard Anda untuk mulai menggunakan fasilitas paket baru. Terima kasih telah mempercayakan riset Anda pada platform kami.
+
+Salam sukses,
+Tim Administrator Sistem AHP`;
       setReplyStatus('Selesai');
     } else if (templateIndex === 3) {
-      text = `Halo ${userName},\n\nBukti transfer yang Anda unggah untuk tiket #${ticketId} telah kami terima dengan baik.\n\nSaat ini tim billing kami sedang melakukan pencocokan mutasi perbankan (estimasi 15–60 menit pada jam kerja). Status paket Anda akan diperbarui secara otomatis begitu verifikasi selesai.\n\nMohon kesediaan Anda untuk menunggu sejenak.\n\nSalam,\nTim Verifikasi & Billing AHP`;
+      text = `Halo ${userName},
+
+Bukti transfer yang Anda unggah untuk tiket #${ticketId} telah kami terima dengan baik.
+
+Saat ini tim verifikasi keuangan kami sedang melakukan pencocokan mutasi perbankan. Status paket Anda akan diperbarui secara otomatis begitu proses verifikasi selesai.
+
+Mohon kesediaan Anda untuk menunggu beberapa saat.
+
+Salam,
+Tim Verifikasi & Billing AHP`;
       setReplyStatus('Sedang Diverifikasi');
     } else if (templateIndex === 4) {
-      text = `Halo ${userName},\n\nMohon maaf, pengajuan upgrade untuk tiket #${ticketId} saat ini belum dapat kami proses karena alasan berikut:\n\n• [Bukti transfer yang diunggah tidak terbaca jelas / buram / nominal transfer tidak sesuai / dana belum masuk pada mutasi rekening].\n\nLangkah Selanjutnya:\nSilakan periksa kembali bukti transaksi Anda dan kirimkan konfirmasi ulang, atau hubungi kami kembali melalui tiket ini jika Anda membutuhkan bantuan lebih lanjut.\n\nSalam,\nTim Layanan Pelanggan AHP`;
+      text = `Halo ${userName},
+
+Mohon maaf, pengajuan upgrade untuk tiket #${ticketId} saat ini belum dapat kami proses karena alasan berikut:
+
+• [Bukti transfer yang diunggah tidak terbaca jelas / nominal tidak sesuai / dana belum tercatat pada mutasi rekening].
+
+Langkah Selanjutnya:
+Silakan periksa kembali bukti transaksi Anda dan kirimkan konfirmasi ulang melalui tiket ini jika Anda membutuhkan bantuan lebih lanjut.
+
+Salam,
+Tim Layanan Pelanggan AHP`;
       setReplyStatus('Ditolak');
     }
-
     setReplyMessage(text);
   };
 
@@ -252,124 +334,207 @@ export default function AdminDashboardPage() {
   const canAccessTab = (tabKey: TabType) => {
     if (isSuperAdmin) return true;
     if (tabKey === 'sop_guide') return true;
-    if (!userAllowedAccess || !Array.isArray(userAllowedAccess)) return false;
-    return userAllowedAccess.some(accessKey => {
-      const cleanKey = String(accessKey).toLowerCase().trim().replace(/[\[\]"']/g, '');
-      return cleanKey === String(tabKey).toLowerCase().trim();
+    if (!userAllowedAccess || !Array.isArray(userAllowedAccess) || userAllowedAccess.length === 0) return false;
+
+    const target = String(tabKey).toLowerCase().replace(/[\s_\-]/g, '').trim();
+
+    return userAllowedAccess.some((accessKey) => {
+      const cleanKey = String(accessKey).toLowerCase().replace(/[\s_\-]/g, '').replace(/[\[\]"']/g, '').trim();
+      return cleanKey === target;
     });
   };
 
-  const fetchWithCatch = useCallback(async (action: string) => {
-    if (!GOOGLE_SCRIPT_URL) return [];
-    try {
-      const timestampCacheBuster = new Date().getTime();
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}&_t=${timestampCacheBuster}`, { method: 'GET', cache: 'no-store', redirect: 'follow' });
-      const text = await res.text();
-      let json;
-      try { json = JSON.parse(text); } catch { return []; }
-      if (json && (json.success || Array.isArray(json.data) || Array.isArray(json))) return json.data || (Array.isArray(json) ? json : []);
-      return [];
-    } catch { return []; }
-  }, []);
-
   const fetchAllOperasionalData = useCallback(async () => {
-    if (!GOOGLE_SCRIPT_URL) { setApiError('⚠️ URL Google Apps Script belum dikonfigurasi.'); return; }
     try {
-      setLoading(true);
       setApiError('');
-      setSelectedLogs([]);
-      setSelectedConsultations([]);
-      setSelectedAdminConsultations([]);
 
-      const results = await Promise.allSettled([
-        fetchWithCatch('getexpertdirectory'),
-        fetchWithCatch('getproducts'),
-        fetchWithCatch('getconsultationrequests'),
-        fetchWithCatch('getconsultations'),
-        fetchWithCatch('getvisitorstats'),
-        fetchWithCatch('getfeedbacks'),
-        fetchWithCatch('getusers')
-      ]);
+      const res = await fetch(`/api/admin/operations?_t=${Date.now()}`, { cache: 'no-store' });
+      const json = await res.json();
 
-      setExperts(results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : []);
-      setProducts(results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : []);
-      setUserConsultations(results[2].status === 'fulfilled' && Array.isArray(results[2].value) ? results[2].value : []);
-      setAdminConsultations(results[3].status === 'fulfilled' && Array.isArray(results[3].value) ? results[3].value : []);
-      setFeedbacks(results[5].status === 'fulfilled' && Array.isArray(results[5].value) ? results[5].value : []);
-      setUsersList(results[6].status === 'fulfilled' && Array.isArray(results[6].value) ? results[6].value : []);
+      if (json && json.success && json.data) {
+        setExperts(json.data.experts || []);
+        setUsersList(json.data.users || []);
+        setProducts(json.data.products || []);
+        setUserConsultations(json.data.userConsultations || []);
+        setAdminConsultations(json.data.adminConsultations || []);
+        setFeedbacks(json.data.feedbacks || []);
 
-      const visitRes = results[4].status === 'fulfilled' ? results[4].value : {};
-      const logs = Array.isArray(visitRes) ? visitRes : (visitRes.logs || []);
-      setVisitorStatsList(logs);
-      setTotalPublicVisits(typeof visitRes === 'object' && !Array.isArray(visitRes) ? (visitRes.total_public_visits || logs.length) : logs.length);
+        const rawLogs: any[] = 
+          json.data.visitorStats || 
+          json.data.visitor_stats || 
+          json.data.visitorLogs || 
+          json.data.visitor_logs || 
+          json.data.logs || 
+          json.data.adminLogs || 
+          json.data.admin_logs || 
+          [];
 
-    } catch (err: any) { setApiError(`⚠️ Gagal memuat data: ${err.message}`); } finally { setLoading(false); }
-  }, [fetchWithCatch]);
+        const normalizedLogs = rawLogs.map((item: any, idx: number) => {
+          const timestampVal = 
+            item.timestamp || 
+            item.Timestamp || 
+            item.created_at || 
+            item.createdat || 
+            item.waktu || 
+            item.Waktu || 
+            null;
+
+          const emailVal = 
+            item.email || 
+            item.Email || 
+            item.Email_Admin || 
+            item.user_email || 
+            item.userEmail || 
+            'Visitor Umum';
+
+          const nameVal = 
+            item.name || 
+            item.nama || 
+            item.Nama || 
+            item.Nama_Admin || 
+            item.user_name || 
+            item.userName || 
+            'Visitor Umum';
+
+          const pageVal = 
+            item.page || 
+            item.page_path || 
+            item.path || 
+            item.Aksi___Tindakan || 
+            item.aksi || 
+            '/';
+
+          const ipVal = 
+            item.ip_address || 
+            item.ip || 
+            item.IP || 
+            item.ipaddress || 
+            '127.0.0.1';
+
+          const roleVal = 
+            item.role || 
+            item.Role || 
+            (String(emailVal).toLowerCase().includes('admin') ? 'ADMIN' : (emailVal !== 'Visitor Umum' ? 'USER' : 'UMUM'));
+
+          return {
+            id: item.id || item.log_id || idx + 1,
+            timestamp: timestampVal,
+            email: emailVal,
+            name: nameVal,
+            page: pageVal,
+            ip_address: ipVal,
+            role: roleVal,
+            detail: item.Detail_Keterangan || item.detail || ''
+          };
+        });
+
+        setVisitorStatsList(normalizedLogs);
+        
+        const calculatedTotal = 
+          json.data.totalVisits || 
+          json.data.total_visits || 
+          json.data.stats?.totalVisits || 
+          normalizedLogs.length;
+
+        setTotalPublicVisits(calculatedTotal);
+      } else {
+        setApiError(json?.message || 'Gagal memuat data dari database MySQL.');
+      }
+    } catch (err: any) {
+      setApiError(`⚠️ Gagal memuat data: ${err.message}`);
+    }
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
     const role = localStorage.getItem('admin_role') || 'Admin Pembantu';
     const name = localStorage.getItem('admin_name') || 'Admin Operator';
     const email = localStorage.getItem('admin_email') || '';
-    const accessRaw = localStorage.getItem('admin_access') || '';
+    
+    const accessRaw = localStorage.getItem('admin_allowed_access') || localStorage.getItem('admin_access') || '';
 
     if (!token) { router.replace('/admin/login'); return; }
 
     const checkSuper = role.toLowerCase().includes('superadmin') || role.toLowerCase().includes('super admin');
-    setAdminName(name); setAdminEmail(email); setAdminRole(role); setIsSuperAdmin(checkSuper);
+    setAdminName(name); 
+    setAdminEmail(email); 
+    setAdminRole(role); 
+    setIsSuperAdmin(checkSuper);
 
     let parsedAccess: string[] = [];
     if (accessRaw) {
-      try { const temp = JSON.parse(accessRaw); parsedAccess = Array.isArray(temp) ? temp : String(temp).split(','); } 
-      catch { parsedAccess = String(accessRaw).split(','); }
-    } else { parsedAccess = ['expert_directory', 'users', 'products', 'consultation_user', 'consultation_admin', 'feedback', 'visitor_stats']; }
-    setUserAllowedAccess(parsedAccess.map(a => String(a).replace(/[\[\]"']/g, '').trim()));
+      try { 
+        const temp = JSON.parse(accessRaw); 
+        parsedAccess = Array.isArray(temp) ? temp : String(temp).split(','); 
+      } catch { 
+        parsedAccess = String(accessRaw).split(','); 
+      }
+    } else {
+      parsedAccess = checkSuper ? ['expert_directory', 'users', 'products', 'consultation_user', 'consultation_admin', 'feedback', 'visitor_stats'] : [];
+    }
 
-    fetchAllOperasionalData();
+    const cleanAccessList = parsedAccess.map(a => String(a).replace(/[\[\]"']/g, '').trim()).filter(Boolean);
+    setUserAllowedAccess(cleanAccessList);
+
+    if (!checkSuper && cleanAccessList.length > 0) {
+      const normalize = (s: string) => s.toLowerCase().replace(/[\s_\-]/g, '').trim();
+      const allowedNormalized = cleanAccessList.map(normalize);
+
+      const tabOrder: TabType[] = ['expert_directory', 'users', 'products', 'consultation_user', 'consultation_admin', 'visitor_stats', 'feedback'];
+      
+      const firstAvailableTab = tabOrder.find(t => allowedNormalized.includes(normalize(t)));
+
+      if (firstAvailableTab) {
+        setActiveTab(firstAvailableTab);
+      } else {
+        setActiveTab('sop_guide');
+      }
+    }
+
+    setLoading(true);
+    fetchAllOperasionalData().finally(() => setLoading(false));
   }, [router, fetchAllOperasionalData]);
 
-  // HANDLER UPDATE STATUS DARI DROPDOWN
-  const handleUpdateStatus = async (ticketId: string, newStatus: string) => {
-    if (!GOOGLE_SCRIPT_URL) return;
+  // Polling sinkronisasi data live setiap 10 detik saat tab statistik aktif
+  useEffect(() => {
+    if (activeTab !== 'visitor_stats') return;
 
+    const interval = setInterval(() => {
+      fetchAllOperasionalData();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [activeTab, fetchAllOperasionalData]);
+
+  const handleUpdateStatus = async (ticketId: string, newStatus: string) => {
     setUserConsultations(prev =>
       prev.map(item => {
-        const id = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || '');
-        return id === ticketId ? { ...item, status: newStatus, Status: newStatus } : item;
+        const id = String(item.ticket_id || item['ID Tiket'] || '');
+        return id === ticketId ? { ...item, status: newStatus } : item;
       })
     );
 
     setAdminConsultations(prev =>
       prev.map(item => {
-        const id = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || '');
-        return id === ticketId ? { ...item, status: newStatus, Status: newStatus } : item;
+        const id = String(item.ticket_id || item['ID Tiket'] || '');
+        return id === ticketId ? { ...item, status: newStatus } : item;
       })
     );
 
     try {
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=updateconsultationstatus`, {
+      const res = await fetch('/api/admin/operations', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'updateconsultationstatus',
           ticket_id: ticketId,
-          idTiket: ticketId,
-          id: ticketId,
-          status: newStatus,
           new_status: newStatus,
-          adminName,
-          adminEmail,
-          adminRole
         }),
-        redirect: 'follow'
       });
 
-      const textRes = await res.text();
-      let json;
-      try { json = JSON.parse(textRes); } catch { json = { success: true }; }
-
-      if (json && json.success === false) {
-        alert(`⚠️ Gagal memperbarui status di server: ${json.message}`);
+      const json = await res.json();
+      if (!json.success) {
+        alert(`⚠️ Gagal memperbarui status: ${json.message}`);
         fetchAllOperasionalData();
       }
     } catch (err: any) {
@@ -381,14 +546,13 @@ export default function AdminDashboardPage() {
   const handleDeleteExpert = async (exp: ExpertItem) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
     const expId = String(exp.expert_id || exp.expertId || exp.id || '');
-    if (!window.confirm(`Yakin ingin menghapus Pakar: ${exp.expert_name || exp.nama}?`)) return;
+    if (!window.confirm(`Yakin ingin menghapus Pakar: ${getFormattedName(exp)}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteexpert`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteexpert', expertId: expId, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteexpert', expertId: expId }),
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -401,11 +565,10 @@ export default function AdminDashboardPage() {
     if (!window.confirm(`Yakin ingin menghapus Produk: ${prod.nama || prod.name}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteproduct`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteproduct', productId: prodId, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteproduct', productId: prodId }),
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -414,16 +577,15 @@ export default function AdminDashboardPage() {
 
   const handleDeleteConsultation = async (ticket: any) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
-    const ticketId = String(ticket.ticket_id || ticket['ID Tiket'] || ticket.id_tiket || ticket.idTiket || ticket.id || ticket[0] || '').trim();
+    const ticketId = String(ticket.ticket_id || ticket['ID Tiket'] || '').trim();
     if (!ticketId) return alert('ID Tiket tidak ditemukan.');
     if (!window.confirm(`Yakin ingin menghapus Tiket #${ticketId}?`)) return;
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId }),
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -438,11 +600,10 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       for (const ticketId of selectedConsultations) {
-        await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
-          redirect: 'follow'
+        await fetch('/api/admin/operations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId }),
         });
       }
       alert('Tiket terpilih berhasil dihapus.');
@@ -463,11 +624,10 @@ export default function AdminDashboardPage() {
     try {
       setLoading(true);
       for (const ticketId of selectedAdminConsultations) {
-        await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteconsultation`, { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId, adminName, adminEmail, adminRole }),
-          redirect: 'follow'
+        await fetch('/api/admin/operations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'deleteconsultation', ticket_id: ticketId }),
         });
       }
       alert('Tiket admin-pakar terpilih berhasil dihapus.');
@@ -482,15 +642,14 @@ export default function AdminDashboardPage() {
 
   const handleDeleteFeedback = async (fb: any) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
-    if (!window.confirm(`Yakin ingin menghapus Masukan dari: ${fb.nama || fb.Name || fb[1] || 'Anonim'}?`)) return;
+    if (!window.confirm(`Yakin ingin menghapus Masukan dari: ${fb.nama || fb.Name || 'Anonim'}?`)) return;
     try {
       setLoading(true);
-      const timestamp = fb.timestamp || fb.Timestamp || fb[0];
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deletefeedback`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deletefeedback', timestamp: timestamp, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const email = fb.email || fb.Email;
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deletefeedback', email }),
       });
       const json = await res.json();
       if (json.success) { alert('Berhasil dihapus.'); fetchAllOperasionalData(); } else { alert(json.message); }
@@ -499,14 +658,13 @@ export default function AdminDashboardPage() {
 
   const handleDeleteUser = async (usr: UserItem) => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
-    if (!window.confirm(`⚠️ Yakin ingin MENGHAPUS User Pakar: ${usr.nama || usr.name} (${usr.email})? Aksi ini mungkin tidak dapat dibatalkan.`)) return;
+    if (!window.confirm(`⚠️ Yakin ingin MENGHAPUS User: ${usr.nama || usr.name} (${usr.email})? Aksi ini tidak dapat dibatalkan.`)) return;
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteuser`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'deleteuser', email: usr.email, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteuser', email: usr.email }),
       });
       const json = await res.json();
       if (json.success) { 
@@ -519,59 +677,49 @@ export default function AdminDashboardPage() {
 
   const handleDeleteVisitorLogs = async () => {
     if (!isSuperAdmin) return alert('Akses ditolak: Hanya Super Admin yang dapat menghapus data.');
-    if (selectedLogs.length === 0) return alert('Pilih minimal 1 log untuk dihapus.');
-    if (!window.confirm(`Hapus ${selectedLogs.length} data kunjungan terpilih?`)) return;
+    if (selectedLogs.length === 0) return alert('Pilih minimal 1 baris log untuk dihapus.');
+    if (!window.confirm(`Hapus permanen ${selectedLogs.length} data log kunjungan terpilih dari database?`)) return;
 
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deletevisitorlogs`, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ 
-          action: 'deletevisitorlogs', 
-          rows: selectedLogs,
-          adminName, adminEmail, adminRole 
-        }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete_visitor_logs', log_ids: selectedLogs }),
       });
       const json = await res.json();
       if (json.success) {
-        alert('Berhasil dihapus.');
+        alert('✅ Log kunjungan berhasil dihapus.');
         setSelectedLogs([]);
         fetchAllOperasionalData();
-      } else { alert(`Gagal menghapus log: ${json.message}`); }
-    } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
+      } else {
+        alert(`Gagal: ${json.message}`);
+      }
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdateExpertPlan = async (targetEmail: string, selectedPlan: string) => {
-    if (!window.confirm(`Ubah plan untuk pengguna ${targetEmail} menjadi ${selectedPlan.toUpperCase()} dan sinkronkan ke sheet subscriptions?`)) return;
+    if (!window.confirm(`Ubah plan untuk pengguna ${targetEmail} menjadi ${selectedPlan.toUpperCase()}?`)) return;
 
     try {
       setLoading(true);
-      const nextYear = new Date();
-      nextYear.setFullYear(nextYear.getFullYear() + 1);
-      const expiryStr = nextYear.toISOString().split('T')[0];
-
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=admin_update_user_plan`, {
+      const res = await fetch('/api/admin/operations', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'admin_update_user_plan',
           email: targetEmail,
           plan: selectedPlan.toUpperCase(),
-          status_user: 'ACTIVE',
-          deactivated_at: expiryStr,
-          sync_subscriptions: true,
-          adminName, 
-          adminEmail, 
-          adminRole
         }),
-        redirect: 'follow'
       });
 
       const json = await res.json();
       if (json.success) {
-        alert(`✅ Berhasil! Akun ${targetEmail} kini berstatus ${selectedPlan.toUpperCase()} di sheet Users & Subscriptions.`);
+        alert(`✅ Berhasil! Akun ${targetEmail} kini berstatus ${selectedPlan.toUpperCase()}.`);
         fetchAllOperasionalData();
       } else {
         alert(`Gagal: ${json.message}`);
@@ -596,11 +744,14 @@ export default function AdminDashboardPage() {
 
     try {
       setSubmittingPassword(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=admin_update_user_password`, {
+      const res = await fetch('/api/admin/operations', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'admin_update_user_password', email: targetUserForPassword.email, new_password: customPassword, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'admin_update_user_password',
+          email: targetUserForPassword.email,
+          new_password: customPassword,
+        }),
       });
 
       const json = await res.json();
@@ -612,20 +763,20 @@ export default function AdminDashboardPage() {
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingPassword(false); }
   };
 
-  const getFormattedName = (exp: ExpertItem) => {
-    const gDepan = String(exp.gelar_depan || exp.gelardepan || '').trim() ? `${String(exp.gelar_depan || exp.gelardepan).trim()} ` : '';
-    const nameOnly = String(exp.expert_name || exp.expertname || exp.nama || exp.name || 'Pakar').trim();
-    if (nameOnly === '-') return '';
-    const gBelakang = String(exp.gelar_belakang || exp.gelarbelakang || '').trim() ? `, ${String(exp.gelar_belakang || exp.gelarbelakang).trim()}` : '';
-    return `${gDepan}${nameOnly}${gBelakang}`;
-  };
-
   const handleOpenNoteModal = (exp: ExpertItem) => {
     setTargetExpertForNote(exp);
     const expId = String(exp.expert_id || exp.expertId || exp.id || '');
+    
+    const baseUrl = typeof window !== 'undefined' 
+      ? window.location.origin 
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
     setNoteFormIsian({
-      needFotoFix: false, needCvFix: false, needKtpFix: false, needDataFix: false,
-      formUrl: expId ? `https://ahp.avitech.cloud/expert/update-profile?id=${expId}` : 'https://ahp.avitech.cloud/expert/update-profile',
+      needFotoFix: false, 
+      needCvFix: false, 
+      needKtpFix: false, 
+      needDataFix: false,
+      formUrl: expId ? `${baseUrl}/expert/update-profile?id=${expId}` : `${baseUrl}/expert/update-profile`,
       customNote: ''
     });
     setIsNoteModalOpen(true);
@@ -653,54 +804,79 @@ export default function AdminDashboardPage() {
     const email = targetExpertForNote.expert_email || targetExpertForNote.expertemail || targetExpertForNote.email;
     if (!email) { alert('Email tidak ditemukan.'); return; }
 
+    const noteBody = buildNoteText();
+
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=sendadminnotetoexpert`, {
+
+      const res = await fetch('/api/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'sendadminnotetoexpert',
-          email, name: getFormattedName(targetExpertForNote),
-          subject: '[VERIFIKASI] Kelengkapan Data Pakar', note: buildNoteText(),
-          adminName, adminEmail, adminRole
+          to: email,
+          subject: '[VERIFIKASI] Kelengkapan Data Pakar',
+          textBody: noteBody,
         }),
-        redirect: 'follow'
       });
       const json = await res.json();
-      if (json.success) { alert('Instruksi berhasil dikirim!'); setIsNoteModalOpen(false); fetchAllOperasionalData(); } 
-      else { alert(`Gagal: ${json.message}`); }
-    } catch (err: any) { alert(`Error: ${err.message}`); } finally { setLoading(false); }
+
+      if (json.success) {
+        try {
+          const saveRes = await fetch('/api/admin/operations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'record_admin_note',
+              expert_email: email,
+              expert_name: getFormattedName(targetExpertForNote),
+              admin_name: adminName || 'Admin Platform',
+              message: noteBody,
+              note_body: noteBody,
+              textBody: noteBody,
+            }),
+          });
+          const saveJson = await saveRes.json();
+          if (!saveJson.success) {
+            console.error('Gagal mencatat log ke MySQL:', saveJson.message);
+          }
+        } catch (dbErr) {
+          console.warn('Gagal menyimpan log pesan ke DB:', dbErr);
+        }
+
+        alert('✅ Email instruksi berhasil dikirim dan tersimpan di riwayat!'); 
+        setIsNoteModalOpen(false); 
+        fetchAllOperasionalData(); 
+      } else { 
+        alert(`Gagal mengirim email: ${json.message}`); 
+      }
+    } catch (err: any) { 
+      alert(`Error: ${err.message}`); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
-  // SUBMIT TANGGAPAN DARI MODAL
   const handleReplySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyMessage.trim()) { alert('Pesan balasan kosong.'); return; }
     try {
       setSubmittingReply(true);
-      const ticketId = String(selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket.id || selectedTicket[0] || '').trim();
-      const payload = {
-        action: 'submitconsultationreply',
-        ticket_id: ticketId,
-        idTiket: ticketId,
-        id: ticketId,
-        reply_message: replyMessage.trim(),
-        jawaban_expert: replyMessage.trim(),
-        status: replyStatus,
-        new_status: replyStatus,
-        adminName,
-        adminEmail,
-        adminRole
-      };
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=submitconsultationreply`, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload), 
-        redirect: 'follow'
+      const ticketId = String(selectedTicket.ticket_id || selectedTicket['ID Tiket'] || '').trim();
+      
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'submitconsultationreply',
+          ticket_id: ticketId,
+          reply_message: replyMessage.trim(),
+          status: replyStatus,
+        }),
       });
-      const json = await res.json().catch(() => ({ success: true }));
-      if (json && json.success !== false) { 
-        alert('✅ Balasan & Status berhasil disimpan!'); 
+
+      const json = await res.json();
+      if (json && json.success) { 
+        alert('✅ Balasan & Status berhasil disimpan ke database!'); 
         setShowReplyModal(false); 
         fetchAllOperasionalData(); 
       } else { 
@@ -753,15 +929,19 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     try {
       setSubmittingExpert(true);
-      const payload = { action: 'saveexpert', source: 'admin_dashboard', ...expertForm, adminName, adminEmail, adminRole };
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveexpert`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify(payload), 
-        redirect: 'follow' 
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveexpert', ...expertForm }),
       });
       const json = await res.json();
-      if (json.success) { alert('Pakar disimpan!'); setIsExpertModalOpen(false); fetchAllOperasionalData(); } else { alert(`Gagal: ${json.message}`); }
+      if (json.success) { 
+        alert('Pakar berhasil disimpan ke database!'); 
+        setIsExpertModalOpen(false); 
+        fetchAllOperasionalData(); 
+      } else { 
+        alert(`Gagal: ${json.message}`); 
+      }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingExpert(false); }
   };
 
@@ -789,110 +969,111 @@ export default function AdminDashboardPage() {
     e.preventDefault();
     try {
       setSubmittingProduct(true);
-      const actionName = editingProduct ? 'updateproduct' : 'saveproduct';
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${actionName}`, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: actionName, ...productForm, adminName, adminEmail, adminRole }),
-        redirect: 'follow'
+      const res = await fetch('/api/admin/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'saveproduct', ...productForm }),
       });
       const json = await res.json();
-      if (json.success) { alert('Produk disimpan!'); setIsProductModalOpen(false); fetchAllOperasionalData(); }
+      if (json.success) { 
+        alert('Produk berhasil disimpan!'); 
+        setIsProductModalOpen(false); 
+        fetchAllOperasionalData(); 
+      } else { 
+        alert(json.message || 'Gagal menyimpan produk');
+      }
     } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingProduct(false); }
   };
 
-  // LOGIKA FILTER PENCARIAN (SEARCH)
   const filteredExperts = useMemo(() => {
-    const q = expertSearchQuery.toLowerCase();
+    const q = expertSearchQuery.toLowerCase().trim();
+    if (!q) return experts;
     return experts.filter((exp: ExpertItem) => {
       const name = getFormattedName(exp).toLowerCase();
       const bidang = String(exp.bidang_keahlian || exp.bidangkeahlian || exp.keahlian || '').toLowerCase();
       const instansi = String(exp.asal_instansi || exp.asalinstansi || exp.instansi || exp.lembaga || '').toLowerCase();
-      return name.includes(q) || bidang.includes(q) || instansi.includes(q);
+      const email = String(exp.expert_email || exp.expertemail || exp.email || '').toLowerCase();
+      return name.includes(q) || bidang.includes(q) || instansi.includes(q) || email.includes(q);
     });
   }, [experts, expertSearchQuery]);
 
   const filteredUsers = useMemo(() => {
-    const q = userSearchQuery.toLowerCase();
+    const q = userSearchQuery.toLowerCase().trim();
+    if (!q) return usersList;
     return usersList.filter((u: UserItem) => {
-      const statusUser = String(u.status_user || u.pro_source || '').toUpperCase();
-      const userId = String(u.id || u.user_id || '').toUpperCase();
-      const isExpertUser = statusUser === 'EXPERT_REWARD' || userId.startsWith('EXP-');
-      if (!isExpertUser) return false;
       const nama = String(u.nama || u.name || '').toLowerCase();
       const email = String(u.email || '').toLowerCase();
       return nama.includes(q) || email.includes(q);
     });
   }, [usersList, userSearchQuery]);
 
-  // LOGIKA FILTER KONSULTASI PUBLIK
   const filteredUserConsultations = useMemo(() => {
-    const q = consultSearchQuery.toLowerCase();
+    const q = consultSearchQuery.toLowerCase().trim();
     return userConsultations.filter((c: any) => {
-      const ticketIdStr = String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || '').toLowerCase();
-      const userName = String(c.user_name || c['Nama User'] || c.nama_user || c.nama || c[3] || '').toLowerCase();
-      const userEmail = String(c.user_email || c['Kontak User'] || c.kontak_user || c.email || c[4] || '').toLowerCase();
-      const instansi = String(c.asal_institusi || c['Asal Institusi'] || c.institusi || c[5] || '').toLowerCase();
-      const expertEmail = String(c.expert_email || c['Expert Tujuan'] || c.expert_tujuan || c[2] || '').toLowerCase();
-      const pertanyaan = String(c.pertanyaan || c['Topik Pesan'] || c.topik_pesan || c.pesan || c[6] || '').toLowerCase();
-      const jawaban = String(c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '').toLowerCase();
-      
-      const rawStatus = String(c.status || c['Status'] || c[7] || 'Menunggu').toLowerCase().trim();
+      const ticketIdStr = String(c.ticket_id || c['ID Tiket'] || '').toLowerCase();
+      const userName = String(c.user_name || c['Nama User'] || '').toLowerCase();
+      const userEmail = String(c.user_email || c['Kontak User'] || '').toLowerCase();
+      const instansi = String(c.asal_institusi || c['Asal Institusi'] || '').toLowerCase();
+      const expertEmail = String(c.expert_email || c['Expert Tujuan'] || '').toLowerCase();
+      const pertanyaan = String(c.pertanyaan || c['Topik Pesan'] || '').toLowerCase();
+      const jawaban = String(c.jawaban_expert || c['Isi_Email'] || '').toLowerCase();
+      const rawStatus = String(c.status || c['Status'] || 'Menunggu').toLowerCase().trim();
 
-      const matchesSearch = userName.includes(q) || userEmail.includes(q) || instansi.includes(q) || expertEmail.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
+      const matchesSearch = !q || userName.includes(q) || userEmail.includes(q) || instansi.includes(q) || expertEmail.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
       const matchesStatus = consultStatusFilter === 'ALL' || rawStatus === consultStatusFilter.toLowerCase();
-      
       return matchesSearch && matchesStatus;
     });
   }, [userConsultations, consultSearchQuery, consultStatusFilter]);
 
-  // LOGIKA FILTER KONSULTASI ADMIN-PAKAR
   const filteredAdminConsultations = useMemo(() => {
-    const q = adminConsultSearchQuery.toLowerCase();
+    const q = adminConsultSearchQuery.toLowerCase().trim();
     return adminConsultations.filter((c: any) => {
-      const ticketIdStr = String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || '').toLowerCase();
-      const adminPengirim = String(c.admin_name || c.adminName || c['Admin Pengirim'] || c.user_name || c[3] || '').toLowerCase();
-      const pertanyaan = String(c.pertanyaan || c['Topik Pesan'] || c.topik_pesan || c.pesan || c[6] || '').toLowerCase();
-      const jawaban = String(c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '').toLowerCase();
-      const rawStatus = String(c.status || c['Status'] || c[7] || 'Menunggu').toLowerCase().trim();
+      const ticketIdStr = String(c.ticket_id || c['ID Tiket'] || '').toLowerCase();
+      const adminPengirim = String(c.admin_name || c['Nama User'] || '').toLowerCase();
+      const pertanyaan = String(c.pertanyaan || c['Topik Pesan'] || '').toLowerCase();
+      const jawaban = String(c.jawaban_expert || c['Isi_Email'] || '').toLowerCase();
+      const rawStatus = String(c.status || c['Status'] || 'Menunggu').toLowerCase().trim();
 
-      const matchesSearch = adminPengirim.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
+      const matchesSearch = !q || adminPengirim.includes(q) || ticketIdStr.includes(q) || pertanyaan.includes(q) || jawaban.includes(q);
       const matchesStatus = adminConsultStatusFilter === 'ALL' || rawStatus === adminConsultStatusFilter.toLowerCase();
-
       return matchesSearch && matchesStatus;
     });
   }, [adminConsultations, adminConsultSearchQuery, adminConsultStatusFilter]);
 
   const filteredVisitorStats = useMemo(() => {
-    const q = visitorSearchQuery.toLowerCase();
+    const q = visitorSearchQuery.toLowerCase().trim();
+    if (!q) return visitorStatsList;
     return visitorStatsList.filter(v => {
-      const emailUser = String(v.email || v[1] || 'Visitor Umum').toLowerCase();
-      const pagePath = String(v.page || v[2] || '/').toLowerCase();
-      const ipAddress = String(v.ip_address || v.ip || v[3] || '').toLowerCase();
-      return emailUser.includes(q) || pagePath.includes(q) || ipAddress.includes(q);
+      const emailUser = String(v.email || 'Visitor Umum').toLowerCase();
+      const nameUser = String(v.name || 'Visitor Umum').toLowerCase();
+      const pagePath = String(v.page || '/').toLowerCase();
+      const ipAddress = String(v.ip_address || v.ip || '').toLowerCase();
+      return emailUser.includes(q) || nameUser.includes(q) || pagePath.includes(q) || ipAddress.includes(q);
     });
   }, [visitorStatsList, visitorSearchQuery]);
 
   const filteredFeedbacks = useMemo(() => {
-    const q = feedbackSearchQuery.toLowerCase();
+    const q = feedbackSearchQuery.toLowerCase().trim();
+    if (!q) return feedbacks;
     return feedbacks.filter(fb => {
-      const nama = String(fb.nama || fb.Name || fb[1] || '').toLowerCase();
-      const email = String(fb.email || fb.Email || fb[2] || '').toLowerCase();
-      const pesan = String(fb.pesan || fb.Message || fb[4] || '').toLowerCase();
+      const nama = String(fb.nama || fb.Name || '').toLowerCase();
+      const email = String(fb.email || fb.Email || '').toLowerCase();
+      const pesan = String(fb.pesan || fb.Message || '').toLowerCase();
       return nama.includes(q) || email.includes(q) || pesan.includes(q);
     });
   }, [feedbacks, feedbackSearchQuery]);
 
+  // Analitik Grafik Pengunjung
   const visitorAnalytics = useMemo(() => {
     let generalVisitors = 0; let registeredUsers = 0; let adminVisits = 0; let anomalies = 0;
     const pageCounts: Record<string, number> = {};
     const dateCounts: Record<string, { user: number, guest: number, admin: number, anomaly: number }> = {};
 
     visitorStatsList.forEach((v) => {
-      const emailUser = String(v.email || v[1] || 'Visitor Umum').trim();
-      const pagePath = String(v.page || v[2] || '/').trim();
-      const explicitRole = String(v.role || v[4] || '').trim().toLowerCase();
-      const rawDate = v.timestamp || v[0];
+      const emailUser = String(v.email || 'Visitor Umum').trim();
+      const pagePath = String(v.page || '/').trim();
+      const explicitRole = String(v.role || '').trim().toLowerCase();
+      const rawDate = v.timestamp;
 
       const isSuspiciousPath = pagePath.includes('.env') || pagePath.includes('wp-admin') || pagePath.includes('sql');
       const isUnauthorizedAdminAccess = pagePath.includes('/admin') && emailUser !== 'Visitor Umum' && !emailUser.toLowerCase().includes('admin');
@@ -917,11 +1098,21 @@ export default function AdminDashboardPage() {
       pageCounts[pagePath] = (pageCounts[pagePath] || 0) + 1;
 
       if (rawDate) {
-        const dateKey = new Date(rawDate).toISOString().split('T')[0];
-        if (!dateCounts[dateKey]) dateCounts[dateKey] = { user: 0, guest: 0, admin: 0, anomaly: 0 };
-        dateCounts[dateKey][category] += 1;
+        try {
+          const dateObj = new Date(rawDate);
+          if (!isNaN(dateObj.getTime())) {
+            const dateKey = dateObj.toISOString().split('T')[0];
+            if (!dateCounts[dateKey]) dateCounts[dateKey] = { user: 0, guest: 0, admin: 0, anomaly: 0 };
+            dateCounts[dateKey][category] += 1;
+          }
+        } catch {}
       }
     });
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (!dateCounts[todayStr]) {
+      dateCounts[todayStr] = { user: 0, guest: 0, admin: 0, anomaly: 0 };
+    }
 
     const sortedPages = Object.entries(pageCounts).map(([page, count]) => ({ page, count })).sort((a, b) => b.count - a.count);
     const sortedDates = Object.entries(dateCounts).sort((a, b) => a[0].localeCompare(b[0]));
@@ -968,6 +1159,7 @@ export default function AdminDashboardPage() {
     };
   }, [visitorStatsList]);
 
+  // Analitik Sentimen Masukan
   const feedbackSentimentAnalytics = useMemo(() => {
     let positive = 0; let neutral = 0; let negative = 0;
     const sentimentDateCounts: Record<string, { pos: number, neu: number, neg: number }> = {};
@@ -975,7 +1167,7 @@ export default function AdminDashboardPage() {
     feedbacks.forEach((fb) => {
       const rawSent = String(fb.sentiment || fb.sentimen || fb.Sentiment || '').toUpperCase().trim();
       const text = String(fb.pesan || fb.message || '').toLowerCase();
-      const rawDate = fb.timestamp || fb.Timestamp || fb[0];
+      const rawDate = fb.timestamp;
 
       let currentType = 'neu';
       if (rawSent.includes('POS') || text.includes('bagus') || text.includes('mantap')) {
@@ -990,11 +1182,16 @@ export default function AdminDashboardPage() {
       }
 
       if (rawDate) {
-        const dateKey = new Date(rawDate).toISOString().split('T')[0];
-        if (!sentimentDateCounts[dateKey]) {
-          sentimentDateCounts[dateKey] = { pos: 0, neu: 0, neg: 0 };
-        }
-        sentimentDateCounts[dateKey][currentType] += 1;
+        try {
+          const dateObj = new Date(rawDate);
+          if (!isNaN(dateObj.getTime())) {
+            const dateKey = dateObj.toISOString().split('T')[0];
+            if (!sentimentDateCounts[dateKey]) {
+              sentimentDateCounts[dateKey] = { pos: 0, neu: 0, neg: 0 };
+            }
+            sentimentDateCounts[dateKey][currentType] += 1;
+          }
+        } catch {}
       }
     });
 
@@ -1009,68 +1206,26 @@ export default function AdminDashboardPage() {
       trendData: {
         labels: sortedSentimentDates.map(item => item[0]),
         datasets: [
-          {
-            label: 'Positif',
-            data: sortedSentimentDates.map(item => item[1].pos),
-            borderColor: '#16a34a',
-            backgroundColor: 'rgba(22, 163, 74, 0.1)',
-            tension: 0.3,
-            fill: false
-          },
-          {
-            label: 'Netral',
-            data: sortedSentimentDates.map(item => item[1].neu),
-            borderColor: '#d97706',
-            backgroundColor: 'rgba(217, 119, 6, 0.1)',
-            tension: 0.3,
-            fill: false
-          },
-          {
-            label: 'Negatif',
-            data: sortedSentimentDates.map(item => item[1].neg),
-            borderColor: '#dc2626',
-            backgroundColor: 'rgba(220, 38, 38, 0.1)',
-            tension: 0.3,
-            fill: false
-          }
+          { label: 'Positif', data: sortedSentimentDates.map(item => item[1].pos), borderColor: '#16a34a', backgroundColor: 'rgba(22, 163, 74, 0.1)', tension: 0.3, fill: false },
+          { label: 'Netral', data: sortedSentimentDates.map(item => item[1].neu), borderColor: '#d97706', backgroundColor: 'rgba(217, 119, 6, 0.1)', tension: 0.3, fill: false },
+          { label: 'Negatif', data: sortedSentimentDates.map(item => item[1].neg), borderColor: '#dc2626', backgroundColor: 'rgba(220, 38, 38, 0.1)', tension: 0.3, fill: false }
         ]
       }
     };
   }, [feedbacks]);
 
   const getItemSentimentLabel = (fb: any) => {
-    const rawSent = String(fb.sentiment || fb.sentimen || '').toUpperCase().trim();
+    const rawSent = String(fb.sentiment || fb.sentimen || fb.Sentiment || '').toUpperCase().trim();
     if (rawSent.includes('POS')) return { label: '🟢 POSITIF', style: STYLES.badgeActive };
     if (rawSent.includes('NEG')) return { label: '🔴 NEGATIF', style: { ...STYLES.badgePending, background: '#fef2f2', color: '#dc2626' } };
     return { label: '🟡 NETRAL', style: STYLES.badgePending };
   };
 
-  // 🟢 LANGKAH-LANGKAH PANDUAN INTERAKTIF ADMIN
   const adminDashboardSteps = useMemo(() => [
-    {
-      target: 'body',
-      title: '👋 Panel Operasional Admin',
-      content: 'Selamat datang di Panel Kontrol Administrator AHP! Mari pelajari modul pengelolaan data dan layanan pelanggan.',
-      placement: 'center' as const,
-    },
-    {
-      target: '.tour-admin-tabs',
-      title: '📑 Modul Operasional',
-      content: 'Gunakan tab-tab ini untuk berpindah antara Direktori Pakar, Akun User, Produk Platform, Tiket Konsultasi, dan Log Statistik.',
-      placement: 'bottom' as const,
-    },
-    {
-      target: '.tour-admin-content',
-      title: '📊 Tabel Data & Manajemen',
-      content: 'Di area ini Anda dapat mencari, memverifikasi data pakar, menjawab tiket konsultasi, hingga mengubah paket langganan pengguna.',
-      placement: 'top' as const,
-    },
-    {
-      target: '.tour-admin-quick-actions',
-      title: '⚡ Navigasi Khusus',
-      content: 'Bagi SuperAdmin, tombol ini memberikan akses langsung ke Repositori Arsip Dokumen dan Kontrol Akses Sistem Tingkat Lanjut.',
-      placement: 'left' as const,
-    }
+    { target: 'body', title: '👋 Panel Operasional Admin', content: 'Selamat datang di Panel Kontrol Administrator AHP! Mari pelajari modul pengelolaan data dan layanan pelanggan.', placement: 'center' as const },
+    { target: '.tour-admin-tabs', title: '📑 Modul Operasional', content: 'Gunakan tab-tab ini untuk berpindah antara Direktori Pakar, Akun User, Produk Platform, Tiket Konsultasi, dan Log Statistik.', placement: 'bottom' as const },
+    { target: '.tour-admin-content', title: '📊 Tabel Data & Manajemen', content: 'Di area ini Anda dapat mencari, memverifikasi data pakar, menjawab tiket konsultasi, hingga mengubah paket langganan pengguna.', placement: 'top' as const },
+    { target: '.tour-admin-quick-actions', title: '⚡ Navigasi Khusus', content: 'Bagi SuperAdmin, tombol ini memberikan akses langsung ke Repositori Arsip Dokumen dan Kontrol Akses Sistem Tingkat Lanjut.', placement: 'left' as const }
   ], []);
 
   const handleStartAdminTour = () => {
@@ -1079,7 +1234,6 @@ export default function AdminDashboardPage() {
 
   return (
     <div style={STYLES.page}>
-      {/* 🟢 KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
       <SafeJoyride steps={adminDashboardSteps} storageKey="ahp_tour_admin_dashboard" primaryColor="#1e3a8a" />
 
       <header style={STYLES.header}>
@@ -1088,7 +1242,6 @@ export default function AdminDashboardPage() {
           <p style={STYLES.headerSubtitle}>Operator: <strong>{adminName}</strong> ({adminRole})</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }} className="tour-admin-quick-actions">
-          {/* 🟢 TOMBOL PANDUAN INTERAKTIF ADMIN */}
           <button
             type="button"
             onClick={handleStartAdminTour}
@@ -1125,21 +1278,58 @@ export default function AdminDashboardPage() {
       </header>
 
       <div style={STYLES.container}>
-        {/* 🟢 TARGET KELAS: tour-admin-tabs */}
         <div style={STYLES.tabsRow} className="tour-admin-tabs">
-          {canAccessTab('expert_directory') && <button onClick={() => setActiveTab('expert_directory')} style={activeTab === 'expert_directory' ? STYLES.tabActive : STYLES.tabInactive}>Direktori Pakar ({experts.length})</button>}
-          {canAccessTab('users') && <button onClick={() => setActiveTab('users')} style={activeTab === 'users' ? STYLES.tabActive : STYLES.tabInactive}>Manajemen User Pakar ({filteredUsers.length})</button>}
-          {canAccessTab('products') && <button onClick={() => setActiveTab('products')} style={activeTab === 'products' ? STYLES.tabActive : STYLES.tabInactive}>Produk Platform ({products.length})</button>}
-          {canAccessTab('consultation_user') && <button onClick={() => setActiveTab('consultation_user')} style={activeTab === 'consultation_user' ? STYLES.tabActive : STYLES.tabInactive}>Konsultasi Publik ({userConsultations.length})</button>}
-          {canAccessTab('consultation_admin') && <button onClick={() => setActiveTab('consultation_admin')} style={activeTab === 'consultation_admin' ? STYLES.tabActive : STYLES.tabInactive}>Konsultasi Admin-Pakar ({adminConsultations.length})</button>}
-          {canAccessTab('visitor_stats') && <button onClick={() => setActiveTab('visitor_stats')} style={activeTab === 'visitor_stats' ? STYLES.tabActive : STYLES.tabInactive}>Statistik Kunjungan</button>}
-          {canAccessTab('feedback') && <button onClick={() => setActiveTab('feedback')} style={activeTab === 'feedback' ? STYLES.tabActive : STYLES.tabInactive}>Masukan ({feedbacks.length})</button>}
-          {canAccessTab('sop_guide') && <button onClick={() => setActiveTab('sop_guide')} style={activeTab === 'sop_guide' ? STYLES.tabActive : STYLES.tabInactive}>📖 SOP</button>}
+          {canAccessTab('expert_directory') && (
+            <button onClick={() => setActiveTab('expert_directory')} style={activeTab === 'expert_directory' ? STYLES.tabActive : STYLES.tabInactive}>
+              Direktori Pakar ({experts.length})
+            </button>
+          )}
+          
+          {canAccessTab('users') && (
+            <button onClick={() => setActiveTab('users')} style={activeTab === 'users' ? STYLES.tabActive : STYLES.tabInactive}>
+              Manajemen User ({filteredUsers.length})
+            </button>
+          )}
+          
+          {canAccessTab('products') && (
+            <button onClick={() => setActiveTab('products')} style={activeTab === 'products' ? STYLES.tabActive : STYLES.tabInactive}>
+              Produk Platform ({products.length})
+            </button>
+          )}
+          
+          {canAccessTab('consultation_user') && (
+            <button onClick={() => setActiveTab('consultation_user')} style={activeTab === 'consultation_user' ? STYLES.tabActive : STYLES.tabInactive}>
+              Konsultasi Publik ({userConsultations.length})
+            </button>
+          )}
+          
+          {canAccessTab('consultation_admin') && (
+            <button onClick={() => setActiveTab('consultation_admin')} style={activeTab === 'consultation_admin' ? STYLES.tabActive : STYLES.tabInactive}>
+              Konsultasi Admin-Pakar ({adminConsultations.length})
+            </button>
+          )}
+          
+          {canAccessTab('visitor_stats') && (
+            <button onClick={() => setActiveTab('visitor_stats')} style={activeTab === 'visitor_stats' ? STYLES.tabActive : STYLES.tabInactive}>
+              Statistik Kunjungan ({totalPublicVisits})
+            </button>
+          )}
+          
+          {canAccessTab('feedback') && (
+            <button onClick={() => setActiveTab('feedback')} style={activeTab === 'feedback' ? STYLES.tabActive : STYLES.tabInactive}>
+              Masukan ({feedbacks.length})
+            </button>
+          )}
+          
+          {canAccessTab('sop_guide') && (
+            <button onClick={() => setActiveTab('sop_guide')} style={activeTab === 'sop_guide' ? STYLES.tabActive : STYLES.tabInactive}>
+              📖 SOP
+            </button>
+          )}
         </div>
 
         {apiError && <div style={STYLES.errorBox}>{apiError}</div>}
 
-        {/* 🟢 TARGET KELAS: tour-admin-content */}
         <div style={STYLES.contentCard} className="tour-admin-content">
           
           {/* TAB 1: EXPERT DIRECTORY */}
@@ -1149,7 +1339,7 @@ export default function AdminDashboardPage() {
                 <h3>Direktori Pakar &amp; Tenaga Ahli ({filteredExperts.length})</h3>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={handleOpenAddExpert} style={STYLES.btnAdd}>+ Tambah Pakar Baru</button>
-                  <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                  <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
                 </div>
               </div>
               <input type="text" placeholder="Cari pakar berdasarkan nama, bidang, atau instansi..." value={expertSearchQuery} onChange={e => setExpertSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
@@ -1172,10 +1362,8 @@ export default function AdminDashboardPage() {
                       const keahlian = exp.bidang_keahlian || exp.bidangkeahlian || exp.keahlian || '-';
                       const instansi = exp.asal_instansi || exp.asalinstansi || exp.instansi || exp.lembaga || '-';
                       const emailExp = exp.expert_email || exp.expertemail || exp.email || '-';
-                      
                       const ktp = exp.ktp_url || exp.ktp;
                       const portofolio = exp.portofolio_url || exp.portofolio || exp.cv;
-
                       const statusPakar = exp.status || 'Aktif';
                       const isPublic = exp.is_public || exp.ispublic || 'PRIVAT';
 
@@ -1228,12 +1416,12 @@ export default function AdminDashboardPage() {
             </div>
           )}
 
-          {/* TAB 2: MANAJEMEN USER PAKAR */}
+          {/* TAB 2: MANAJEMEN USER */}
           {activeTab === 'users' && canAccessTab('users') && (
             <div>
               <div style={STYLES.cardTitleRow}>
-                <h3>Manajemen Akun User Pakar ({filteredUsers.length})</h3>
-                <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                <h3>Manajemen Akun User ({filteredUsers.length})</h3>
+                <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
               </div>
               <input type="text" placeholder="Cari akun berdasarkan nama atau email..." value={userSearchQuery} onChange={e => setUserSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
               <div style={STYLES.tableWrap}>
@@ -1248,7 +1436,7 @@ export default function AdminDashboardPage() {
                   </thead>
                   <tbody>
                     {filteredUsers.map((usr: UserItem, i: number) => {
-                      const currentPlan = String(usr.plan || 'PRO').toUpperCase();
+                      const currentPlan = String(usr.plan || 'FREE').toUpperCase();
                       return (
                         <tr key={i}>
                           <td style={STYLES.td}><strong>{usr.nama || usr.name}</strong></td>
@@ -1261,6 +1449,8 @@ export default function AdminDashboardPage() {
                                 onChange={(e) => handleUpdateExpertPlan(String(usr.email), e.target.value)}
                                 style={{ ...STYLES.input, width: 130, padding: 6, fontWeight: 700, fontSize: 12 }}
                               >
+                                <option value="FREE">FREE</option>
+                                <option value="BASIC">BASIC</option>
                                 <option value="PRO">PRO</option>
                                 <option value="PLUS">PLUS</option>
                                 <option value="PREMIUM">PREMIUM</option>
@@ -1291,7 +1481,7 @@ export default function AdminDashboardPage() {
                 <table style={STYLES.table}>
                   <thead>
                     <tr>
-                      <th style={{ ...STYLES.th, width: 60, textAlign: 'center' }}>Gambar</th>
+                      <th style={{ ...STYLES.th, width: 80, textAlign: 'center' }}>Gambar</th>
                       <th style={STYLES.th}>Nama Produk</th>
                       <th style={STYLES.th}>Deskripsi</th>
                       <th style={STYLES.th}>Kategori &amp; Status</th>
@@ -1302,24 +1492,25 @@ export default function AdminDashboardPage() {
                     {products.map((p, i) => {
                       const imgSrc = p.imageurl || p.gambar;
                       const desc = p.deskripsi || p.description || '-';
+                      const st = String(p.status || 'Tersedia');
                       return (
                         <tr key={i}>
-                          <td style={{ ...STYLES.td, textAlign: 'center' }}>
+                          <td style={{ ...STYLES.td, textAlign: 'center', verticalAlign: 'middle' }}>
                             {imgSrc ? (
-                              <img src={imgSrc} alt="Produk" style={{ width: 50, height: 50, borderRadius: 6, objectFit: 'cover', border: '1px solid #cbd5e1' }} />
+                              <div style={{ width: 64, height: 48, borderRadius: 6, border: '1px solid #cbd5e1', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', margin: '0 auto', padding: 2 }}>
+                                <img src={imgSrc} alt={p.nama || 'Produk'} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+                              </div>
                             ) : (
-                              <div style={{ width: 50, height: 50, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, border: '1px solid #e2e8f0', margin: '0 auto' }}>📦</div>
+                              <div style={{ width: 48, height: 48, borderRadius: 6, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, border: '1px solid #e2e8f0', margin: '0 auto' }}>📦</div>
                             )}
                           </td>
                           <td style={STYLES.td}><strong>{p.nama || p.name}</strong></td>
                           <td style={STYLES.td}>
-                            <div style={{ maxWidth: 280, fontSize: 11.5, color: '#475569', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                              {desc}
-                            </div>
+                            <div style={{ maxWidth: 280, fontSize: 11.5, color: '#475569', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{desc}</div>
                           </td>
                           <td style={STYLES.td}>
                             <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, color: '#64748b' }}>{p.kategori || p.category}</div>
-                            <span style={STYLES.badgeActive}>{p.status}</span>
+                            <span style={{ ...STYLES.badgeActive, background: st === 'Tersedia' ? '#dcfce7' : st === 'Segera Hadir' ? '#dbeafe' : st === 'Pre-Order' ? '#fef3c7' : '#fee2e2', color: st === 'Tersedia' ? '#15803d' : st === 'Segera Hadir' ? '#1d4ed8' : st === 'Pre-Order' ? '#b45309' : '#b91c1c' }}>{st}</span>
                           </td>
                           <td style={STYLES.td}>
                             <div style={{ display: 'flex', gap: 6 }}>
@@ -1349,7 +1540,7 @@ export default function AdminDashboardPage() {
                       🗑️ Hapus Terpilih ({selectedConsultations.length})
                     </button>
                   )}
-                  <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                  <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
                 </div>
               </div>
               
@@ -1374,7 +1565,7 @@ export default function AdminDashboardPage() {
                           <input 
                             type="checkbox" 
                             onChange={(e) => {
-                              const allIds = filteredUserConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || ''));
+                              const allIds = filteredUserConsultations.map(c => String(c.ticket_id || ''));
                               setSelectedConsultations(e.target.checked ? allIds : []);
                             }}
                             checked={selectedConsultations.length === filteredUserConsultations.length && filteredUserConsultations.length > 0}
@@ -1391,19 +1582,17 @@ export default function AdminDashboardPage() {
                   </thead>
                   <tbody>
                     {filteredUserConsultations.map((c, i) => {
-                      const ticketId = String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || i);
-                      const userName = c.user_name || c['Nama User'] || c.nama_user || c[3] || 'Pemohon';
-                      const userEmail = c.user_email || c['Kontak User'] || c.email || c[4] || '';
-                      const asalInstitusi = c.asal_institusi || c['Asal Institusi'] || c.institusi || c[5] || '';
-                      const expertEmail = c.expert_email || c['Expert Tujuan'] || c.expert_tujuan || c[2] || '';
-                      const expertId = c.expert_id || c[1] || '';
-
-                      const pertanyaanUser = c.pertanyaan || c['Topik Pesan'] || c.topik_pesan || c.pesan || c[6] || '-';
-                      const jawabanExpert = c.jawaban_expert || c['Isi_Email'] || c.isi_email || c[9] || '';
-                      const lampiranUrl = c.lampiran || c['Lampiran'] || c.fileUrl || c[10] || '';
-                      const status = c.status || c['Status'] || c[7] || 'Menunggu';
-                      
-                      const rawDate = c.created_at || c['Tanggal Dibuat'] || c.tanggal_dibuat || c.timestamp || c[8] || c[0];
+                      const ticketId = String(c.ticket_id || i);
+                      const userName = c.user_name || 'Pemohon';
+                      const userEmail = c.user_email || '';
+                      const asalInstitusi = c.asal_institusi || '';
+                      const expertEmail = c.expert_email || '';
+                      const expertId = c.expert_id || '';
+                      const pertanyaanUser = c.pertanyaan || '-';
+                      const jawabanExpert = c.jawaban_expert || '';
+                      const lampiranUrl = c.lampiran || '';
+                      const status = c.status || 'Menunggu';
+                      const rawDate = c.created_at;
                       const dateStr = formatDisplayDate(rawDate);
                       
                       return (
@@ -1423,12 +1612,8 @@ export default function AdminDashboardPage() {
                               />
                             </td>
                           )}
-                          <td style={STYLES.td}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>📅 {dateStr}</div>
-                          </td>
-                          <td style={STYLES.td}>
-                            <span style={STYLES.idTag}>#{ticketId}</span>
-                          </td>
+                          <td style={STYLES.td}><div style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>📅 {dateStr}</div></td>
+                          <td style={STYLES.td}><span style={STYLES.idTag}>#{ticketId}</span></td>
                           <td style={STYLES.td}>
                             <div>
                               <strong style={{ color: '#0f172a', fontSize: 13.5 }}>👤 {userName}</strong>
@@ -1443,27 +1628,17 @@ export default function AdminDashboardPage() {
                           <td style={STYLES.td}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                               <div style={{ background: '#f8fafc', borderLeft: '4px solid #2563eb', padding: '8px 12px', borderRadius: '0 6px 6px 0' }}>
-                                <div style={{ fontSize: 11, fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-                                  💬 Pertanyaan User:
-                                </div>
-                                <div style={{ fontSize: 12.5, color: '#1e293b', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
-                                  {pertanyaanUser}
-                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: '#1e40af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>💬 Pertanyaan User:</div>
+                                <div style={{ fontSize: 12.5, color: '#1e293b', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>{pertanyaanUser}</div>
                                 {lampiranUrl && (
                                   <div style={{ marginTop: 6 }}>
-                                    <a href={lampiranUrl} target="_blank" rel="noreferrer" style={STYLES.linkBadge}>
-                                      📎 Lihat Berkas Lampiran
-                                    </a>
+                                    <a href={lampiranUrl} target="_blank" rel="noreferrer" style={STYLES.linkBadge}>📎 Lihat Berkas Lampiran</a>
                                   </div>
                                 )}
                               </div>
                               <div style={{ background: jawabanExpert ? '#f0fdf4' : '#fffbeb', borderLeft: `4px solid ${jawabanExpert ? '#16a34a' : '#f59e0b'}`, padding: '8px 12px', borderRadius: '0 6px 6px 0' }}>
-                                <div style={{ fontSize: 11, fontWeight: 800, color: jawabanExpert ? '#166534' : '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>
-                                  {jawabanExpert ? '✅ Tanggapan / Balasan:' : '⏳ Status Jawaban:'}
-                                </div>
-                                <div style={{ fontSize: 12.5, color: jawabanExpert ? '#14532d' : '#78350f', whiteSpace: 'pre-wrap', lineHeight: 1.45, fontStyle: jawabanExpert ? 'normal' : 'italic' }}>
-                                  {jawabanExpert || 'Belum ada tanggapan atau balasan yang dikirimkan.'}
-                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: jawabanExpert ? '#166534' : '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{jawabanExpert ? '✅ Tanggapan / Balasan:' : '⏳ Status Jawaban:'}</div>
+                                <div style={{ fontSize: 12.5, color: jawabanExpert ? '#14532d' : '#78350f', whiteSpace: 'pre-wrap', lineHeight: 1.45, fontStyle: jawabanExpert ? 'normal' : 'italic' }}>{jawabanExpert || 'Belum ada tanggapan atau balasan yang dikirimkan.'}</div>
                               </div>
                             </div>
                           </td>
@@ -1473,16 +1648,8 @@ export default function AdminDashboardPage() {
                               onChange={(e) => handleUpdateStatus(ticketId, e.target.value)}
                               style={{
                                 ...STYLES.statusSelect,
-                                background:
-                                  status === 'Selesai' ? '#dcfce7' :
-                                  status === 'Sedang Diverifikasi' ? '#e0e7ff' :
-                                  status === 'Diteruskan ke Pakar' ? '#dbeafe' :
-                                  status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
-                                color:
-                                  status === 'Selesai' ? '#166534' :
-                                  status === 'Sedang Diverifikasi' ? '#3730a3' :
-                                  status === 'Diteruskan ke Pakar' ? '#1e40af' :
-                                  status === 'Ditolak' ? '#991b1b' : '#854d0e'
+                                background: status === 'Selesai' ? '#dcfce7' : status === 'Sedang Diverifikasi' ? '#e0e7ff' : status === 'Diteruskan ke Pakar' ? '#dbeafe' : status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
+                                color: status === 'Selesai' ? '#166534' : status === 'Sedang Diverifikasi' ? '#3730a3' : status === 'Diteruskan ke Pakar' ? '#1e40af' : status === 'Ditolak' ? '#991b1b' : '#854d0e'
                               }}
                             >
                               <option value="Menunggu">⏳ Menunggu</option>
@@ -1493,10 +1660,7 @@ export default function AdminDashboardPage() {
                             </select>
                           </td>
                           <td style={{ ...STYLES.td, textAlign: 'center' }}>
-                            <button 
-                              onClick={() => handleOpenReplyModal(c)} 
-                              style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%', whiteSpace: 'nowrap' }}
-                            >
+                            <button onClick={() => handleOpenReplyModal(c)} style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%', whiteSpace: 'nowrap' }}>
                               ✍️ Jawab Tiket
                             </button>
                           </td>
@@ -1520,7 +1684,7 @@ export default function AdminDashboardPage() {
                       🗑️ Hapus Terpilih ({selectedAdminConsultations.length})
                     </button>
                   )}
-                  <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                  <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
                 </div>
               </div>
 
@@ -1545,7 +1709,7 @@ export default function AdminDashboardPage() {
                           <input 
                             type="checkbox" 
                             onChange={(e) => {
-                              const allIds = filteredAdminConsultations.map(c => String(c.ticket_id || c['ID Tiket'] || c.id_tiket || c.idTiket || c.id || c[0] || ''));
+                              const allIds = filteredAdminConsultations.map(c => String(c.ticket_id || ''));
                               setSelectedAdminConsultations(e.target.checked ? allIds : []);
                             }}
                             checked={selectedAdminConsultations.length === filteredAdminConsultations.length && filteredAdminConsultations.length > 0}
@@ -1562,15 +1726,13 @@ export default function AdminDashboardPage() {
                   </thead>
                   <tbody>
                     {filteredAdminConsultations.map((item: any, i: number) => {
-                      const ticketId = String(item.ticket_id || item['ID Tiket'] || item.id_tiket || item.idTiket || item.id || item[0] || i);
-                      const adminPengirim = item.admin_name || item.adminName || item.user_name || item['Nama User'] || adminName || 'Admin Operator';
-                      const expertTujuan = item.expert_email || item['Expert Tujuan'] || item.pakar_email || 'Pakar Terkait';
-                      
-                      const pesanPertanyaan = item.pertanyaan || item.pesan || item['Topik Pesan'] || item[6] || '-';
-                      const jawabanAdmin = item.jawaban_expert || item.jawaban_admin || item.isi_email || item['Isi_Email'] || item[9] || '';
-                      const status = item.status || item['Status'] || item[7] || 'Menunggu';
-                      
-                      const rawDate = item.created_at || item['Tanggal Dibuat'] || item.timestamp || item[8] || item[0];
+                      const ticketId = String(item.ticket_id || i);
+                      const adminPengirim = item.admin_name || adminName || 'Admin Operator';
+                      const expertTujuan = item.expert_email || 'Pakar Terkait';
+                      const pesanPertanyaan = item.pertanyaan || '-';
+                      const jawabanAdmin = item.jawaban_expert || '';
+                      const status = item.status || 'Menunggu';
+                      const rawDate = item.created_at;
                       const dateStr = formatDisplayDate(rawDate);
                       
                       return (
@@ -1614,16 +1776,8 @@ export default function AdminDashboardPage() {
                               onChange={(e) => handleUpdateStatus(ticketId, e.target.value)}
                               style={{
                                 ...STYLES.statusSelect,
-                                background:
-                                  status === 'Selesai' ? '#dcfce7' :
-                                  status === 'Sedang Diverifikasi' ? '#e0e7ff' :
-                                  status === 'Diteruskan ke Pakar' ? '#dbeafe' :
-                                  status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
-                                color:
-                                  status === 'Selesai' ? '#166534' :
-                                  status === 'Sedang Diverifikasi' ? '#3730a3' :
-                                  status === 'Diteruskan ke Pakar' ? '#1e40af' :
-                                  status === 'Ditolak' ? '#991b1b' : '#854d0e'
+                                background: status === 'Selesai' ? '#dcfce7' : status === 'Sedang Diverifikasi' ? '#e0e7ff' : status === 'Diteruskan ke Pakar' ? '#dbeafe' : status === 'Ditolak' ? '#fee2e2' : '#fef9c3',
+                                color: status === 'Selesai' ? '#166534' : status === 'Sedang Diverifikasi' ? '#3730a3' : status === 'Diteruskan ke Pakar' ? '#1e40af' : status === 'Ditolak' ? '#991b1b' : '#854d0e'
                               }}
                             >
                               <option value="Menunggu">⏳ Menunggu</option>
@@ -1634,10 +1788,7 @@ export default function AdminDashboardPage() {
                             </select>
                           </td>
                           <td style={{ ...STYLES.td, textAlign: 'center' }}>
-                            <button 
-                              onClick={() => handleOpenReplyModal(item)} 
-                              style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%' }}
-                            >
+                            <button onClick={() => handleOpenReplyModal(item)} style={{ ...STYLES.btnEdit, background: '#2563eb', color: '#fff', padding: '6px 12px', width: '100%' }}>
                               ✍️ Jawab Tiket
                             </button>
                           </td>
@@ -1654,14 +1805,24 @@ export default function AdminDashboardPage() {
           {activeTab === 'visitor_stats' && canAccessTab('visitor_stats') && (
             <div>
               <div style={STYLES.cardTitleRow}>
-                <h3>Statistik Kunjungan Pengguna</h3>
+                <h3>Statistik Kunjungan Pengguna ({totalPublicVisits})</h3>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {isSuperAdmin && (
-                    <button onClick={handleDeleteVisitorLogs} disabled={selectedLogs.length === 0} style={{ ...STYLES.btnCancel, background: selectedLogs.length > 0 ? '#fef2f2' : '#f1f5f9', color: selectedLogs.length > 0 ? '#dc2626' : '#94a3b8', borderColor: selectedLogs.length > 0 ? '#fecaca' : '#cbd5e1' }}>
+                    <button 
+                      onClick={handleDeleteVisitorLogs} 
+                      disabled={selectedLogs.length === 0} 
+                      style={{ 
+                        ...STYLES.btnCancel, 
+                        background: selectedLogs.length > 0 ? '#fef2f2' : '#f1f5f9', 
+                        color: selectedLogs.length > 0 ? '#dc2626' : '#94a3b8', 
+                        borderColor: selectedLogs.length > 0 ? '#fecaca' : '#cbd5e1',
+                        cursor: selectedLogs.length > 0 ? 'pointer' : 'not-allowed'
+                      }}
+                    >
                       🗑️ Hapus Log Terpilih ({selectedLogs.length})
                     </button>
                   )}
-                  <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                  <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
                 </div>
               </div>
 
@@ -1708,7 +1869,7 @@ export default function AdminDashboardPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
                 <div>
                   <h4 style={{ marginBottom: 10, fontSize: 14 }}>Daftar Log Terakhir</h4>
-                  <input type="text" placeholder="Cari pengguna, IP, atau alamat halaman..." value={visitorSearchQuery} onChange={e => setVisitorSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
+                  <input type="text" placeholder="Cari nama, pengguna, IP, atau alamat halaman..." value={visitorSearchQuery} onChange={e => setVisitorSearchQuery(e.target.value)} style={{ ...STYLES.input, maxWidth: 350, marginBottom: 14 }} />
                   <div style={STYLES.tableWrap}>
                     <table style={STYLES.table}>
                       <thead>
@@ -1718,49 +1879,53 @@ export default function AdminDashboardPage() {
                               <input 
                                 type="checkbox" 
                                 onChange={e => {
-                                  const visibleRows = filteredVisitorStats.map(v => visitorStatsList.indexOf(v) + 2).filter(x => x > 1);
-                                  setSelectedLogs(e.target.checked ? visibleRows : []);
+                                  const visibleIds = filteredVisitorStats.map(v => Number(v.id)).filter(id => !isNaN(id) && id > 0);
+                                  setSelectedLogs(e.target.checked ? visibleIds : []);
                                 }} 
-                                checked={selectedLogs.length > 0 && filteredVisitorStats.every(v => selectedLogs.includes(visitorStatsList.indexOf(v) + 2))} 
+                                checked={selectedLogs.length > 0 && filteredVisitorStats.length > 0 && filteredVisitorStats.every(v => selectedLogs.includes(Number(v.id)))} 
                               />
                             </th>
                           )}
                           <th style={STYLES.th}>Waktu</th>
+                          <th style={STYLES.th}>Nama</th>
                           <th style={STYLES.th}>Pengguna (Email)</th>
                           <th style={STYLES.th}>Alamat IP</th>
                           <th style={STYLES.th}>Halaman</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredVisitorStats.slice(0, 50).map((v, i) => {
-                          const originalIndex = visitorStatsList.indexOf(v);
-                          const rowNum = originalIndex !== -1 ? originalIndex + 2 : -1;
-                          const ipAddress = v.ip_address || v.ip || v[3] || 'Unknown';
+                        {filteredVisitorStats.slice(0, 100).map((v, i) => {
+                          const logId = Number(v.id || i + 1);
+                          const ipAddress = v.ip_address || v.ip || 'Unknown';
+                          const visitorName = v.name || 'Visitor Umum';
+                          const displayTime = formatDisplayDate(v.timestamp);
 
                           return (
-                            <tr key={i}>
+                            <tr key={v.id || i}>
                               {isSuperAdmin && (
                                 <td style={{ ...STYLES.td, textAlign: 'center' }}>
                                   <input 
                                     type="checkbox" 
-                                    checked={selectedLogs.includes(rowNum)} 
+                                    checked={selectedLogs.includes(logId)} 
                                     onChange={e => { 
-                                      if(rowNum === -1) return;
-                                      setSelectedLogs(prev => e.target.checked ? [...prev, rowNum] : prev.filter(x => x !== rowNum)); 
+                                      setSelectedLogs(prev => e.target.checked ? [...prev, logId] : prev.filter(x => x !== logId)); 
                                     }} 
                                   />
                                 </td>
                               )}
-                              <td style={STYLES.td}>{v.timestamp || v[0] ? new Date(v.timestamp || v[0]).toLocaleString('id-ID') : '-'}</td>
+                              <td style={STYLES.td}><span style={{ fontSize: 12, fontWeight: 600, color: '#334155' }}>{displayTime}</span></td>
                               <td style={STYLES.td}>
-                                <div style={{ fontWeight: 600, color: '#0f172a' }}>{v.email || v[1] || 'Visitor Umum'}</div>
+                                <strong style={{ color: '#0f172a' }}>{visitorName}</strong>
+                              </td>
+                              <td style={STYLES.td}>
+                                <div style={{ color: '#475569', fontSize: 12 }}>{v.email || 'Visitor Umum'}</div>
                               </td>
                               <td style={STYLES.td}>
                                 <span style={STYLES.ipBadge}>{ipAddress}</span>
                               </td>
                               <td style={STYLES.td}>
                                 <code style={{ fontSize: 12, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
-                                  {v.page || v[2] || '/'}
+                                  {v.page || '/'}
                                 </code>
                               </td>
                             </tr>
@@ -1790,7 +1955,7 @@ export default function AdminDashboardPage() {
             <div>
               <div style={STYLES.cardTitleRow}>
                 <h3>Umpan Balik Pengguna</h3>
-                <button onClick={fetchAllOperasionalData} style={STYLES.btnRefresh}>Muat Ulang</button>
+                <button onClick={() => { setLoading(true); fetchAllOperasionalData().finally(() => setLoading(false)); }} style={STYLES.btnRefresh}>Muat Ulang</button>
               </div>
 
               <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
@@ -1846,14 +2011,14 @@ export default function AdminDashboardPage() {
                       const sentiment = getItemSentimentLabel(fb);
                       return (
                         <tr key={i}>
-                          <td style={STYLES.td}>{fb.timestamp || fb.Timestamp || fb[0] ? new Date(fb.timestamp || fb.Timestamp || fb[0]).toLocaleDateString('id-ID') : '-'}</td>
+                          <td style={STYLES.td}>{fb.timestamp ? new Date(fb.timestamp).toLocaleDateString('id-ID') : '-'}</td>
                           <td style={STYLES.td}>
-                            <strong>{fb.nama || fb.Name || fb[1] || 'Anonim'}</strong>
-                            <div style={{ fontSize: 11, color: '#64748b' }}>{fb.email || fb.Email || fb[2] || '-'}</div>
+                            <strong>{fb.nama || 'Anonim'}</strong>
+                            <div style={{ fontSize: 11, color: '#64748b' }}>{fb.email || '-'}</div>
                           </td>
                           <td style={STYLES.td}><span style={sentiment.style}>{sentiment.label}</span></td>
                           <td style={STYLES.td}>
-                            <div style={{ fontSize: 12.5, color: '#334155', maxWidth: 400 }}>{fb.pesan || fb.Message || fb[4] || '-'}</div>
+                            <div style={{ fontSize: 12.5, color: '#334155', maxWidth: 400 }}>{fb.pesan || '-'}</div>
                           </td>
                           <td style={STYLES.td}>
                             {isSuperAdmin && (
@@ -2019,9 +2184,14 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <label style={STYLES.label}>Status</label>
-                  <select value={productForm.status} onChange={e => setProductForm({...productForm, status: e.target.value})} style={STYLES.input}>
-                    <option value="Tersedia">Tersedia</option>
-                    <option value="Kosong">Kosong</option>
+                  <select 
+                    value={productForm.status} 
+                    onChange={e => setProductForm({...productForm, status: e.target.value})} 
+                    style={STYLES.input}
+                  >
+                    {PRODUCT_STATUS_OPTIONS.map((st) => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2081,7 +2251,7 @@ export default function AdminDashboardPage() {
       {isPasswordModalOpen && targetUserForPassword && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalBox}>
-            <h3 style={{ marginTop: 0 }}>Reset Password User Pakar</h3>
+            <h3 style={{ marginTop: 0 }}>Reset Password User</h3>
             <p style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>Ubah kata sandi login untuk pengguna ini.</p>
             <form onSubmit={handleSavePasswordSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <input type="text" value={customPassword} onChange={e => setCustomPassword(e.target.value)} style={STYLES.input} required minLength={6} />
@@ -2117,7 +2287,6 @@ export default function AdminDashboardPage() {
               )}
             </div>
             
-            {/* Pratinjau Lengkap Data Pemohon & Pertanyaan */}
             <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 14 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: '#64748b' }}>ID Tiket: <strong style={{ color: '#1e3a8a' }}>#{selectedTicket.ticket_id || selectedTicket['ID Tiket'] || selectedTicket.id_tiket || selectedTicket.idTiket || selectedTicket[0]}</strong></span>
@@ -2143,7 +2312,6 @@ export default function AdminDashboardPage() {
               </div>
             </div>
 
-            {/* TOMBOL PILIH TEMPLATE BALASAN CEPAT 1 - 4 */}
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11.5, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
                 ⚡ Pilih Template Balasan Cepat:
@@ -2193,7 +2361,7 @@ export default function AdminDashboardPage() {
               </div>
               <div>
                 <label style={STYLES.label}>Jawaban / Balasan Resmi (Akan Terkirim ke User) *</label>
-                <textarea rows={8} value={replyMessage} onChange={e => setReplyMessage(e.target.value)} style={{...STYLES.input, resize: 'vertical'}} required placeholder="Ketik isi jawaban/balasan konsultasi atau gunakan template cepat di atas..." />
+                <textarea rows={10} value={replyMessage} onChange={e => setReplyMessage(e.target.value)} style={{...STYLES.input, resize: 'vertical'}} required placeholder="Ketik isi jawaban/balasan konsultasi atau gunakan template cepat di atas..." />
               </div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
                 <button type="button" onClick={() => setShowReplyModal(false)} style={STYLES.btnCancel}>Batal</button>

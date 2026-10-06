@@ -4,8 +4,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || ''
-
 export default function AdminArchivesPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
@@ -14,21 +12,30 @@ export default function AdminArchivesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [adminName, setAdminName] = useState('Admin')
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setAdminName(localStorage.getItem('admin_name') || 'Admin')
+    }
     fetchArchives()
   }, [])
 
   const fetchArchives = async () => {
-    if (!GOOGLE_SCRIPT_URL) return
     try {
       setLoading(true)
       setSelectedIds([])
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=getarchivedprojects&_t=${Date.now()}`, { cache: 'no-store' })
+      // Menggunakan endpoint Prisma API
+      const res = await fetch(`/api/admin/archive-actions?_t=${Date.now()}`, { cache: 'no-store' })
       const json = await res.json()
-      setArchives(json.data || [])
+      if (json.success) {
+        setArchives(json.data || [])
+      } else {
+        setArchives([])
+      }
     } catch (err: any) {
       console.error('Gagal mengambil data arsip:', err)
+      setNotification({ type: 'error', message: 'Gagal menyambung ke server MySQL.' })
     } finally {
       setLoading(false)
     }
@@ -37,8 +44,8 @@ export default function AdminArchivesPage() {
   const filtered = archives.filter(item => {
     const term = searchTerm.toLowerCase()
     const name = String(item.nama_proyek || item.namaproyek || '').toLowerCase()
-    const email = String(item.user_email || item.email || item.fasilitator_email || item.fasilitatoremail || '').toLowerCase()
-    const id = String(item.project_id || item.projectid || item.id || '').toLowerCase()
+    const email = String(item.pemilik || item.user_email || item.fasilitator_email || '').toLowerCase()
+    const id = String(item.project_id || item.id || '').toLowerCase()
     return name.includes(term) || email.includes(term) || id.includes(term)
   })
 
@@ -49,7 +56,7 @@ export default function AdminArchivesPage() {
     if (isAllSelected) {
       setSelectedIds([])
     } else {
-      const allIds = filtered.map(item => String(item.project_id || item.projectid || item.id))
+      const allIds = filtered.map(item => String(item.project_id || item.id))
       setSelectedIds(allIds)
     }
   }
@@ -60,33 +67,39 @@ export default function AdminArchivesPage() {
     )
   }
 
-  // --- AKSI RESTORE (SINGLE & BULK) ---
+  // --- AKSI RESTORE (SINGLE & BULK via Prisma API) ---
   const executeRestore = async (ids: string[]) => {
     if (ids.length === 0) return
     const msg = ids.length === 1 
       ? `Pulihkan proyek #${ids[0]} kembali ke daftar aktif?` 
       : `Pulihkan ${ids.length} proyek terpilih kembali ke daftar aktif?`
-    if (!confirm(msg)) return
+    if (!window.confirm(msg)) return
 
     try {
       setActionLoading('bulk_restore')
       setNotification(null)
+      let successCount = 0;
 
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=restoreproject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'restoreproject',
-          project_ids: ids
+      // Eksekusi secara berurutan/paralel ke backend Prisma
+      await Promise.all(ids.map(async (id) => {
+        const res = await fetch('/api/admin/archive-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'restore_project',
+            project_id: id,
+            admin_operator: adminName
+          })
         })
-      })
+        const json = await res.json()
+        if (json.success) successCount++
+      }))
 
-      const json = await res.json()
-      if (json.success !== false) {
-        setNotification({ type: 'success', message: json.message || 'Proyek berhasil dipulihkan!' })
+      if (successCount > 0) {
+        setNotification({ type: 'success', message: `${successCount} proyek berhasil dipulihkan!` })
         fetchArchives()
       } else {
-        setNotification({ type: 'error', message: json.message || 'Gagal memulihkan proyek.' })
+        setNotification({ type: 'error', message: 'Gagal memulihkan proyek dari arsip.' })
       }
     } catch (err: any) {
       setNotification({ type: 'error', message: `Error: ${err.message}` })
@@ -95,14 +108,14 @@ export default function AdminArchivesPage() {
     }
   }
 
-  // --- AKSI HARD DELETE (SINGLE & BULK) ---
+  // --- AKSI HARD DELETE (SINGLE & BULK via Prisma API) ---
   const executeHardDelete = async (ids: string[]) => {
     if (ids.length === 0) return
     const warningMsg = ids.length === 1
-      ? `⚠️ PERINGATAN KERAS: Data proyek #${ids[0]} akan DIMUSNAHKAN TOTAL dari arsip.\n\nKetik "HAPUS" untuk konfirmasi:`
-      : `⚠️ PERINGATAN KERAS: ${ids.length} data proyek terpilih akan DIMUSNAHKAN TOTAL dari arsip.\n\nKetik "HAPUS" untuk konfirmasi:`
+      ? `⚠️ PERINGATAN KERAS: Data proyek #${ids[0]} akan DIMUSNAHKAN TOTAL dari arsip MySQL.\n\nKetik "HAPUS" untuk konfirmasi:`
+      : `⚠️ PERINGATAN KERAS: ${ids.length} data proyek terpilih akan DIMUSNAHKAN TOTAL dari arsip MySQL.\n\nKetik "HAPUS" untuk konfirmasi:`
 
-    const confirmation = prompt(warningMsg)
+    const confirmation = window.prompt(warningMsg)
     if (confirmation !== 'HAPUS') {
       if (confirmation !== null) alert('Konfirmasi dibatalkan (kata kunci tidak cocok).')
       return
@@ -111,23 +124,24 @@ export default function AdminArchivesPage() {
     try {
       setActionLoading('bulk_delete')
       setNotification(null)
+      let successCount = 0;
 
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deletearchivedprojectpermanently`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'deletearchivedprojectpermanently',
-          project_ids: ids
+      await Promise.all(ids.map(async (id) => {
+        const res = await fetch('/api/admin/archive-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'delete_permanent',
+            project_id: id,
+            admin_operator: adminName
+          })
         })
-      })
+        const json = await res.json()
+        if (json.success) successCount++
+      }))
 
-      const json = await res.json()
-      if (json.success !== false) {
-        setNotification({ type: 'success', message: json.message || 'Proyek berhasil dimusnahkan secara permanen.' })
-        fetchArchives()
-      } else {
-        setNotification({ type: 'error', message: json.message || 'Gagal memusnahkan proyek.' })
-      }
+      setNotification({ type: 'success', message: `${successCount} proyek berhasil dimusnahkan secara permanen dari MySQL.` })
+      fetchArchives()
     } catch (err: any) {
       setNotification({ type: 'error', message: `Error: ${err.message}` })
     } finally {
@@ -138,7 +152,7 @@ export default function AdminArchivesPage() {
   // --- FUNGSI UNDUH (CSV / JSON) ---
   const handleDownloadCSV = (selectedOnly: boolean = false) => {
     const dataToExport = selectedOnly 
-      ? filtered.filter(item => selectedIds.includes(String(item.project_id || item.projectid || item.id)))
+      ? filtered.filter(item => selectedIds.includes(String(item.project_id || item.id)))
       : filtered
 
     if (dataToExport.length === 0) {
@@ -146,13 +160,12 @@ export default function AdminArchivesPage() {
       return
     }
 
-    const headers = ['ID Proyek', 'Nama Proyek', 'Metode', 'Email Fasilitator', 'Tanggal Arsip', 'Status']
+    const headers = ['ID Proyek', 'Nama Proyek', 'Pemilik', 'Tanggal Arsip', 'Status']
     const rows = dataToExport.map(item => [
-      `"${item.project_id || item.projectid || item.id || ''}"`,
+      `"${item.project_id || item.id || ''}"`,
       `"${(item.nama_proyek || item.namaproyek || '').replace(/"/g, '""')}"`,
-      `"${item.metode || 'AHP'}"`,
-      `"${item.fasilitator_email || item.fasilitatoremail || item.user_email || item.email || ''}"`,
-      `"${item.archived_at || ''}"`,
+      `"${item.pemilik || item.fasilitator_email || item.user_email || ''}"`,
+      `"${item.created_at || item.archived_at || ''}"`,
       `"TERARSIP"`
     ])
 
@@ -160,7 +173,7 @@ export default function AdminArchivesPage() {
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement('a')
     link.setAttribute('href', encodedUri)
-    link.setAttribute('download', `Arsip_Proyek_${new Date().toISOString().slice(0, 10)}.csv`)
+    link.setAttribute('download', `Arsip_Proyek_MySQL_${new Date().toISOString().slice(0, 10)}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -170,7 +183,7 @@ export default function AdminArchivesPage() {
     let dataToExport = singleItem
       ? [singleItem]
       : (selectedIds.length > 0 
-          ? filtered.filter(item => selectedIds.includes(String(item.project_id || item.projectid || item.id)))
+          ? filtered.filter(item => selectedIds.includes(String(item.project_id || item.id)))
           : filtered)
 
     if (dataToExport.length === 0) {
@@ -197,7 +210,7 @@ export default function AdminArchivesPage() {
         <div style={ARCHIVE_STYLES.headerRow}>
           <div>
             <h2 style={ARCHIVE_STYLES.title}>📦 Repositori Proyek Terarsip</h2>
-            <p style={ARCHIVE_STYLES.subtitle}>Kelola pemulihan massal, pemusnahan total, dan ekspor arsip cadangan.</p>
+            <p style={ARCHIVE_STYLES.subtitle}>Kelola pemulihan massal, pemusnahan total, dan ekspor arsip cadangan (MySQL).</p>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <button onClick={() => router.push('/admin/super-control')} style={ARCHIVE_STYLES.btnBack}>
@@ -294,7 +307,7 @@ export default function AdminArchivesPage() {
             <div style={{ fontSize: 36, marginBottom: 8 }}>🗄️</div>
             <h4 style={{ margin: '0 0 4px 0', color: '#1e293b' }}>Arsip Kosong</h4>
             <p style={{ margin: 0, color: '#64748b', fontSize: 13 }}>
-              {searchTerm ? 'Tidak ada data arsip yang cocok dengan kata kunci pencarian.' : 'Belum ada proyek yang kedaluwarsa.'}
+              {searchTerm ? 'Tidak ada data arsip yang cocok dengan kata kunci pencarian.' : 'Belum ada proyek yang kedaluwarsa di database.'}
             </p>
           </div>
         ) : (
@@ -320,10 +333,10 @@ export default function AdminArchivesPage() {
               </thead>
               <tbody>
                 {filtered.map((item, index) => {
-                  const pId = String(item.project_id || item.projectid || item.id || `PRJ-${index + 1}`)
+                  const pId = String(item.project_id || item.id || `PRJ-${index + 1}`)
                   const pName = item.nama_proyek || item.namaproyek || 'Tanpa Nama'
-                  const pEmail = item.fasilitator_email || item.fasilitatoremail || item.user_email || item.email || '-'
-                  const archivedAt = item.archived_at ? new Date(item.archived_at).toLocaleString('id-ID') : '-'
+                  const pEmail = item.pemilik || item.fasilitator_email || item.user_email || '-'
+                  const archivedAt = item.created_at || item.archived_at || '-'
                   const isSelected = selectedIds.includes(pId)
                   const isBusy = actionLoading === pId
 
@@ -342,7 +355,6 @@ export default function AdminArchivesPage() {
                       </td>
                       <td style={ARCHIVE_STYLES.td}>
                         <strong>{pName}</strong>
-                        <div style={{ fontSize: 11.5, color: '#64748b' }}>Metode: {item.metode || 'AHP'}</div>
                       </td>
                       <td style={ARCHIVE_STYLES.td}>{pEmail}</td>
                       <td style={ARCHIVE_STYLES.td}>{archivedAt}</td>
@@ -418,4 +430,4 @@ const ARCHIVE_STYLES: Record<string, React.CSSProperties> = {
   btnRestore: { background: '#dcfce7', color: '#15803d', border: '1px solid #86efac', padding: '5px 10px', borderRadius: 5, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' },
   btnDelete: { background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', padding: '5px 10px', borderRadius: 5, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' },
   btnDownloadRow: { background: '#f8fafc', color: '#475569', border: '1px solid #cbd5e1', padding: '5px 8px', borderRadius: 5, fontSize: 11.5, cursor: 'pointer' }
-}
+};

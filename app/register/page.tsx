@@ -1,17 +1,21 @@
+// app/register/page.tsx
+
 'use client';
 
 import Link from 'next/link';
 import React, { FormEvent, useState } from 'react';
-
-// 🟢 Menggunakan variabel lingkungan terbaru
-const API_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
+import { useRouter } from 'next/navigation';
 
 export default function RegisterPage() {
+  const router = useRouter();
+
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // 🟢 State Toggle Tampilkan/Sembunyikan Password
+  const [showPassword, setShowPassword] = useState(false);
   const [institusi, setInstitusi] = useState('');
+  const [statusUser, setStatusUser] = useState<'student' | 'fasilitator'>('student');
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -23,70 +27,45 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      // 🟢 VALIDASI EKSPLISIT: Pastikan URL Apps Script sudah terkonfigurasi
-      if (!API_URL) {
-        throw new Error('URL Web App Google Apps Script belum dikonfigurasi di .env.local');
-      }
+      const cleanEmail = email.trim().toLowerCase();
+      const cleanNama = nama.trim();
+      const cleanPass = password.trim();
+      const cleanInstitusi = institusi.trim();
 
-      // 🟢 Menghilangkan pemanggilan sha256, langsung kirim password plain text ke backend
-      const res = await fetch(API_URL, {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'registeruser',
-          nama: nama.trim(),
-          email: email.trim().toLowerCase(),
-          password: password.trim(), // Mengirim password plain text
-          institusi: institusi.trim(),
-          status_user: 'fasilitator', 
-          tier: 'free',
+          nama: cleanNama,
+          email: cleanEmail,
+          password: cleanPass,
+          institusi: cleanInstitusi || (statusUser === 'student' ? 'Universitas / Akademik' : 'Umum'),
+          status_user: statusUser,
         }),
       });
 
-      const textRes = await res.text();
-      let data;
-      try {
-        data = JSON.parse(textRes);
-      } catch {
-        throw new Error(`Respons server tidak valid: ${textRes}`);
-      }
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok || !data?.success) {
         throw new Error(data?.message || 'Registrasi gagal. Email mungkin sudah terdaftar.');
       }
 
-      // 🟢 KIRIM EMAIL SELAMAT DATANG
-      try {
-        await fetch('/api/send-email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: email.trim().toLowerCase(),
-            subject: 'Selamat Datang di Platform AHP Avitech',
-            textBody: `Halo ${nama}, akun fasilitator Anda berhasil didaftarkan dengan status Free.`,
-            htmlBody: `
-              <div style="font-family: Arial, sans-serif; color: #333333; line-height: 1.6;">
-                <h2 style="color: #1e3a8a;">Halo, ${nama} 👋</h2>
-                <p>Terima kasih telah mendaftar di <strong>Platform Riset AHP Avitech</strong>.</p>
-                <p>Akun Anda telah aktif dengan status <strong>Free (Fasilitator)</strong> dan berafiliasi dengan institusi <strong>${institusi || '-'}</strong>.</p>
-                <p>Silakan masuk melalui halaman login untuk mulai menyusun model dan mengelola proyek riset Anda.</p>
-                <br/>
-                <p>Salam hormat,<br/><strong>Tim Admin AHP Avitech</strong></p>
-              </div>
-            `
-          })
-        });
-      } catch (emailErr) {
-        console.error('Gagal mengirim email sambutan:', emailErr);
-      }
+      setMessage(
+        data?.message ||
+        'Registrasi berhasil! Tautan konfirmasi telah dikirim ke email aktif Anda. Silakan periksa kotak masuk atau spam.'
+      );
 
-      setMessage('Registrasi berhasil. Akun Anda telah aktif. Silakan lanjut ke halaman login.');
       setNama('');
       setEmail('');
       setPassword('');
       setInstitusi('');
+
+      setTimeout(() => {
+        router.push('/login?registered=true');
+      }, 3000);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Terjadi kesalahan saat melakukan registrasi.');
     } finally {
@@ -98,19 +77,42 @@ export default function RegisterPage() {
     <main style={STYLES.main}>
       <section style={STYLES.card}>
         <div style={STYLES.header}>
-          <span style={STYLES.eyebrow}>Pendaftaran Fasilitator</span>
+          <span style={STYLES.eyebrow}>
+            {statusUser === 'student' ? '🎓 Pendaftaran Student Edition' : '🔬 Pendaftaran General Edition (Riset)'}
+          </span>
           <h1 style={STYLES.title}>Buat Akun Baru</h1>
-          <p style={STYLES.subtitle}>Daftarkan diri Anda untuk mulai mengelola proyek riset AHP secara gratis.</p>
+          <p style={STYLES.subtitle}>
+            Daftarkan diri Anda untuk mulai mengelola dan menganalisis keputusan AHP.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* Pilihan Edisi Akun */}
+          <div>
+            <label style={STYLES.label}>Pilihan Edisi Akun / Penggunaan *</label>
+            <select
+              value={statusUser}
+              onChange={(e) => setStatusUser(e.target.value as 'student' | 'fasilitator')}
+              style={STYLES.input}
+              required
+            >
+              <option value="student">🎓 Student Edition (Praktikum &amp; Latihan Akademik)</option>
+              <option value="fasilitator">🔬 General Edition / Peneliti (Riset Mandiri)</option>
+            </select>
+            <span style={{ fontSize: 12, color: '#64748b', marginTop: 5, display: 'block', lineHeight: 1.4 }}>
+              {statusUser === 'student'
+                ? 'ℹ️ Student Edition: Menggunakan 2 pakar simulasi otomatis untuk latihan AHP tanpa input pakar manual (Retensi data 6 bulan).'
+                : 'ℹ️ General Edition: Ditujukan untuk peneliti/fasilitator mandiri dengan izin input pakar responden secara penuh.'}
+            </span>
+          </div>
+
           <div>
             <label style={STYLES.label}>Nama Lengkap *</label>
             <input
               type="text"
               value={nama}
               onChange={(e) => setNama(e.target.value)}
-              placeholder="Nama lengkap Anda"
+              placeholder="Contoh: Andi Pratama"
               style={STYLES.input}
               required
             />
@@ -130,15 +132,15 @@ export default function RegisterPage() {
 
           <div>
             <label style={STYLES.label}>Kata Sandi (Password) *</label>
-            {/* 🟢 INPUT KATA SANDI DENGAN TOMBOL TOGGLE SHOW/HIDE */}
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder="Minimal 6 karakter"
                 style={{ ...STYLES.input, paddingRight: 42 }}
                 required
+                minLength={6}
               />
               <button
                 type="button"
@@ -152,12 +154,14 @@ export default function RegisterPage() {
           </div>
 
           <div>
-            <label style={STYLES.label}>Asal Institusi / Universitas (Opsional)</label>
+            <label style={STYLES.label}>
+              Asal Universitas / Institusi {statusUser === 'student' ? '(Opsional)' : ''}
+            </label>
             <input
               type="text"
               value={institusi}
               onChange={(e) => setInstitusi(e.target.value)}
-              placeholder="Contoh: Universitas XYZ"
+              placeholder="Contoh: Universitas Mataram"
               style={STYLES.input}
             />
           </div>
@@ -171,7 +175,7 @@ export default function RegisterPage() {
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? 'Memproses Data...' : '🚀 Daftar Sekarang'}
+            {loading ? 'Memproses Pendaftaran...' : '🚀 Daftar Sekarang'}
           </button>
 
           {message && (
@@ -182,7 +186,7 @@ export default function RegisterPage() {
           
           {error && (
             <div style={STYLES.errorBox}>
-              ⚠️ {error}
+              ⚠ {error}
             </div>
           )}
 
@@ -219,7 +223,7 @@ const STYLES: Record<string, React.CSSProperties> = {
   },
   header: {
     textAlign: 'center',
-    marginBottom: 28
+    marginBottom: 24
   },
   eyebrow: {
     display: 'inline-block',
@@ -292,14 +296,14 @@ const STYLES: Record<string, React.CSSProperties> = {
   successBox: {
     background: '#f0fdf4',
     border: '1px solid #bbf7d0',
-    padding: '10px 14px',
+    padding: '12px 14px',
     borderRadius: 8,
     color: '#166534',
     fontSize: 13,
     fontWeight: 600,
     textAlign: 'center',
     marginTop: 4,
-    lineHeight: 1.4
+    lineHeight: 1.5
   },
   errorBox: {
     background: '#fef2f2',

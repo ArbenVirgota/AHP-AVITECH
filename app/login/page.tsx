@@ -3,14 +3,18 @@
 'use client';
 
 import Link from 'next/link';
-import React, { FormEvent, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { FormEvent, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { saveSession } from '@/lib/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
-
-export default function UserLoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Parameter dari redirect verifikasi & registrasi
+  const verified = searchParams.get('verified');
+  const queryError = searchParams.get('error');
+  const registered = searchParams.get('registered');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,43 +30,28 @@ export default function UserLoginPage() {
     setError('');
 
     try {
-      if (!API_URL) {
-        throw new Error('URL Web App Google Apps Script belum dikonfigurasi di .env.local');
-      }
-
       const cleanEmail = email.trim().toLowerCase();
       const cleanPass = password.trim();
 
-      // 🟢 Mengirim password plain text murni tanpa fungsi sha256
-      const res = await fetch(API_URL, {
+      // Memanggil API Route lokal Next.js yang terhubung ke Prisma/MySQL Hostinger
+      const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          action: 'login_user',
           email: cleanEmail,
           password: cleanPass,
         }),
       });
 
-      const textRes = await res.text();
-      let json;
-      try {
-        json = JSON.parse(textRes);
-      } catch {
-        throw new Error(`Respons server tidak valid: ${textRes}`);
-      }
+      const json = await res.json();
 
       if (!res.ok || !json?.success) {
-        const errorMsg = json?.message || '';
-        if (errorMsg.includes('not found') || errorMsg.includes('tidak ditemukan') || errorMsg.includes('handleLoginUser_')) {
-          throw new Error('Email Anda belum terdaftar. Silakan melakukan pendaftaran (Register) terlebih dahulu.');
-        }
-        throw new Error(errorMsg || 'Login gagal. Periksa kembali email dan kata sandi Anda.');
+        throw new Error(json?.message || 'Login gagal. Periksa kembali email dan kata sandi Anda.');
       }
 
-      // 🟢 1. BERSIHKAN TOTAL SELURUH RESIDU SESI SEBELUMNYA (Mencegah Akun Tertukar)
+      // 1. Bersihkan sesi sebelumnya
       if (typeof window !== 'undefined') {
         localStorage.removeItem('ahp_user_data');
         localStorage.removeItem('user_session');
@@ -71,12 +60,12 @@ export default function UserLoginPage() {
         sessionStorage.clear();
       }
 
-      // 🟢 2. SIMPAN IDENTITAS USER YANG TEPAT & SESUAI DENGAN EMAIL YANG LOGIN
+      // 2. Simpan identitas user dari database MySQL
       const sessionData = {
-        id: String(json.user_id || json.id || `USR-${Date.now()}`),
-        nama: String(json.name || json.nama || cleanEmail.split('@')[0]),
+        id: String(json.user_id || `USR-${Date.now()}`),
+        nama: String(json.name || cleanEmail.split('@')[0]),
         email: cleanEmail,
-        status_user: String(json.status_user || 'fasilitator'),
+        status_user: String(json.status_user || 'USER'),
         institusi: String(json.institusi || ''),
         city: String(json.city || ''),
         digital_signature: String(json.digital_signature || '')
@@ -97,86 +86,125 @@ export default function UserLoginPage() {
   }
 
   return (
-    <main style={STYLES.main}>
-      <section style={STYLES.card}>
-        <div style={STYLES.header}>
-          <span style={STYLES.eyebrow}>Portal Peneliti &amp; Fasilitator</span>
-          <h1 style={STYLES.title}>Masuk ke Ruang Kerja</h1>
-          <p style={STYLES.subtitle}>Gunakan email dan kata sandi terdaftar untuk mengelola proyek AHP Anda.</p>
+    <section style={STYLES.card}>
+      <div style={STYLES.header}>
+        <span style={STYLES.eyebrow}>Portal Peneliti &amp; Fasilitator</span>
+        <h1 style={STYLES.title}>Masuk ke Ruang Kerja</h1>
+        <p style={STYLES.subtitle}>Gunakan email dan kata sandi terdaftar untuk mengelola proyek AHP Anda.</p>
+      </div>
+
+      {/* Banner Konfirmasi Verifikasi Email */}
+      {verified === 'true' && (
+        <div style={STYLES.noticeSuccess}>
+          ✅ <strong>Akun Berhasil Diverifikasi!</strong> Email Anda telah aktif. Silakan masuk dengan kata sandi Anda.
+        </div>
+      )}
+
+      {registered === 'true' && (
+        <div style={STYLES.noticeInfo}>
+          📧 <strong>Pendaftaran Berhasil!</strong> Tautan verifikasi telah dikirim ke email aktif Anda. Silakan cek kotak masuk/spam sebelum masuk.
+        </div>
+      )}
+
+      {queryError === 'token_expired' && (
+        <div style={STYLES.noticeWarning}>
+          ⚠️ <strong>Tautan Kedaluwarsa:</strong> Masa berlaku token verifikasi telah berakhir (24 jam). Silakan hubungi admin atau daftar ulang.
+        </div>
+      )}
+
+      {(queryError === 'invalid_token' || queryError === 'token_not_found') && (
+        <div style={STYLES.noticeWarning}>
+          ⚠️ <strong>Token Tidak Valid:</strong> Tautan verifikasi salah atau sudah pernah digunakan sebelumnya.
+        </div>
+      )}
+
+      {queryError === 'server_error' && (
+        <div style={STYLES.noticeWarning}>
+          ⚠️ Terjadi kendala saat memverifikasi akun. Silakan coba lagi beberapa saat lagi.
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div>
+          <label style={STYLES.label}>Alamat Email</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="nama@domain.com"
+            style={STYLES.input}
+            required
+          />
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div>
-            <label style={STYLES.label}>Alamat Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@domain.com"
-              style={STYLES.input}
-              required
-            />
-          </div>
-
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <label style={{ ...STYLES.label, marginBottom: 0 }}>Kata Sandi (Password)</label>
-              <Link href="/forgot-password" style={STYLES.forgotLink}>
-                Lupa kata sandi?
-              </Link>
-            </div>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                style={{ ...STYLES.input, paddingRight: 42 }}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                style={STYLES.btnTogglePassword}
-                title={showPassword ? "Sembunyikan Kata Sandi" : "Tampilkan Kata Sandi"}
-              >
-                {showPassword ? '🙈' : '👁️'}
-              </button>
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={loading} 
-            style={{
-              ...STYLES.btnSubmit,
-              opacity: loading ? 0.7 : 1,
-              cursor: loading ? 'not-allowed' : 'pointer'
-            }}
-          >
-            {loading ? 'Memverifikasi...' : '🚀 Masuk ke Dashboard'}
-          </button>
-
-          {message && (
-            <div style={STYLES.successBox}>
-              ✅ {message}
-            </div>
-          )}
-          
-          {error && (
-            <div style={STYLES.errorBox}>
-              ⚠️ {error}
-            </div>
-          )}
-
-          <div style={STYLES.footerText}>
-            Belum memiliki akun ruang kerja?{' '}
-            <Link href="/register" style={STYLES.link}>
-              Daftar di sini
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <label style={{ ...STYLES.label, marginBottom: 0 }}>Kata Sandi (Password)</label>
+            <Link href="/forgot-password" style={STYLES.forgotLink}>
+              Lupa kata sandi?
             </Link>
           </div>
-        </form>
-      </section>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              style={{ ...STYLES.input, paddingRight: 42 }}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={STYLES.btnTogglePassword}
+              title={showPassword ? "Sembunyikan Kata Sandi" : "Tampilkan Kata Sandi"}
+            >
+              {showPassword ? '🙈' : '👁️'}
+            </button>
+          </div>
+        </div>
+
+        <button 
+          type="submit" 
+          disabled={loading} 
+          style={{
+            ...STYLES.btnSubmit,
+            opacity: loading ? 0.7 : 1,
+            cursor: loading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {loading ? 'Memverifikasi...' : '🚀 Masuk ke Dashboard'}
+        </button>
+
+        {message && (
+          <div style={STYLES.successBox}>
+            ✅ {message}
+          </div>
+        )}
+        
+        {error && (
+          <div style={STYLES.errorBox}>
+            ⚠️ {error}
+          </div>
+        )}
+
+        <div style={STYLES.footerText}>
+          Belum memiliki akun ruang kerja?{' '}
+          <Link href="/register" style={STYLES.link}>
+            Daftar di sini
+          </Link>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+export default function UserLoginPage() {
+  return (
+    <main style={STYLES.main}>
+      <Suspense fallback={<div style={{ color: '#64748b', fontSize: 14 }}>Memuat halaman...</div>}>
+        <LoginForm />
+      </Suspense>
     </main>
   );
 }
@@ -202,7 +230,7 @@ const STYLES: Record<string, React.CSSProperties> = {
   },
   header: {
     textAlign: 'center',
-    marginBottom: 28
+    marginBottom: 24
   },
   eyebrow: {
     display: 'inline-block',
@@ -277,6 +305,36 @@ const STYLES: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     marginTop: 8,
     transition: 'all 0.2s'
+  },
+  noticeSuccess: {
+    background: '#f0fdf4',
+    border: '1px solid #86efac',
+    borderRadius: 8,
+    padding: '12px 14px',
+    fontSize: 13,
+    color: '#166534',
+    marginBottom: 16,
+    lineHeight: 1.4
+  },
+  noticeInfo: {
+    background: '#eff6ff',
+    border: '1px solid #bfdbfe',
+    borderRadius: 8,
+    padding: '12px 14px',
+    fontSize: 13,
+    color: '#1e40af',
+    marginBottom: 16,
+    lineHeight: 1.4
+  },
+  noticeWarning: {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: 8,
+    padding: '12px 14px',
+    fontSize: 13,
+    color: '#991b1b',
+    marginBottom: 16,
+    lineHeight: 1.4
   },
   successBox: {
     background: '#f0fdf4',

@@ -4,12 +4,7 @@
 
 import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-
-// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
 import SafeJoyride from '@/components/SafeJoyride';
-
-const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
-  'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec';
 
 interface ExpertItem {
   id: string;
@@ -61,49 +56,6 @@ interface MatrixTask {
   itemnames: string[];
 }
 
-interface RawCriteriaBundle {
-  id?: string;
-  criteriaid?: string;
-  criteria_id?: string;
-  nama?: string;
-  namakriteria?: string;
-  name?: string;
-  urutan?: number;
-  order?: number;
-}
-
-interface RawSubcriteriaBundle {
-  id?: string;
-  subcriteriaid?: string;
-  subcriteria_id?: string;
-  criteriaid?: string;
-  criteria_id?: string;
-  nama?: string;
-  name?: string;
-  urutan?: number;
-}
-
-interface RawAlternatifBundle {
-  id?: string;
-  alternatifid?: string;
-  alternatif_id?: string;
-  nama?: string;
-  name?: string;
-  urutan?: number;
-}
-
-interface RawResponseBundle {
-  expertid?: string;
-  expert_id?: string;
-  matrixtype?: string;
-  matrix_type?: string;
-  parentid?: string;
-  parent_id?: string;
-  matriksjson?: string;
-  matriks_json?: string;
-  matrixjson?: string;
-}
-
 const RI_MAP: Record<number, number> = {
   1: 0, 2: 0, 3: 0.58, 4: 0.9, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49,
 };
@@ -116,6 +68,30 @@ function getDefaultMatrix(size: number): number[][] {
 
 function cloneMatrix(m: number[][]): number[][] {
   return m.map((row) => [...row]);
+}
+
+function normalizeMatrix(input: unknown, size: number): number[][] {
+  const base = getDefaultMatrix(size);
+  if (!Array.isArray(input)) return base;
+
+  for (let i = 0; i < size; i += 1) {
+    for (let j = 0; j < size; j += 1) {
+      if (i === j) { base[i][j] = 1; continue; }
+      const row = input[i];
+      const value = Array.isArray(row) ? Number(row[j]) : NaN;
+      if (!Number.isFinite(value) || value <= 0) continue;
+      base[i][j] = value;
+    }
+  }
+
+  for (let i = 0; i < size; i += 1) {
+    base[i][i] = 1;
+    for (let j = i + 1; j < size; j += 1) {
+      if (!Number.isFinite(base[i][j]) || base[i][j] <= 0) base[i][j] = 1;
+      base[j][i] = 1 / base[i][j];
+    }
+  }
+  return base;
 }
 
 function sliderToSaaty(val: number, direction: 'left' | 'right' | 'center'): number {
@@ -208,123 +184,132 @@ function ExpertMainContent() {
       }
 
       try {
-        const res = await fetch(GOOGLESCRIPTURL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          cache: 'no-store',
-          body: JSON.stringify({
-            action: 'getexpertbytoken',
-            token: token,
-            t: Date.now()
-          })
-        });
+        const res = await fetch(`/api/expert?token=${encodeURIComponent(token)}&_t=${Date.now()}`);
         
-        const rawText = await res.text();
-        let json;
-        try {
-          json = JSON.parse(rawText);
-        } catch (e) {
-          throw new Error('Respons dari server tidak dikenali.');
+        const contentType = res.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          throw new Error("Gagal menghubungi server: Endpoint API (/api/expert) belum tersedia atau mengembalikan eror HTML.");
         }
+
+        const json = await res.json();
 
         if (!json?.success || !json?.data?.expert || !json?.data?.project) {
           throw new Error(json?.message || 'Token kuesioner tidak valid atau sudah kadaluarsa.');
         }
 
-        const rawExp = json.data.expert;
-        const rawProj = json.data.project;
+        const bd = json.data;
+        const rawExp = bd.expert;
+        const rawProj = bd.project;
 
-        const validProjectId = String(rawProj.id || rawProj.projectid || rawProj.project_id || '').trim();
-        const validExpertId = String(rawExp.id || rawExp.expertid || rawExp.expert_id || '').trim();
-        const validExpertName = String(rawExp.expertname || rawExp.expert_name || rawExp.nama || 'Expert').trim();
+        const validProjectId = String(rawProj.id || rawProj.project_id || rawProj.projectid || '').trim();
+        const validExpertId = String(rawExp.id || rawExp.expert_id || rawExp.expertid || '').trim();
+        
+        const validExpertName = String(
+          rawExp.expert_name || 
+          rawExp.expertname || 
+          rawExp.fullName || 
+          rawExp.nama || 
+          'Pakar Responden'
+        ).trim();
+
+        const ps = rawProj.punya_subkriteria ?? rawProj.punyasubkriteria;
+        const hasSub = ps === true || ps === 1 || ps === '1' || ps === 'true';
 
         const exp: ExpertItem = {
           ...rawExp,
           id: validExpertId,
           expertname: validExpertName,
-          gelardepan: String(rawExp.gelardepan || rawExp.gelar_depan || '').trim(),
-          gelarbelakang: String(rawExp.gelarbelakang || rawExp.gelar_belakang || '').trim(),
-          asalinstansi: String(rawExp.asalinstansi || rawExp.instansi || rawExp.asal_instansi || '').trim(),
+          gelardepan: String(rawExp.gelar_depan || rawExp.gelardepan || '').trim(),
+          gelarbelakang: String(rawExp.gelar_belakang || rawExp.gelarbelakang || '').trim(),
+          asalinstansi: String(rawExp.asal_instansi || rawExp.asalinstansi || rawExp.instansi || '').trim(),
           projectid: validProjectId,
         };
 
         const proj: ProjectDetail = {
           ...rawProj,
           id: validProjectId,
-          namaproyek: String(rawProj.namaproyek || rawProj.nama_proyek || ''),
+          namaproyek: String(rawProj.nama_proyek || rawProj.namaproyek || ''),
+          deskripsi: String(rawProj.deskripsi || ''),
+          metode: String(rawProj.metode || 'Bobot saja'),
+          punyasubkriteria: hasSub,
         };
 
         setExpert(exp);
         setProject(proj);
 
-        if (!validProjectId) throw new Error('Data Project ID tidak ditemukan.');
+        const rawCrit = bd.criteria || [];
+        const rawSub = bd.subcriteria || [];
+        const rawAlt = bd.alternatif || [];
+        const rawResponses = bd.responses || [];
 
-        const bundleRes = await fetch(`${GOOGLESCRIPTURL}?action=get_project_bundle&projectid=${encodeURIComponent(validProjectId)}`);
-        const bundleJson = await bundleRes.json();
+        const mappedCriteria = rawCrit.map((c: any) => ({
+          id: String(c.id || c.criteria_id || c.criteriaid || ''),
+          nama: String(c.nama || c.namakriteria || c.name || ''),
+          urutan: Number(c.urutan || c.order || 0)
+        }));
+        setCriteria(mappedCriteria);
 
-        if (bundleJson?.success && bundleJson?.data) {
-          const bd = bundleJson.data;
-          const rawCrit: RawCriteriaBundle[] = bd.criteria || bd.Criteria || bd.kriteria || [];
-          const rawSub: RawSubcriteriaBundle[] = bd.subcriteria || bd.Subcriteria || bd.subkriteria || [];
-          const rawAlt: RawAlternatifBundle[] = bd.alternatif || bd.Alternatif || bd.alternatives || [];
-          const rawResponses: RawResponseBundle[] = bd.responses || [];
+        setSubcriteria(rawSub.map((s: any) => ({
+          id: String(s.id || s.subcriteria_id || s.subcriteriaid || ''),
+          criteriaid: String(s.criteria_id || s.criteriaid || ''),
+          nama: String(s.nama || s.name || ''),
+          urutan: Number(s.urutan || 0)
+        })));
 
-          setCriteria(rawCrit.map((c) => ({
-            id: String(c.id || c.criteriaid || c.criteria_id || ''),
-            nama: String(c.nama || c.namakriteria || c.name || ''),
-            urutan: Number(c.urutan || c.order || 0)
-          })));
+        setAlternatif(rawAlt.map((a: any) => ({
+          id: String(a.id || a.alternative_id || a.alternatifid || ''),
+          nama: String(a.nama || a.name || ''),
+          urutan: Number(a.urutan || 0)
+        })));
 
-          setSubcriteria(rawSub.map((s) => ({
-            id: String(s.id || s.subcriteriaid || s.subcriteria_id || ''),
-            criteriaid: String(s.criteriaid || s.criteria_id || ''),
-            nama: String(s.nama || s.name || ''),
-            urutan: Number(s.urutan || 0)
-          })));
+        if (rawResponses.length > 0 && validExpertId) {
+          const loadedMatrices: Record<string, number[][]> = {};
+          
+          rawResponses.forEach((r: any) => {
+            const rExpertId = String(r.expert_id || r.expertid || '').trim();
+            const rExpertName = String(r.expert_name || r.expertname || '').trim();
+            
+            const isExpertMatch = (rExpertId && rExpertId === validExpertId) || 
+                                  (rExpertName && validExpertName && rExpertName.toLowerCase().includes(validExpertName.toLowerCase())) ||
+                                  (!rExpertId);
 
-          setAlternatif(rawAlt.map((a) => ({
-            id: String(a.id || a.alternatifid || a.alternatif_id || ''),
-            nama: String(a.nama || a.name || ''),
-            urutan: Number(a.urutan || 0)
-          })));
+            if (isExpertMatch) {
+              const mType = String(r.matrix_type || r.matrixtype || '').trim().toLowerCase();
+              const pId = String(r.parent_id || r.parentid || '').trim();
+              let key = '';
+              
+              if (mType === 'criteria' || mType === 'kriteria') {
+                key = 'criteria::root';
+              } else if (mType === 'subcriteria') {
+                key = `subcriteria::${pId}`;
+              } else if (mType === 'alternativesbysubcriteria') {
+                key = `alternativesbysubcriteria::${pId}`;
+              } else if (mType === 'alternativesbycriteria') {
+                key = `alternativesbycriteria::${pId}`;
+              } else if (pId === validProjectId || pId === 'root' || !pId) {
+                key = 'criteria::root';
+              } else {
+                key = `subcriteria::${pId}`;
+              }
 
-          if (rawResponses.length > 0 && exp.id) {
-            const loadedMatrices: Record<string, number[][]> = {};
-            rawResponses.forEach((r) => {
-              if (String(r.expertid || r.expert_id || '').trim() === exp.id) {
-                const mType = String(r.matrixtype || r.matrix_type || '').trim().toLowerCase();
-                
-                let key = '';
-                if (mType === 'criteria' || mType === 'kriteria') {
-                  key = 'criteria::root';
-                } else {
-                  const pId = String(r.parentid || r.parent_id || '').trim();
-                  if (mType === 'subcriteria') {
-                    key = `subcriteria::${pId}`;
-                  } else if (mType === 'alternativesbysubcriteria') {
-                    key = `alternativesbysubcriteria::${pId}`;
-                  } else if (mType === 'alternativesbycriteria') {
-                    key = `alternativesbycriteria::${pId}`;
+              if (key) {
+                try {
+                  const rawMatStr = r.matriks_json || r.matriksjson || r.matriks;
+                  let parsedMatrix = typeof rawMatStr === 'string' ? JSON.parse(rawMatStr) : rawMatStr;
+                  if (typeof parsedMatrix === 'string') parsedMatrix = JSON.parse(parsedMatrix); 
+                  
+                  if (Array.isArray(parsedMatrix) && parsedMatrix.length > 0) {
+                    loadedMatrices[key] = parsedMatrix;
                   }
-                }
-
-                if (key) {
-                  try {
-                    const rawMatStr = r.matriksjson || r.matriks_json || r.matrixjson;
-                    const parsedMatrix = typeof rawMatStr === 'string' ? JSON.parse(rawMatStr) : rawMatStr;
-                    if (Array.isArray(parsedMatrix) && parsedMatrix.length > 0) {
-                      loadedMatrices[key] = parsedMatrix;
-                    }
-                  } catch (e) {
-                    console.error('Gagal memparsing matriks tersimpan:', e);
-                  }
+                } catch (e) {
+                  console.error('Gagal memparsing matriks tersimpan:', e);
                 }
               }
-            });
-
-            if (Object.keys(loadedMatrices).length > 0) {
-              setMatrices((prev) => ({ ...prev, ...loadedMatrices }));
             }
+          });
+
+          if (Object.keys(loadedMatrices).length > 0) {
+            setMatrices((prev) => ({ ...prev, ...loadedMatrices }));
           }
         }
       } catch (err) {
@@ -416,6 +401,8 @@ function ExpertMainContent() {
         tasks.forEach((t) => {
           if (!initial[t.key]) {
             initial[t.key] = getDefaultMatrix(t.itemnames.length);
+          } else {
+            initial[t.key] = normalizeMatrix(initial[t.key], t.itemnames.length);
           }
         });
         return initial;
@@ -452,51 +439,41 @@ function ExpertMainContent() {
 
       const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
       const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
-      const expertFullName = `${gD}${expert.expertname}${gB}`;
+      
+      let cleanName = expert.expertname || '';
+      if (!cleanName || cleanName.startsWith('EXP-')) {
+        cleanName = expert.id && !expert.id.startsWith('EXP-') ? expert.id : 'Evaluator Pakar';
+      }
+      
+      const expertFullName = `${gD}${cleanName}${gB}`.trim();
 
       const payload = {
-        action: 'saveExpertResponse',
-        token: token || '',
         project_id: project.id,
-        projectid: project.id,
         expert_id: expert.id,
-        expertid: expert.id,
         expert_name: expertFullName,
-        expertname: expertFullName,
         matrix_type: task.matrixtype,
-        matrixtype: task.matrixtype,
         parent_id: accurateParentId, 
-        parentid: accurateParentId,
         parent_name: accurateParentName, 
-        parentname: accurateParentName,
         item_ids: task.itemids,
-        itemids: task.itemids,
         item_names: task.itemnames,
-        itemnames: task.itemnames,
         matriks_json: currentMat,
-        matriksjson: currentMat,
         cr: analysis.cr,
+        submitted_by: expertFullName,
         is_confirmed: isLastTask
       };
 
-      const res = await fetch(GOOGLESCRIPTURL, {
+      const res = await fetch('/api/projects/response', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       
-      const textRes = await res.text();
-      let json;
-      try {
-        json = JSON.parse(textRes);
-      } catch {
-        throw new Error(`Respons server tidak valid: ${textRes}`);
-      }
-
-      if (!json?.success) throw new Error(json?.message || 'Gagal menyimpan.');
+      const json = await res.json();
+      if (!json?.success) throw new Error(json?.message || 'Gagal menyimpan evaluasi matriks.');
 
       if (currentTaskIndex < tasks.length - 1) {
         setCurrentTaskIndex((prev) => prev + 1);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`);
       }
@@ -540,7 +517,6 @@ function ExpertMainContent() {
     }
   `;
 
-  // 🟢 LANGKAH-LANGKAH TOUR UNTUK KUESIONER EXPERT (DIBUNGKUS useMemo)
   const expertMatrixSteps = useMemo(() => [
     {
       target: 'body',
@@ -593,7 +569,7 @@ function ExpertMainContent() {
   if (step === 'welcome') {
     const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
     const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
-    const expertFullName = `${gD}${expert.expertname || 'Pakar'}${gB}`;
+    const expertFullName = `${gD}${expert.expertname || 'Pakar Responden'}${gB}`.trim();
 
     return (
       <div style={STYLES.page}>
@@ -602,7 +578,7 @@ function ExpertMainContent() {
           <div style={STYLES.card}>
             <span style={STYLES.badge}>Selamat Datang, {expertFullName}</span>
             {expert.asalinstansi && (
-              <div style={{ marginTop: -8, marginBottom: 16, fontSize: 13, color: '#475569', fontWeight: 600 }}>
+              <div style={{ marginTop: 8, marginBottom: 16, fontSize: 13, color: '#475569', fontWeight: 600 }}>
                 🏢 {expert.asalinstansi}
               </div>
             )}
@@ -671,7 +647,6 @@ function ExpertMainContent() {
     <div style={STYLES.page}>
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
-      {/* 🟢 MENGGUNAKAN KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
       <SafeJoyride steps={expertMatrixSteps} storageKey="ahp_tour_expert_matrix" primaryColor="#0f766e" />
 
       <div style={STYLES.container}>
@@ -682,7 +657,6 @@ function ExpertMainContent() {
               <span style={STYLES.badge}>Tugas {currentTaskIndex + 1} dari {tasks.length}</span>
               
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {/* 🟢 TOMBOL PANDUAN INTERAKTIF EXPERT */}
                 <button
                   type="button"
                   onClick={handleStartExpertTour}
@@ -704,7 +678,6 @@ function ExpertMainContent() {
                   💡 Petunjuk Pengisian
                 </button>
 
-                {/* 🟢 TARGET CLASS: .tour-cr */}
                 <span className="tour-cr" style={analysis.cr <= 0.1 ? STYLES.crSuccess : STYLES.crError}>
                   CR: {analysis.cr.toFixed(4)} {analysis.cr <= 0.1 ? ' (Konsisten)' : ' (Perlu Evaluasi)'}
                 </span>
@@ -795,7 +768,6 @@ function ExpertMainContent() {
               <button onClick={() => setCurrentTaskIndex((prev) => prev - 1)} style={STYLES.btnSecondary}>← Sebelumnya</button>
             ) : <div />}
 
-            {/* 🟢 TARGET CLASS: .tour-submit */}
             <button 
               onClick={() => void saveCurrentTask()} 
               disabled={isSubmitDisabled} 
@@ -845,11 +817,9 @@ const STYLES: Record<string, React.CSSProperties> = {
   btnPrimary: { padding: '12px 20px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, transition: 'all 0.2s', cursor: 'pointer' },
   btnSecondary: { padding: '12px 20px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
   badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block' },
-  
   crSuccess: { fontSize: 12.5, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '4px 10px', borderRadius: 999, border: '1px solid #bbf7d0' },
   crError: { fontSize: 12.5, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '4px 10px', borderRadius: 999, border: '1px solid #fecaca' },
   scrollableArea: { flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', paddingBottom: '16px' },
-
   sliderCard: { border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' },
   sliderHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, fontSize: 13.5, color: '#0f172a' },
   dirBtn: { flex: 1, padding: '6px 8px', fontSize: 11, fontWeight: 600, border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer' },

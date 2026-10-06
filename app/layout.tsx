@@ -1,12 +1,17 @@
 // app/layout.tsx
-
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import VisitorTracker from "./visitortracker";
+import VisitorTracker from "@/components/VisitorTracker";
+import ConditionalSidebar from "@/components/ConditionalSidebar";
 
 export const metadata: Metadata = {
   title: "Aplikasi AHP - Decision Support System",
   description: "Sistem Pendukung Keputusan Metode Analytic Hierarchy Process (AHP)",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -16,18 +21,13 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id" suppressHydrationWarning>
-      <body 
-        suppressHydrationWarning 
-        style={{ 
-          margin: 0, 
-          padding: 0,
-          background: '#f8fafc', 
-          fontFamily: '"Segoe UI", system-ui, -apple-system, sans-serif',
-          color: '#0f172a',
-          boxSizing: 'border-box'
-        }}
-      >
+      <body suppressHydrationWarning>
+        {/* Melacak pengunjung di seluruh rute */}
         <VisitorTracker />
+
+        {/* Sidebar hanya dirender di halaman user, ditiadakan pada seluruh rute /expert dan /admin */}
+        <ConditionalSidebar />
+
         {children}
       </body>
     </html>

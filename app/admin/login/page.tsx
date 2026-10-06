@@ -1,16 +1,15 @@
+// app/admin/login/page.tsx
+
 'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-// 🟢 DISESUAIKAN: Menggunakan variabel lingkungan terbaru
-const GOOGLESCRIPTURL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || '';
-
 export default function AdminLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false); // 🟢 State Toggle Tampilkan/Sembunyikan Password
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -25,37 +24,41 @@ export default function AdminLoginPage() {
       setLoading(true);
       setErrorMsg('');
 
-      if (!GOOGLESCRIPTURL) {
-        throw new Error('URL Web App Google Apps Script belum dikonfigurasi di .env.local');
-      }
-
-      const res = await fetch(GOOGLESCRIPTURL, {
+      // 🟢 Memanggil API Route lokal Next.js (Prisma MySQL Hostinger)
+      const res = await fetch('/api/admin/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'adminlogin', // Action ke handleAdminLogin_
           email: email.trim().toLowerCase(),
-          password: password
-        })
+          password: password.trim(),
+        }),
       });
 
-      const textRes = await res.text();
-      let json;
-      try {
-        json = JSON.parse(textRes);
-      } catch {
-        throw new Error(`Respons server tidak valid: ${textRes}`);
-      }
+      const json = await res.json();
 
-      if (json && json.success && (json.data || json.user || json.admin)) {
-        const adminData = json.data || json.admin || json.user || {};
+      if (json && json.success && json.data) {
+        const adminData = json.data;
+
+        // Bersihkan sesi admin lama sebelum menulis yang baru
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_role');
+        localStorage.removeItem('admin_name');
+        localStorage.removeItem('admin_email');
+        localStorage.removeItem('admin_allowed_access');
+        localStorage.removeItem('admin_access');
 
         // Simpan sesi admin di localStorage
-        localStorage.setItem('admin_token', adminData.token || 'active_token');
-        localStorage.setItem('admin_role', adminData.role || 'SuperAdmin'); 
-        localStorage.setItem('admin_name', adminData.name || adminData.nama || email);
+        localStorage.setItem('admin_token', adminData.token || `admin_${Date.now()}`);
+        localStorage.setItem('admin_role', adminData.role || 'Admin Pembantu');
+        localStorage.setItem('admin_name', adminData.nama || adminData.name || email);
+        localStorage.setItem('admin_email', adminData.email || email);
 
-        // 🟢 NOTIFIKASI KEAMANAN: Kirim email alert ke admin@avitech.cloud
+        // 🟢 Simpan array hak akses modul dari MySQL ke browser
+        const allowedModules = Array.isArray(adminData.allowed_access) ? adminData.allowed_access : [];
+        localStorage.setItem('admin_allowed_access', JSON.stringify(allowedModules));
+        localStorage.setItem('admin_access', JSON.stringify(allowedModules));
+
+        // Notifikasi Keamanan Opsional
         try {
           await fetch('/api/send-email', {
             method: 'POST',
@@ -63,26 +66,24 @@ export default function AdminLoginPage() {
             body: JSON.stringify({
               from: 'admin@avitech.cloud',
               to: 'admin@avitech.cloud',
-              subject: '🔒 Peringatan Keamanan: Log Masuk Panel Admin Detected',
-              textBody: `Halo Admin, akun (${email.trim()}) baru saja berhasil masuk ke Panel Otoritas Admin.`,
+              subject: '🔒 Peringatan Keamanan: Log Masuk Panel Admin Terdeteksi',
+              textBody: `Halo Admin, akun (${email.trim()}) baru saja berhasil masuk ke Panel Otoritas Admin via Database MySQL.`,
               htmlBody: `
                 <div style="font-family: Arial, sans-serif; color: #333;">
                   <h2>Notifikasi Keamanan Admin 🔐</h2>
                   <p>Sistem mendeteksi aktivitas masuk baru ke <strong>Panel Otoritas Admin AHP Avitech</strong>.</p>
                   <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 12px 0;">
-                    <p style="margin: 4px 0;"><strong>Role:</strong> ${adminData.role || 'SuperAdmin'}</p>
+                    <p style="margin: 4px 0;"><strong>Role:</strong> ${adminData.role || 'Admin Pembantu'}</p>
                     <p style="margin: 4px 0;"><strong>Email Login:</strong> ${email.trim()}</p>
                     <p style="margin: 4px 0;"><strong>Waktu Akses:</strong> ${new Date().toLocaleString('id-ID')}</p>
                   </div>
-                  <p style="color: #64748b; font-size: 12.5px;">Jika ini bukan Anda, segera amankan kata sandi dan periksa kredensial akun Anda.</p>
-                  <br/>
-                  <p>Salam hangat,<br/><strong>Tim Admin AHP Avitech</strong></p>
+                  <p style="color: #64748b; font-size: 12.5px;">Jika ini bukan Anda, segera amankan kata sandi di database.</p>
                 </div>
-              `
-            })
+              `,
+            }),
           });
-        } catch (emailErr) {
-          console.error('Gagal mengirim email alert admin:', emailErr);
+        } catch {
+          // Lewatkan jika modul email tidak aktif
         }
 
         router.push('/admin/dashboard');
@@ -114,9 +115,9 @@ export default function AdminLoginPage() {
         <form onSubmit={handleLogin} style={STYLES.form}>
           <div style={STYLES.inputGroup}>
             <label style={STYLES.label}>Email Admin:</label>
-            <input 
-              type="email" 
-              placeholder="admin@avitech.cloud" 
+            <input
+              type="email"
+              placeholder="admin@avitech.cloud"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={STYLES.input}
@@ -126,11 +127,10 @@ export default function AdminLoginPage() {
 
           <div style={STYLES.inputGroup}>
             <label style={STYLES.label}>Kata Sandi (Password):</label>
-            {/* 🟢 INPUT KATA SANDI DENGAN TOMBOL TOGGLE SHOW/HIDE */}
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input 
-                type={showPassword ? 'text' : 'password'} 
-                placeholder="••••••••" 
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 style={{ ...STYLES.input, width: '100%', paddingRight: 42 }}
@@ -140,7 +140,7 @@ export default function AdminLoginPage() {
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 style={STYLES.btnTogglePassword}
-                title={showPassword ? "Sembunyikan Kata Sandi" : "Tampilkan Kata Sandi"}
+                title={showPassword ? 'Sembunyikan Kata Sandi' : 'Tampilkan Kata Sandi'}
               >
                 {showPassword ? '🙈' : '👁️'}
               </button>
@@ -174,5 +174,5 @@ const STYLES: Record<string, React.CSSProperties> = {
   input: { padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 14, outline: 'none', color: '#0f172a', boxSizing: 'border-box' },
   btnTogglePassword: { position: 'absolute', right: 10, background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: '#64748b', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   btnLogin: { background: '#1e3a8a', color: '#fff', border: 'none', borderRadius: 8, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer', textAlign: 'center', marginTop: 4 },
-  btnBack: { background: 'transparent', border: 'none', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: 'pointer' }
+  btnBack: { background: 'transparent', border: 'none', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: 'pointer' },
 };

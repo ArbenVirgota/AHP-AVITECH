@@ -9,24 +9,28 @@
 # testing
 /coverage
 
-# next.js
+# next.js build & export
 /.next/
 /out/
 
 # production
 /build
 
-# misc
-.DS_Store
-*.pem
+# environment variables (Penting: amankan kredensial database)
+.env
+.env*.local
+.env.production
+.env.staging
 
-# debug
+# prisma generated artifacts
+/lib/generated/prisma
+
+# debug & logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# local env files
-.env*.local
+pnpm-debug.log*
+*.log
 
 # vercel
 .vercel
@@ -34,3 +38,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ide & code editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# temporary / backup files
+*.bak
+*.old
+*.tmp
+*.orig
+
+# operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.pem

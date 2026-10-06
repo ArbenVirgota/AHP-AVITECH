@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  user_id           String    @id @db.VarChar(100)
+  nama              String    @db.VarChar(255)
+  email             String    @unique(map: "uk_users_email") @map("email") @db.VarChar(255)
+  passwordHash      String    @map("password_hash") @db.VarChar(255)
+  status_user       String?   @db.VarChar(50)
+  institusi         String?   @db.VarChar(255)
+  status            String    @default("active") @map("status") @db.VarChar(50)
+  createdAt         DateTime? @map("created_at") @db.DateTime(0)
+  deactivated_at    DateTime? @db.DateTime(0)
+  plan              String?   @db.VarChar(100)
+  digital_signature String?   @db.LongText
+  city              String?   @db.VarChar(100)
+  foto_profil       String?   @db.LongText
+  jumlah_kunjungan  Int       @default(0)
+  
+  isVerified        Boolean   @default(true) @map("isVerified")
+  verificationToken String?   @map("verificationToken") @db.VarChar(255)
+  tokenExpiry       DateTime? @map("tokenExpiry") @db.DateTime(0)
+
+  @@map("AHP - users")
+}
+
+// (Biarkan seluruh model lainnya di bawah model User tetap seperti semula)

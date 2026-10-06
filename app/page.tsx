@@ -1,3 +1,5 @@
+// app/page.tsx
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -9,6 +11,18 @@ export default function LandingPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
+  // State untuk Modal Formulir Saran & Masukan (Feedback)
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackForm, setFeedbackForm] = useState({
+    nama: '',
+    email: '',
+    kategori: 'Umum',
+    pesan: '',
+  });
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState('');
+  const [feedbackError, setFeedbackError] = useState('');
+
   useEffect(() => {
     setIsMounted(true);
     const session = getSession();
@@ -18,7 +32,63 @@ export default function LandingPage() {
       (session.email || session.id || session.user_id || session.userid)
     );
     setIsLoggedIn(hasValidUser);
+
+    // Ambil default email atau nama jika pengunjung sudah login
+    if (typeof window !== 'undefined') {
+      const storedEmail = localStorage.getItem('user_email') || localStorage.getItem('admin_email') || '';
+      const storedName = localStorage.getItem('user_name') || localStorage.getItem('admin_name') || '';
+      if (storedEmail || storedName) {
+        setFeedbackForm(prev => ({
+          ...prev,
+          nama: storedName || prev.nama,
+          email: storedEmail || prev.email,
+        }));
+      }
+    }
   }, []);
+
+  const handleOpenFeedbackModal = () => {
+    setFeedbackSuccess('');
+    setFeedbackError('');
+    setIsFeedbackModalOpen(true);
+  };
+
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmittingFeedback(true);
+    setFeedbackSuccess('');
+    setFeedbackError('');
+
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(feedbackForm),
+      });
+
+      const json = await res.json();
+
+      if (json.success) {
+        setFeedbackSuccess('✅ ' + (json.message || 'Terima kasih, masukan Anda berhasil kami terima!'));
+        setFeedbackForm({
+          nama: '',
+          email: '',
+          kategori: 'Umum',
+          pesan: '',
+        });
+        setTimeout(() => {
+          setIsFeedbackModalOpen(false);
+          setFeedbackSuccess('');
+        }, 2200);
+      } else {
+        setFeedbackError('⚠️ ' + (json.message || 'Gagal mengirim masukan.'));
+      }
+    } catch (err: any) {
+      setFeedbackError('⚠️ Gagal terhubung ke server: ' + err.message);
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
 
   return (
     <div style={STYLES.page}>
@@ -141,12 +211,115 @@ export default function LandingPage() {
             <span onClick={() => router.push('/faq')} style={STYLES.footerLink}>FAQ</span>
             <span onClick={() => router.push('/expert-directory')} style={STYLES.footerLink}>Direktori Pakar</span>
             <span onClick={() => router.push('/products')} style={STYLES.footerLink}>Produk &amp; Tools</span>
-            <span onClick={() => router.push('/feedback')} style={STYLES.footerLinkActive}>Saran &amp; Masukan</span>
+            {/* Tombol pemicu Modal Formulir Masukan */}
+            <span onClick={handleOpenFeedbackModal} style={STYLES.footerLinkActive}>Saran &amp; Masukan</span>
             <span onClick={() => router.push('/admin/login')} style={STYLES.footerAdminLink}>🔒 Portal Admin</span>
           </div>
           <p style={STYLES.footerCopy}>&copy; 2026 AHP Avitech &amp; Direktori Pakar Akademik. Seluruh hak cipta dilindungi.</p>
         </footer>
       </div>
+
+      {/* Modal Formulir Masukan / Feedback Pengunjung */}
+      {isFeedbackModalOpen && (
+        <div style={STYLES.modalOverlay}>
+          <div style={STYLES.modalBox}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 17, color: '#0f172a' }}>💬 Saran &amp; Masukan Pengguna</h3>
+              <button 
+                type="button" 
+                onClick={() => setIsFeedbackModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: 18, color: '#64748b', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+            
+            <p style={{ fontSize: 12.5, color: '#64748b', marginTop: 0, marginBottom: 16 }}>
+              Bantu kami menyempurnakan platform analisis AHP. Kritik, saran, atau laporan kendala Anda sangat berharga bagi kami.
+            </p>
+
+            {feedbackSuccess && (
+              <div style={STYLES.successAlert}>
+                {feedbackSuccess}
+              </div>
+            )}
+
+            {feedbackError && (
+              <div style={STYLES.errorAlert}>
+                {feedbackError}
+              </div>
+            )}
+
+            <form onSubmit={handleFeedbackSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={STYLES.label}>Nama Anda</label>
+                  <input
+                    type="text"
+                    placeholder="Nama lengkap (opsional)"
+                    value={feedbackForm.nama}
+                    onChange={(e) => setFeedbackForm({ ...feedbackForm, nama: e.target.value })}
+                    style={STYLES.input}
+                  />
+                </div>
+                <div>
+                  <label style={STYLES.label}>Email</label>
+                  <input
+                    type="email"
+                    placeholder="nama@email.com (opsional)"
+                    value={feedbackForm.email}
+                    onChange={(e) => setFeedbackForm({ ...feedbackForm, email: e.target.value })}
+                    style={STYLES.input}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={STYLES.label}>Kategori Masukan</label>
+                <select
+                  value={feedbackForm.kategori}
+                  onChange={(e) => setFeedbackForm({ ...feedbackForm, kategori: e.target.value })}
+                  style={STYLES.input}
+                >
+                  <option value="Fitur">Fitur &amp; Algoritma AHP</option>
+                  <option value="Tampilan">Tampilan / UI / UX</option>
+                  <option value="Bug / Kendala">Bug / Kendala Teknis</option>
+                  <option value="Umum">Umum &amp; Kerjasama</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={STYLES.label}>Pesan / Evaluasi *</label>
+                <textarea
+                  rows={4}
+                  required
+                  placeholder="Tuliskan saran, kritik membangun, atau kendala yang Anda temui..."
+                  value={feedbackForm.pesan}
+                  onChange={(e) => setFeedbackForm({ ...feedbackForm, pesan: e.target.value })}
+                  style={{ ...STYLES.input, resize: 'vertical' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsFeedbackModalOpen(false)}
+                  style={STYLES.btnCancel}
+                >
+                  Tutup
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingFeedback}
+                  style={STYLES.btnSubmitFeedback}
+                >
+                  {submittingFeedback ? 'Mengirimkan...' : 'Kirim Masukan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -233,5 +406,82 @@ const STYLES: Record<string, React.CSSProperties> = {
   footerLink: { fontSize: 13, color: '#334155', cursor: 'pointer', fontWeight: 600, transition: 'color 0.2s' },
   footerLinkActive: { fontSize: 13, color: '#1e3a8a', cursor: 'pointer', fontWeight: 700 },
   footerAdminLink: { fontSize: 13, color: '#dc2626', cursor: 'pointer', fontWeight: 600 },
-  footerCopy: { margin: 0, fontSize: 12, color: '#64748b' }
+  footerCopy: { margin: 0, fontSize: 12, color: '#64748b' },
+
+  // Gaya Tambahan untuk Modal Feedback
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15, 23, 42, 0.65)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+    padding: 16,
+    backdropFilter: 'blur(3px)'
+  },
+  modalBox: {
+    background: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    width: '100%',
+    maxWidth: 480,
+    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.15)',
+    boxSizing: 'border-box'
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#334155',
+    marginBottom: 4,
+    display: 'block'
+  },
+  input: {
+    width: '100%',
+    padding: '8px 12px',
+    borderRadius: 6,
+    border: '1px solid #cbd5e1',
+    fontSize: 13,
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit'
+  },
+  btnCancel: {
+    background: '#f1f5f9',
+    color: '#475569',
+    border: '1px solid #cbd5e1',
+    borderRadius: 6,
+    padding: '8px 14px',
+    fontSize: 12.5,
+    fontWeight: 600,
+    cursor: 'pointer'
+  },
+  btnSubmitFeedback: {
+    background: '#1e3a8a',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    padding: '8px 16px',
+    fontSize: 12.5,
+    fontWeight: 700,
+    cursor: 'pointer'
+  },
+  successAlert: {
+    background: '#dcfce7',
+    color: '#15803d',
+    padding: '8px 12px',
+    borderRadius: 6,
+    marginBottom: 12,
+    fontSize: 12.5,
+    fontWeight: 600
+  },
+  errorAlert: {
+    background: '#fee2e2',
+    color: '#b91c1c',
+    padding: '8px 12px',
+    borderRadius: 6,
+    marginBottom: 12,
+    fontSize: 12.5,
+    fontWeight: 600
+  }
 };

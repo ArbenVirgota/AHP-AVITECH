@@ -5,8 +5,6 @@
 import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 
-const GOOGLE_SCRIPT_URL = process.env.NEXT_PUBLIC_GOOGLE_SCRIPT_WEBAPP_URL || process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || ''
-
 const PRINT_STYLES = `
   @media print {
     header, .no-print, button { display: none !important; }
@@ -17,16 +15,13 @@ const PRINT_STYLES = `
 `
 
 interface AdminItem {
-  id?: string;
+  id?: string | number;
   email?: string;
-  admin_email?: string;
   name?: string;
   nama?: string;
-  admin_name?: string;
   role?: string;
-  admin_role?: string;
   status?: string;
-  allowed_access?: string;
+  wewenang_modul?: string;
   [key: string]: any;
 }
 
@@ -49,88 +44,33 @@ interface UserSubscriptionItem {
   user_id?: string
   user_email?: string
   email?: string
-  kontakUser?: string
   user_name?: string
-  namaUser?: string
   nama?: string
   plan?: string
   status?: string
   status_user?: string
-  pro_source?: string
-  start_date?: string
   expired_date?: string
-  expired?: string
-  max_projects?: number | string
-  max_experts?: number | string
-  max_experts_manual?: number | string
-  max_experts_directory?: number | string
-  max_consultation_per_expert?: number | string
   custom_max_projects?: number | string
   custom_max_experts?: number | string
   custom_max_experts_directory?: number | string
   custom_max_consultation_per_expert?: number | string
-  allow_ai_features?: boolean
-  allow_subcriteria?: boolean
-  allow_alternative_method?: boolean
   custom_features?: string
   notes?: string
-  plan_details?: any
   [key: string]: any
 }
 
-function cleanPlanType(raw: string): 'free' | 'pro' | 'plus' | 'premium' {
-  const str = String(raw || '').toUpperCase().trim();
-  if (str.includes('PREMIUM')) return 'premium';
-  if (str.includes('PLUS')) return 'plus';
-  if (str.includes('PRO')) return 'pro';
-  return 'free';
+interface ArchivedProjectItem {
+  project_id: string
+  nama_proyek: string
+  pemilik: string
+  created_at: string
+  updated_at: string
 }
 
-function normalizeSubscriptionItem(raw: any): UserSubscriptionItem {
-  if (!raw || typeof raw !== 'object') return {};
-
-  const getField = (keys: string[]) => {
-    for (const k of keys) {
-      for (const objKey of Object.keys(raw)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
-        if (cleanObjKey === cleanTargetKey && raw[objKey] !== undefined && raw[objKey] !== '') {
-          return raw[objKey];
-        }
-      }
-    }
-    return undefined;
-  };
-
-  const rawEmail = getField(['user_email', 'email', 'useremail', 'kontak_user', 'kontakuser']) || '';
-  const rawName = getField(['user_name', 'nama_user', 'namauser', 'nama', 'name']) || 'User Terdaftar';
-  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']) || 'FREE';
-  const rawStatus = getField(['status', 'subscription_status']) || 'ACTIVE';
-  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']) || '';
-
-  const rawMaxProjects = getField(['max_projects', 'maxprojects', 'custom_max_projects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual', 'custom_max_experts']);
-  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory', 'custom_max_experts_directory']);
-  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert', 'custom_max_consultation_per_expert']);
-  const rawCustomFeatures = getField(['custom_features', 'customfeatures', 'features']) || '';
-  const rawNotes = getField(['notes', 'catatan', 'keterangan']) || '';
-
-  return {
-    ...raw,
-    user_email: String(rawEmail).trim().toLowerCase(),
-    email: String(rawEmail).trim().toLowerCase(),
-    user_name: String(rawName).trim(),
-    nama: String(rawName).trim(),
-    plan: String(rawPlan).toUpperCase().trim(),
-    status: String(rawStatus).toUpperCase().trim(),
-    expired_date: String(rawExpDate).trim(),
-    custom_max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? rawMaxProjects : '',
-    custom_max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? rawMaxExperts : '',
-    custom_max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? rawMaxExpDir : '',
-    custom_max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? rawMaxConsult : '',
-    custom_features: String(rawCustomFeatures),
-    notes: String(rawNotes)
-  };
+function parseBooleanVal(val: unknown): boolean {
+  if (val === true || val === 1 || val === '1') return true
+  if (typeof val === 'string' && val.trim().toLowerCase() === 'true') return true
+  return false
 }
 
 export default function SuperAdminControlPage() {
@@ -143,45 +83,43 @@ export default function SuperAdminControlPage() {
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState('');
 
-  // Tab Menu Kontrol SuperAdmin
   const [activeTab, setActiveTab] = useState<'admin_performance' | 'admins_management' | 'subscriptions' | 'plans_config' | 'signature_stamp' | 'project_retention'>('admin_performance');
 
-  // State Data SuperAdmin
   const [admins, setAdmins] = useState<AdminItem[]>([]);
   const [adminLogsList, setAdminLogsList] = useState<any[]>([]);
 
-  // State Subscriptions Komersial
   const [userSubs, setUserSubscriptions] = useState<UserSubscriptionItem[]>([]);
   const [subSearchQuery, setSubSearchQuery] = useState('');
   
-  // State Modal Edit Privilese User
+  const [plans, setPlans] = useState<PlanSetting[]>([
+    { plan_key: 'FREE', label: 'Free Pass', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 4, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: false, allow_alternative_method: false, allow_ai_features: false },
+    { plan_key: 'PRO', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
+    { plan_key: 'PLUS', label: 'PLUS', price: 350000, duration_months: 6, max_projects: 10, max_experts_manual: 15, max_experts_directory: 10, max_consultation_per_expert: 5, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true },
+    { plan_key: 'PREMIUM', label: 'PREMIUM', price: 750000, duration_months: 6, max_projects: 999999, max_experts_manual: 999999, max_experts_directory: 999999, max_consultation_per_expert: 15, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true }
+  ]);
+
   const [isEditSubModalOpen, setIsEditSubModalOpen] = useState(false);
-  const [editingUserSub, setEditingUserSub] = useState<UserSubscriptionItem | null>(null);
   const [subForm, setSubForm] = useState({
     user_email: '',
     plan: 'FREE',
     status: 'ACTIVE',
+    status_user: 'general',
     expired_date: '',
     custom_max_projects: '',
     custom_max_experts: '',
     custom_max_experts_directory: '',
     custom_max_consultation_per_expert: '',
     custom_features: '',
+    custom_allow_subcriteria: false,
+    custom_allow_alternative: false,
+    custom_allow_ai: false,
     notes: ''
   });
 
-  // State Config Plans (Sesuai Konfigurasi Default Aktif)
-  const [plans, setPlans] = useState<PlanSetting[]>([
-    { plan_key: 'FREE', label: 'Free Pass', price: 0, duration_months: 6, max_projects: 1, max_experts_manual: 4, max_experts_directory: 0, max_consultation_per_expert: 0, allow_subcriteria: false, allow_alternative_method: false, allow_ai_features: true },
-    { plan_key: 'PRO', label: 'PRO', price: 150000, duration_months: 6, max_projects: 3, max_experts_manual: 8, max_experts_directory: 5, max_consultation_per_expert: 3, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: false },
-    { plan_key: 'PLUS', label: 'PLUS', price: 350000, duration_months: 6, max_projects: 10, max_experts_manual: 15, max_experts_directory: 10, max_consultation_per_expert: 5, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true },
-    { plan_key: 'PREMIUM', label: 'PREMIUM', price: 750000, duration_months: 6, max_projects: 999999, max_experts_manual: 999999, max_experts_directory: 999999, max_consultation_per_expert: 15, allow_subcriteria: true, allow_alternative_method: true, allow_ai_features: true }
-  ]);
-
-  // State Modal CRUD Admin
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<AdminItem | null>(null);
   const [adminForm, setAdminForm] = useState({
+    id: undefined as string | number | undefined,
     email: '',
     password: '',
     name: '',
@@ -191,189 +129,152 @@ export default function SuperAdminControlPage() {
   });
   const [submittingAdmin, setSubmittingAdmin] = useState(false);
 
-  // State Tanda Tangan, Logo, Xendit & Didit.me
-  const [activeSignerType, setActiveSignerType] = useState<'main' | 'backup'>('main');
+  const activeSignerTypeState = useState<'main' | 'backup'>('main');
+  const activeSignerType = activeSignerTypeState[0];
+  const setActiveSignerType = activeSignerTypeState[1];
   const [superAdminSignatureUrl, setSuperAdminSignatureUrl] = useState('');
   const [backupSignerName, setBackupSignerName] = useState('');
   const [backupSignerTitle, setBackupSignerTitle] = useState('Wakil System Admin / Perwakilan SuperAdmin');
   const [backupSignerSignatureUrl, setBackupSignerSignatureUrl] = useState('');
   const [appSystemStampUrl, setAppSystemStampUrl] = useState('');
   
-  // State Xendit
   const [xenditActive, setXenditActive] = useState(true);
   const [xenditMode, setXenditMode] = useState('sandbox');
   const [xenditPublicKey, setXenditPublicKey] = useState('');
   const [xenditSecretKey, setXenditSecretKey] = useState('');
-
-  // State Didit.me
   const [diditMeActive, setDiditMeActive] = useState(true);
   const [diditApiKey, setDiditApiKey] = useState('');
 
-  // State Pengaturan Retensi & Kedaluwarsa Proyek
   const [expirationMonths, setExpirationMonths] = useState<number>(6);
   const [autoDeleteEnabled, setAutoDeleteEnabled] = useState<boolean>(true);
   const [savingRetention, setSavingRetention] = useState<boolean>(false);
+  const [runningArchive, setRunningArchive] = useState<boolean>(false);
 
-  const fetchWithCatch = useCallback(async (action: string) => {
-    if (!GOOGLE_SCRIPT_URL) return [];
-    try {
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}&_t=${Date.now()}`, { 
-        method: 'GET',
-        cache: 'no-store',
-        redirect: 'follow' 
-      });
-      const text = await res.text();
-      let json;
-      try { json = JSON.parse(text); } catch { return []; }
-      if (json && (json.success || Array.isArray(json.data) || Array.isArray(json))) {
-        return json.data || (Array.isArray(json) ? json : []);
-      }
-      return json || [];
-    } catch {
-      return [];
-    }
-  }, []);
+  // Retensi Mahasiswa (Student Edition)
+  const [studentRetentionDays, setStudentRetentionDays] = useState<number>(30);
+  const [savingStudentRetention, setSavingStudentRetention] = useState<boolean>(false);
+  const [studentStats, setStudentStats] = useState({
+    totalStudents: 0,
+    totalStudentProjects: 0,
+    expiredProjectsCount: 0,
+    expiredProjectsList: [] as any[],
+  });
+  const [loadingStudentCleanup, setLoadingStudentCleanup] = useState<boolean>(false);
+  const [studentCleanupMsg, setStudentCleanupMsg] = useState('');
+  const [studentCleanupErr, setStudentCleanupErr] = useState('');
+
+  const [archivedList, setArchivedList] = useState<ArchivedProjectItem[]>([]);
+  const [loadingArchiveList, setLoadingArchiveList] = useState<boolean>(false);
 
   const fetchSuperData = useCallback(async () => {
-    if (!GOOGLE_SCRIPT_URL) {
-      setApiError('⚠️ URL Google Apps Script belum disetel di .env.local.');
-      return;
-    }
-    
     try {
       setLoading(true);
       setApiError('');
 
-      // Panggil endpoint backend secara paralel
-      const [admData, logsData, paymentSettings, diditSettings, planSettingsData, userSubsData, systemAssetsData, retentionData] = await Promise.all([
-        fetchWithCatch('getadmins'),
-        fetchWithCatch('getadminlogs'),
-        fetchWithCatch('getpaymentsettings'),
-        fetchWithCatch('getdiditsettings'),
-        fetchWithCatch('getplansettings'),
-        fetchWithCatch('getsubscriptions'),
-        fetchWithCatch('get_system_assets'),
-        fetchWithCatch('getprojectexpirationsettings')
-      ]);
+      const res = await fetch(`/api/admin/super-control?_t=${Date.now()}`, {
+        cache: 'no-store'
+      });
+      const json = await res.json();
 
-      setAdmins(Array.isArray(admData) ? admData : []);
-      setAdminLogsList(Array.isArray(logsData) ? logsData : []);
+      if (json && json.success && json.data) {
+        setAdminLogsList(json.data.adminLogs || []);
+        setAdmins(json.data.admins || []);
+        setUserSubscriptions(json.data.subscriptions || []);
 
-      // 🟢 Normalisasi Subscriptions Komersial dengan SSOT
-      if (Array.isArray(userSubsData)) {
-        setUserSubscriptions(userSubsData.map(normalizeSubscriptionItem));
+        if (Array.isArray(json.data.planConfigs) && json.data.planConfigs.length > 0) {
+          const orderMap: Record<string, number> = { FREE: 1, PRO: 2, PLUS: 3, PREMIUM: 4 };
+
+          const mappedPlans: PlanSetting[] = json.data.planConfigs.map((p: any) => ({
+            plan_key: String(p.plan_key || p.plan || '').toUpperCase().trim(),
+            label: String(p.label || p.plan_key || ''),
+            price: Number(p.price ?? 0),
+            duration_months: Number(p.duration_months ?? 6),
+            max_projects: Number(p.max_projects ?? 0),
+            max_experts_manual: Number(p.max_experts_manual ?? 0),
+            max_experts_directory: Number(p.max_experts_directory ?? 0),
+            max_consultation_per_expert: Number(p.max_consultation_per_expert ?? 0),
+            allow_subcriteria: parseBooleanVal(p.allow_subcriteria),
+            allow_alternative_method: parseBooleanVal(p.allow_alternative_method),
+            allow_ai_features: parseBooleanVal(p.allow_ai_features),
+          }));
+
+          mappedPlans.sort((a, b) => (orderMap[a.plan_key] || 99) - (orderMap[b.plan_key] || 99));
+          setPlans(mappedPlans);
+        }
+
+        if (json.data.systemAssets) {
+          const sa = json.data.systemAssets;
+          setActiveSignerType((sa.active_signer_type as 'main' | 'backup') || 'main');
+          setSuperAdminSignatureUrl(sa.superadmin_signature_url || '');
+          setBackupSignerName(sa.backup_signer_name || '');
+          setBackupSignerTitle(sa.backup_signer_title || 'Wakil System Admin / Perwakilan SuperAdmin');
+          setBackupSignerSignatureUrl(sa.backup_signer_signature_url || '');
+          setAppSystemStampUrl(sa.app_system_stamp_url || '');
+
+          if (sa.project_retention_months) {
+            setExpirationMonths(Number(sa.project_retention_months));
+          }
+          if (sa.project_auto_archive_enabled !== undefined) {
+            setAutoDeleteEnabled(sa.project_auto_archive_enabled === '1' || sa.project_auto_archive_enabled === 'true');
+          }
+          if (sa.student_retention_days) {
+            setStudentRetentionDays(Number(sa.student_retention_days));
+          }
+        }
+
+        if (json.data.paymentSettings) {
+          const ps = json.data.paymentSettings;
+          setXenditActive(ps.xendit_active === '1' || ps.xendit_active === 'true');
+          setXenditMode(ps.xendit_mode || 'sandbox');
+          setXenditPublicKey(ps.xendit_public_key || '');
+          setXenditSecretKey(ps.xendit_secret_key || '');
+        }
+
+        if (json.data.diditSettings) {
+          const ds = json.data.diditSettings;
+          setDiditMeActive(ds.didit_me_active === '1' || ds.didit_me_active === 'true');
+          setDiditApiKey(ds.didit_api_key || '');
+        }
+
       } else {
-        setUserSubscriptions([]);
+        setApiError(json?.message || 'Gagal memuat data kontrol SuperAdmin.');
       }
-
-      // Sinkronisasi data Aset Sistem
-      let assetsMap: Record<string, string> = {};
-      if (systemAssetsData) {
-        if (Array.isArray(systemAssetsData)) {
-          systemAssetsData.forEach((row: any) => {
-            if (row.setting_key && row.setting_value !== undefined) {
-              assetsMap[row.setting_key] = row.setting_value;
-            } else if (Array.isArray(row) && row.length >= 2) {
-              assetsMap[row[0]] = row[1];
-            }
-          });
-        } else if (typeof systemAssetsData === 'object') {
-          assetsMap = systemAssetsData;
-        }
-      }
-
-      if (Object.keys(assetsMap).length > 0) {
-        if (assetsMap.active_signer_type) {
-          setActiveSignerType(assetsMap.active_signer_type as 'main' | 'backup');
-          localStorage.setItem('active_signer_type', assetsMap.active_signer_type);
-        }
-        if (assetsMap.admin_signature || assetsMap.superadmin_signature_url) {
-          const sig = assetsMap.admin_signature || assetsMap.superadmin_signature_url;
-          setSuperAdminSignatureUrl(sig);
-          localStorage.setItem('superadmin_signature_url', sig);
-        }
-        if (assetsMap.backup_signer_name) {
-          setBackupSignerName(assetsMap.backup_signer_name);
-          localStorage.setItem('backup_signer_name', assetsMap.backup_signer_name);
-        }
-        if (assetsMap.backup_signer_title) {
-          setBackupSignerTitle(assetsMap.backup_signer_title);
-          localStorage.setItem('backup_signer_title', assetsMap.backup_signer_title);
-        }
-        if (assetsMap.co_admin_signature || assetsMap.backup_signer_signature_url) {
-          const coSig = assetsMap.co_admin_signature || assetsMap.backup_signer_signature_url;
-          setBackupSignerSignatureUrl(coSig);
-          localStorage.setItem('backup_signer_signature_url', coSig);
-        }
-        if (assetsMap.platform_logo || assetsMap.app_system_stamp_url) {
-          const logo = assetsMap.platform_logo || assetsMap.app_system_stamp_url;
-          setAppSystemStampUrl(logo);
-          localStorage.setItem('app_system_stamp_url', logo);
-        }
-      }
-
-      // Normalisasi config plans dinamis dari sheet plan_settings
-      if (Array.isArray(planSettingsData) && planSettingsData.length > 0) {
-        const normalizedPlans = planSettingsData.map((p: any) => ({
-          ...p,
-          plan_key: String(p.plan_key || p.label || 'FREE').toUpperCase(),
-          price: Number(p.price || 0),
-          duration_months: Number(p.duration_months || 6),
-          max_projects: Number(p.max_projects !== undefined ? p.max_projects : 1),
-          max_experts_manual: Number(p.max_experts_manual !== undefined ? p.max_experts_manual : 4),
-          max_experts_directory: Number(p.max_experts_directory !== undefined ? p.max_experts_directory : 0),
-          max_consultation_per_expert: Number(p.max_consultation_per_expert !== undefined ? p.max_consultation_per_expert : 0),
-          allow_ai_features: p.allow_ai_features === true || String(p.allow_ai_features).toUpperCase() === 'TRUE',
-          allow_subcriteria: p.allow_subcriteria === true || String(p.allow_subcriteria).toUpperCase() === 'TRUE',
-          allow_alternative_method: p.allow_alternative_method === true || String(p.allow_alternative_method).toUpperCase() === 'TRUE'
-        }));
-        setPlans(normalizedPlans);
-      }
-
-      if (paymentSettings && !Array.isArray(paymentSettings)) {
-        if (paymentSettings.xendit !== undefined || paymentSettings.is_xendit_active !== undefined) {
-          const isAct = paymentSettings.xendit !== undefined ? Boolean(paymentSettings.xendit) : Boolean(paymentSettings.is_xendit_active);
-          setXenditActive(isAct);
-          localStorage.setItem('xendit_active', String(isAct));
-        }
-        if (paymentSettings.xendit_mode) setXenditMode(paymentSettings.xendit_mode);
-        if (paymentSettings.xendit_public_key) setXenditPublicKey(paymentSettings.xendit_public_key);
-        if (paymentSettings.xendit_secret_key) setXenditSecretKey(paymentSettings.xendit_secret_key);
-      }
-
-      if (diditSettings && !Array.isArray(diditSettings)) {
-        if (diditSettings.diditme !== undefined) {
-          setDiditMeActive(Boolean(diditSettings.diditme));
-          localStorage.setItem('diditme_active', String(diditSettings.diditme));
-        }
-        if (diditSettings.diditme_apikey !== undefined) {
-          setDiditApiKey(String(diditSettings.diditme_apikey));
-        }
-      }
-
-      // Sinkronisasi Pengaturan Retensi Proyek
-      if (retentionData && typeof retentionData === 'object') {
-        const monthsVal = retentionData.expiration_months !== undefined 
-          ? retentionData.expiration_months 
-          : (retentionData.data && retentionData.data.expiration_months);
-        const autoDeleteVal = retentionData.auto_delete_enabled !== undefined 
-          ? retentionData.auto_delete_enabled 
-          : (retentionData.data && retentionData.data.auto_delete_enabled);
-
-        if (monthsVal !== undefined) {
-          setExpirationMonths(Number(monthsVal) || 6);
-        }
-        if (autoDeleteVal !== undefined) {
-          setAutoDeleteEnabled(Boolean(autoDeleteVal));
-        }
-      }
-
     } catch (err: any) {
       setApiError(`Gagal mengambil data kontrol: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [fetchWithCatch]);
+  }, []);
+
+  const fetchArchivedProjects = useCallback(async () => {
+    try {
+      setLoadingArchiveList(true);
+      const res = await fetch(`/api/admin/archive-actions?_t=${Date.now()}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (json && json.success) setArchivedList(json.data || []);
+    } catch (err: any) {
+      console.error('Gagal mengambil daftar arsip:', err);
+    } finally {
+      setLoadingArchiveList(false);
+    }
+  }, []);
+
+  const fetchStudentRetentionStats = useCallback(async (retentionDaysParam?: number) => {
+    try {
+      setLoadingStudentCleanup(true);
+      setStudentCleanupErr('');
+      const days = retentionDaysParam ?? studentRetentionDays;
+      const res = await fetch(`/api/admin/cleanup-student-projects?days=${days}&_t=${Date.now()}`, { cache: 'no-store' });
+      const json = await res.json();
+      if (json && json.success) {
+        setStudentStats(json.data);
+      }
+    } catch (err: any) {
+      console.error('Gagal memuat status retensi mahasiswa:', err);
+    } finally {
+      setLoadingStudentCleanup(false);
+    }
+  }, [studentRetentionDays]);
 
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
@@ -393,38 +294,30 @@ export default function SuperAdminControlPage() {
     setAdminEmail(email);
     setAdminRole(role);
 
-    setSuperAdminSignatureUrl(localStorage.getItem('superadmin_signature_url') || '');
-    setActiveSignerType((localStorage.getItem('active_signer_type') as 'main' | 'backup') || 'main');
-    setBackupSignerName(localStorage.getItem('backup_signer_name') || '');
-    setBackupSignerTitle(localStorage.getItem('backup_signer_title') || 'Wakil System Admin / Perwakilan SuperAdmin');
-    setBackupSignerSignatureUrl(localStorage.getItem('backup_signer_signature_url') || '');
-    setAppSystemStampUrl(localStorage.getItem('app_system_stamp_url') || '');
-
-    const storedXendit = localStorage.getItem('xendit_active');
-    if (storedXendit !== null) setXenditActive(storedXendit === 'true');
-    const storedDidit = localStorage.getItem('diditme_active');
-    if (storedDidit !== null) setDiditMeActive(storedDidit === 'true');
-
     fetchSuperData();
   }, [router, fetchSuperData]);
 
+  useEffect(() => {
+    if (activeTab === 'project_retention') {
+      fetchArchivedProjects();
+      fetchStudentRetentionStats();
+    }
+  }, [activeTab, fetchArchivedProjects, fetchStudentRetentionStats]);
+
   const adminPerformanceStats = useMemo(() => {
-    const statsByAdmin: Record<string, { name: string; role: string; email: string; totalActions: number; expertsManaged: number; notesSent: number; lastActive: string }> = {};
+    const statsByAdmin: Record<string, { name: string; role: string; email: string; totalActions: number; lastActive: string }> = {};
 
     adminLogsList.forEach((log) => {
-      const email = String(log.adminEmail || log[2] || 'unknown@admin.com').toLowerCase().trim();
-      const name = String(log.adminName || log[1] || email).trim();
-      const role = String(log.adminRole || log[3] || 'Admin Pembantu').trim();
-      const action = String(log.actionName || log[4] || '').toUpperCase().trim();
-      const timestamp = String(log.timestamp || log[0] || '-').trim();
+      const email = String(log.email_admin || log.adminEmail || 'unknown@admin.com').toLowerCase().trim();
+      const name = String(log.nama_admin || log.adminName || email).trim();
+      const role = String(log.role || log.adminRole || 'Admin').trim();
+      const timestamp = String(log.timestamp || '-').trim();
 
       if (!statsByAdmin[email]) {
-        statsByAdmin[email] = { name, role, email, totalActions: 0, expertsManaged: 0, notesSent: 0, lastActive: timestamp };
+        statsByAdmin[email] = { name, role, email, totalActions: 0, lastActive: timestamp };
       }
 
       statsByAdmin[email].totalActions += 1;
-      if (action.includes('EXPERT') || action.includes('PAKAR')) statsByAdmin[email].expertsManaged += 1;
-      if (action.includes('NOTE') || action.includes('CATATAN')) statsByAdmin[email].notesSent += 1;
       statsByAdmin[email].lastActive = timestamp;
     });
 
@@ -433,73 +326,21 @@ export default function SuperAdminControlPage() {
 
   const filteredUserSubs = useMemo(() => {
     const q = subSearchQuery.toLowerCase().trim();
-
     return userSubs.filter((item) => {
-      const statusUser = String(item.status_user || item.status || item.source || '').toUpperCase();
-      const userId = String(item.user_id || item.id || '').toUpperCase();
-      const proSource = String(item.pro_source || item.plan_source || '').toUpperCase();
-
-      const isExpertUser = 
-        statusUser === 'EXPERT_REWARD' || 
-        statusUser === 'PAKAR' ||
-        proSource === 'EXPERT_REWARD' || 
-        userId.startsWith('EXP-');
-
-      if (isExpertUser) return false;
-
       if (!q) return true;
-
-      const email = String(
-        item.user_email || item.email || item.kontakUser || item.kontak || item.userEmail || ''
-      ).toLowerCase();
-      
-      const name = String(
-        item.user_name || item.namaUser || item.nama || item.name || ''
-      ).toLowerCase();
-      
-      const plan = String(item.plan || item.Plan || '').toLowerCase();
-      const status = String(item.status || item.Status || '').toLowerCase();
-      const notes = String(item.notes || '').toLowerCase();
-
-      return email.includes(q) || name.includes(q) || plan.includes(q) || status.includes(q) || notes.includes(q);
+      const email = String(item.user_email || item.email || '').toLowerCase();
+      const name = String(item.user_name || item.nama || '').toLowerCase();
+      const plan = String(item.plan || '').toLowerCase();
+      return email.includes(q) || name.includes(q) || plan.includes(q);
     });
   }, [userSubs, subSearchQuery]);
-
-  const toggleCustomFeatureCheck = (featureKey: string) => {
-    let currentList: string[] = subForm.custom_features
-      ? subForm.custom_features.split(',').map((f) => f.trim().toLowerCase())
-      : [];
-
-    if (currentList.includes(featureKey)) {
-      currentList = currentList.filter((f) => f !== featureKey);
-    } else {
-      currentList.push(featureKey);
-    }
-
-    setSubForm({
-      ...subForm,
-      custom_features: currentList.join(',')
-    });
-  };
-
-  const isCustomFeatureChecked = (featureKey: string) => {
-    if (!subForm.custom_features) return false;
-    const currentList = subForm.custom_features.split(',').map((f) => f.trim().toLowerCase());
-    return currentList.includes(featureKey);
-  };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: (val: string) => void) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 35 * 1024) {
-      alert('⚠️ Ukuran gambar terlalu besar! Batas maksimal database adalah 35 KB. Harap kompres gambar Anda hingga di bawah 35 KB atau gunakan Link URL langsung.');
-      e.target.value = '';
-      return;
-    }
-
-    if (!file.type.startsWith('image/')) {
-      alert('⚠️ Format file tidak didukung! Harap unggah file gambar (JPG, PNG, atau WEBP).');
+    if (file.size > 250 * 1024) {
+      alert('⚠️ Ukuran gambar maksimal 250 KB.');
       e.target.value = '';
       return;
     }
@@ -507,24 +348,21 @@ export default function SuperAdminControlPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
       if (typeof reader.result === 'string') {
-        const cleanBase64 = reader.result.replace(/(\r\n|\n|\r)/gm, "");
-        setter(cleanBase64);
-      } else {
-        alert('Gagal membaca file gambar. Coba gunakan gambar lain.');
+        setter(reader.result);
       }
     };
-    
-    reader.onerror = () => {
-      alert('Terjadi kesalahan saat membaca file gambar.');
-    };
-
     reader.readAsDataURL(file);
   };
 
   const handleOpenAddAdmin = () => {
     setEditingAdmin(null);
     setAdminForm({ 
-      email: '', password: '', name: '', role: 'Admin Pembantu', status: 'Aktif', 
+      id: undefined,
+      email: '', 
+      password: '', 
+      name: '', 
+      role: 'Admin Pembantu', 
+      status: 'Aktif', 
       allowed_access: ['expert_directory', 'products', 'consultation_user', 'consultation_admin', 'visitor_stats', 'feedback'] 
     });
     setIsAdminModalOpen(true);
@@ -533,19 +371,20 @@ export default function SuperAdminControlPage() {
   const handleOpenEditAdmin = (adm: AdminItem) => {
     setEditingAdmin(adm);
     let accessList: string[] = ['expert_directory', 'products', 'consultation_user', 'consultation_admin', 'visitor_stats', 'feedback'];
-    if (adm.allowed_access) {
+    if (adm.wewenang_modul) {
       try {
-        const temp = typeof adm.allowed_access === 'string' ? JSON.parse(adm.allowed_access) : adm.allowed_access;
+        const temp = typeof adm.wewenang_modul === 'string' ? JSON.parse(adm.wewenang_modul) : adm.wewenang_modul;
         accessList = Array.isArray(temp) ? temp : String(temp).split(',');
       } catch {
-        accessList = String(adm.allowed_access).split(',');
+        accessList = String(adm.wewenang_modul).split(',');
       }
     }
     setAdminForm({
-      email: String(adm.email || adm.admin_email || ''),
+      id: adm.id,
+      email: String(adm.email || ''),
       password: '',
-      name: String(adm.name || adm.nama || adm.admin_name || ''),
-      role: String(adm.role || adm.admin_role || 'Admin Pembantu'),
+      name: String(adm.nama || adm.name || ''),
+      role: String(adm.role || 'Admin Pembantu'),
       status: String(adm.status || 'Aktif'),
       allowed_access: accessList.map(a => String(a).replace(/[\[\]"']/g, '').trim())
     });
@@ -561,150 +400,198 @@ export default function SuperAdminControlPage() {
 
   const handleSaveAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!editingAdmin && (!adminForm.password || adminForm.password.trim().length < 6)) {
+      alert('⚠️️ Kata sandi admin baru wajib diisi minimal 6 karakter.');
+      return;
+    }
+
     try {
       setSubmittingAdmin(true);
-      const action = editingAdmin ? 'editadmin' : 'registeradmin';
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=${action}`, {
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action,
+          action: 'save_admin',
+          id: adminForm.id,
+          nama: adminForm.name,
           email: adminForm.email,
           password: adminForm.password,
-          name: adminForm.name,
           role: adminForm.role,
           status: adminForm.status,
-          allowed_access: JSON.stringify(adminForm.allowed_access),
-          adminName, adminEmail, adminRole
+          allowed_access: adminForm.allowed_access,
+          admin_operator: adminName,
         }),
-        redirect: 'follow'
       });
+
       const json = await res.json();
       if (json.success) {
-        alert(editingAdmin ? 'Akses admin berhasil diperbarui!' : 'Akun admin baru berhasil dibuat!');
+        alert(json.message);
         setIsAdminModalOpen(false);
         fetchSuperData();
-      } else { alert(`Gagal: ${json.message}`); }
-    } catch (err: any) { alert(`Error: ${err.message}`); } finally { setSubmittingAdmin(false); }
+      } else {
+        alert(`Gagal: ${json.message}`);
+      }
+    } catch (err: any) {
+      alert(`Error koneksi: ${err.message}`);
+    } finally {
+      setSubmittingAdmin(false);
+    }
   };
 
   const handleDeleteAdmin = async (adm: AdminItem) => {
-    const email = String(adm.email || adm.admin_email || '').trim();
-    const name = String(adm.name || adm.nama || 'Admin');
-    if (!window.confirm(`⚠️ PERINGATAN FATAL: Hapus akun admin "${name}" (${email})?`)) return;
+    const email = String(adm.email || '').trim();
+    const name = String(adm.nama || adm.name || 'Admin');
+    if (!window.confirm(`⚠️ PERINGATAN: Yakin ingin menghapus akun admin "${name}" (${email})?`)) return;
 
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteadmin`, {
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ 
-          action: 'deleteadmin', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_admin',
           email: email,
-          adminEmail: email,
-          adminName, 
-          currentAdminEmail: adminEmail, 
-          adminRole 
+          admin_operator: adminName,
         }),
-        redirect: 'follow'
       });
-      const textRes = await res.text();
-      let json;
-      try { json = JSON.parse(textRes); } catch { json = { success: true }; }
 
-      if (json.success !== false) {
-        alert(`Akun admin "${name}" berhasil dihapus.`);
+      const json = await res.json();
+      if (json.success) {
+        alert(json.message);
         fetchSuperData();
-      } else { 
-        alert(`Gagal dari server: ${json.message}`); 
+      } else {
+        alert(`Gagal: ${json.message}`);
       }
-    } catch (err: any) { 
-      alert(`Gagal menghapus admin: ${err.message}`); 
-      fetchSuperData();
-    } finally { 
-      setLoading(false); 
+    } catch (err: any) {
+      alert(`Error koneksi: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleOpenEditSub = (item: UserSubscriptionItem) => {
-    setEditingUserSub(item);
+    const currentPlanKey = String(item.plan || 'FREE').toUpperCase();
+    const matchedPlan = plans.find(p => p.plan_key.toUpperCase() === currentPlanKey);
+
+    const isStudentUser = String(item.status_user || '').toLowerCase() === 'student';
+
+    const initialProjects = item.custom_max_projects !== undefined && item.custom_max_projects !== null && item.custom_max_projects !== ''
+      ? String(item.custom_max_projects)
+      : (isStudentUser ? '2' : (matchedPlan ? String(matchedPlan.max_projects) : ''));
+
+    const initialExperts = item.custom_max_experts !== undefined && item.custom_max_experts !== null && item.custom_max_experts !== ''
+      ? String(item.custom_max_experts)
+      : (isStudentUser ? '2' : (matchedPlan ? String(matchedPlan.max_experts_manual) : ''));
+
+    const initialDir = item.custom_max_experts_directory !== undefined && item.custom_max_experts_directory !== null && item.custom_max_experts_directory !== ''
+      ? String(item.custom_max_experts_directory)
+      : (isStudentUser ? '0' : (matchedPlan ? String(matchedPlan.max_experts_directory) : ''));
+
+    const initialConsult = item.custom_max_consultation_per_expert !== undefined && item.custom_max_consultation_per_expert !== null && item.custom_max_consultation_per_expert !== ''
+      ? String(item.custom_max_consultation_per_expert)
+      : (isStudentUser ? '0' : (matchedPlan ? String(matchedPlan.max_consultation_per_expert) : ''));
+
+    const rawCustom = String(item.custom_features || '').toLowerCase();
+    const customList = rawCustom.split(',').map(s => s.trim()).filter(Boolean);
+    const hasCustomDefined = customList.length > 0;
+
+    const initialSub = hasCustomDefined 
+      ? (customList.includes('subcriteria') || customList.includes('subkriteria'))
+      : (isStudentUser ? true : Boolean(matchedPlan?.allow_subcriteria));
+
+    const initialAlt = hasCustomDefined
+      ? (customList.includes('alternative') || customList.includes('alternatif'))
+      : (isStudentUser ? true : Boolean(matchedPlan?.allow_alternative_method));
+
+    const initialAi = hasCustomDefined
+      ? (customList.includes('ai') || customList.includes('gemini') || customList.includes('ai_analysis'))
+      : (isStudentUser ? false : Boolean(matchedPlan?.allow_ai_features));
+
     setSubForm({
-      user_email: String(item.user_email || item.email || item.kontakUser || ''),
-      plan: String(item.plan || 'FREE').toUpperCase(),
+      user_email: String(item.user_email || item.email || ''),
+      plan: currentPlanKey,
       status: String(item.status || 'ACTIVE').toUpperCase(),
-      expired_date: String(item.expired_date || item.expired || '').slice(0, 10),
-      custom_max_projects: item.custom_max_projects !== undefined ? String(item.custom_max_projects) : '',
-      custom_max_experts: item.custom_max_experts !== undefined ? String(item.custom_max_experts) : '',
-      custom_max_experts_directory: item.custom_max_experts_directory !== undefined ? String(item.custom_max_experts_directory) : '',
-      custom_max_consultation_per_expert: item.custom_max_consultation_per_expert !== undefined ? String(item.custom_max_consultation_per_expert) : '',
+      status_user: isStudentUser ? 'student' : 'general',
+      expired_date: String(item.expired_date || '').slice(0, 10),
+      custom_max_projects: initialProjects,
+      custom_max_experts: initialExperts,
+      custom_max_experts_directory: initialDir,
+      custom_max_consultation_per_expert: initialConsult,
       custom_features: String(item.custom_features || ''),
+      custom_allow_subcriteria: initialSub,
+      custom_allow_alternative: initialAlt,
+      custom_allow_ai: initialAi,
       notes: String(item.notes || '')
     });
     setIsEditSubModalOpen(true);
   };
 
-  const handlePlanSelectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newPlan = e.target.value.toUpperCase();
-    const currentPlan = subForm.plan.toUpperCase();
-    
-    let updatedForm = { ...subForm, plan: newPlan };
-    
-    if (newPlan !== currentPlan) {
-      const confirmReset = window.confirm(`Anda mengubah paket dari ${currentPlan} ke ${newPlan}.\n\nApakah Anda ingin mengosongkan nilai Override/Custom agar sistem otomatis mengikuti batas bawaan dan fitur paket baru?`);
-      if (confirmReset) {
-        updatedForm.custom_max_projects = '';
-        updatedForm.custom_max_experts = '';
-        updatedForm.custom_max_experts_directory = '';
-        updatedForm.custom_max_consultation_per_expert = '';
-        
-        const selectedPlanConfig = plans.find(p => p.plan_key.toUpperCase() === newPlan);
-        if (selectedPlanConfig) {
-          const features = [];
-          if (selectedPlanConfig.allow_subcriteria) features.push('subcriteria');
-          if (selectedPlanConfig.allow_alternative_method) features.push('alternative');
-          if (selectedPlanConfig.allow_ai_features) features.push('ai');
-          updatedForm.custom_features = features.join(',');
-        } else {
-          updatedForm.custom_features = '';
-        }
-      }
+  const handlePlanSelectChange = (newPlanKey: string) => {
+    const planKeyUpper = newPlanKey.toUpperCase();
+    const matchedPlan = plans.find(p => p.plan_key.toUpperCase() === planKeyUpper);
+
+    if (matchedPlan) {
+      setSubForm(prev => ({
+        ...prev,
+        plan: planKeyUpper,
+        custom_max_projects: String(matchedPlan.max_projects),
+        custom_max_experts: String(matchedPlan.max_experts_manual),
+        custom_max_experts_directory: String(matchedPlan.max_experts_directory),
+        custom_max_consultation_per_expert: String(matchedPlan.max_consultation_per_expert),
+        custom_allow_subcriteria: Boolean(matchedPlan.allow_subcriteria),
+        custom_allow_alternative: Boolean(matchedPlan.allow_alternative_method),
+        custom_allow_ai: Boolean(matchedPlan.allow_ai_features),
+      }));
+    } else {
+      setSubForm(prev => ({
+        ...prev,
+        plan: planKeyUpper
+      }));
     }
-    setSubForm(updatedForm);
   };
 
   const handleSaveUserSub = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setSaving(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=updatesubscription`, {
+
+      const features: string[] = [];
+      if (subForm.custom_allow_subcriteria) features.push('subcriteria');
+      if (subForm.custom_allow_alternative) features.push('alternative');
+      if (subForm.custom_allow_ai) features.push('ai');
+      const compiledFeatures = features.join(',');
+
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'updatesubscription',
+          action: 'update_subscription',
           user_email: subForm.user_email,
           plan: subForm.plan.toUpperCase(),
           status: subForm.status.toUpperCase(),
+          status_user: subForm.status_user,
           expired_date: subForm.expired_date,
           max_projects: subForm.custom_max_projects,
-          max_experts: subForm.custom_max_experts,
-          max_experts_directory: subForm.custom_max_experts_directory,
-          max_consultation_per_expert: subForm.custom_max_consultation_per_expert,
-          custom_features: subForm.custom_features,
+          max_experts: subForm.status_user === 'student' ? 2 : subForm.custom_max_experts,
+          max_experts_directory: subForm.status_user === 'student' ? 0 : subForm.custom_max_experts_directory,
+          max_consultation_per_expert: subForm.status_user === 'student' ? 0 : subForm.custom_max_consultation_per_expert,
+          custom_features: compiledFeatures,
           notes: subForm.notes,
-          adminName, adminEmail, adminRole
+          admin_operator: adminName,
         }),
-        redirect: 'follow'
       });
+
       const json = await res.json();
       if (json.success) {
-        alert(`✅ Hak Akses Privilege / Plan untuk ${subForm.user_email} berhasil diperbarui!`);
+        alert(json.message);
         setIsEditSubModalOpen(false);
         fetchSuperData();
       } else {
-        alert('Gagal memperbarui: ' + (json.message || 'Terjadi kesalahan'));
+        alert(`Gagal: ${json.message}`);
       }
     } catch (err: any) {
-      alert('Kesalahan jaringan: ' + err.message);
+      alert(`Error koneksi: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -719,33 +606,25 @@ export default function SuperAdminControlPage() {
   const handleSavePlans = async () => {
     try {
       setSaving(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveplansettings`, {
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'saveplansettings',
+          action: 'save_plans',
           plans: plans,
-          adminName, adminEmail, adminRole
+          admin_operator: adminName,
         }),
-        redirect: 'follow'
       });
-      
-      const txtRes = await res.text();
-      let json;
-      try {
-        json = JSON.parse(txtRes);
-      } catch (e) {
-        throw new Error("Gagal parsing respons server. Pastikan URL Apps Script benar.");
-      }
 
-      if (json.success !== false) {
-        alert('✅ Pengaturan Config Paket & Batasan berhasil disimpan!');
+      const json = await res.json();
+      if (json.success) {
+        alert(json.message || 'Konfigurasi batasan paket berhasil diperbarui di database!');
         fetchSuperData();
       } else {
-        alert('Gagal menyimpan: ' + (json.message || 'Error tidak diketahui'));
+        alert(`Gagal menyimpan konfigurasi paket: ${json.message}`);
       }
     } catch (err: any) {
-      alert('Kesalahan jaringan: ' + err.message);
+      alert(`Error koneksi: ${err.message}`);
     } finally {
       setSaving(false);
     }
@@ -754,149 +633,275 @@ export default function SuperAdminControlPage() {
   const handleSaveSignatureSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      setLoading(true);
-      localStorage.setItem('active_signer_type', activeSignerType);
-      localStorage.setItem('superadmin_signature_url', superAdminSignatureUrl);
-      localStorage.setItem('backup_signer_name', backupSignerName);
-      localStorage.setItem('backup_signer_title', backupSignerTitle);
-      localStorage.setItem('backup_signer_signature_url', backupSignerSignatureUrl);
-      localStorage.setItem('app_system_stamp_url', appSystemStampUrl);
-      localStorage.setItem('xendit_active', String(xenditActive));
-      localStorage.setItem('diditme_active', String(diditMeActive));
-
-      if (GOOGLE_SCRIPT_URL) {
-        const resAsset = await fetch(`${GOOGLE_SCRIPT_URL}?action=save_system_assets`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'save_system_assets',
-            assets: {
-              active_signer_type: activeSignerType,
-              admin_signature: superAdminSignatureUrl,
-              superadmin_signature_url: superAdminSignatureUrl,
-              backup_signer_name: backupSignerName,
-              backup_signer_title: backupSignerTitle,
-              co_admin_signature: backupSignerSignatureUrl,
-              backup_signer_signature_url: backupSignerSignatureUrl,
-              platform_logo: appSystemStampUrl,
-              app_system_stamp_url: appSystemStampUrl
-            },
-            adminEmail, adminName, adminRole
-          }),
-          redirect: 'follow'
-        });
-        
-        const txtAsset = await resAsset.text();
-        try {
-          const jsonAsset = JSON.parse(txtAsset);
-          if (jsonAsset.success === false) {
-             throw new Error('Gagal dari Server: ' + jsonAsset.message);
-          }
-        } catch (err: any) {
-          if (err.message && err.message.includes('Gagal')) throw err;
-        }
-
-        const resPay = await fetch(`${GOOGLE_SCRIPT_URL}?action=updatepaymentsettings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'updatepaymentsettings',
-            xendit: xenditActive,
-            is_xendit_active: xenditActive,
-            xendit_mode: xenditMode,
-            xendit_public_key: xenditPublicKey,
-            xendit_secret_key: xenditSecretKey,
-            adminName, adminEmail, adminRole
-          }),
-          redirect: 'follow'
-        });
-        await resPay.text(); 
-
-        const resDidit = await fetch(`${GOOGLE_SCRIPT_URL}?action=updateditsettings`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            action: 'updateditsettings',
-            diditme: diditMeActive,
-            diditme_apikey: diditApiKey,
-            adminName, adminEmail, adminRole
-          }),
-          redirect: 'follow'
-        });
-        await resDidit.text(); 
-      }
-
-      alert('✅ Pengaturan Tanda Tangan, Logo, Xendit & Didit.me berhasil disimpan!');
-    } catch (err: any) {
-      alert(`Gagal menyimpan: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // SIMPAN PENGATURAN RETENSI PROYEK
-  const handleSaveProjectRetention = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!GOOGLE_SCRIPT_URL) return;
-
-    try {
-      setSavingRetention(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=saveprojectexpirationsettings`, {
+      setSaving(true);
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'saveprojectexpirationsettings',
-          expiration_months: expirationMonths,
-          auto_delete_enabled: autoDeleteEnabled,
-          adminName, adminEmail, adminRole
+          action: 'save_payment_signature',
+          active_signer_type: activeSignerType,
+          superadmin_signature_url: superAdminSignatureUrl,
+          backup_signer_name: backupSignerName,
+          backup_signer_title: backupSignerTitle,
+          backup_signer_signature_url: backupSignerSignatureUrl,
+          app_system_stamp_url: appSystemStampUrl,
+          xendit_active: xenditActive,
+          xendit_mode: xenditMode,
+          xendit_public_key: xenditPublicKey,
+          xendit_secret_key: xenditSecretKey,
+          didit_me_active: diditMeActive,
+          didit_api_key: diditApiKey,
+          admin_operator: adminName,
         }),
-        redirect: 'follow'
       });
 
       const json = await res.json();
-      if (json.success !== false) {
-        alert(json.message || '✅ Pengaturan retensi & kedaluwarsa proyek berhasil disimpan!');
+      if (json.success) {
+        alert(json.message);
+        localStorage.setItem('active_signer_type', activeSignerType);
+        localStorage.setItem('superadmin_signature_url', superAdminSignatureUrl);
+        localStorage.setItem('backup_signer_name', backupSignerName);
+        localStorage.setItem('backup_signer_title', backupSignerTitle);
+        localStorage.setItem('backup_signer_signature_url', backupSignerSignatureUrl);
+        localStorage.setItem('app_system_stamp_url', appSystemStampUrl);
+        fetchSuperData();
       } else {
-        alert('Gagal menyimpan: ' + (json.message || 'Error tidak diketahui'));
+        alert(`Gagal menyimpan pengaturan: ${json.message}`);
       }
     } catch (err: any) {
-      alert('Gagal menyimpan pengaturan retensi: ' + err.message);
+      alert(`Error koneksi: ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveProjectRetention = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingRetention(true);
+      const res = await fetch('/api/admin/super-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_project_retention',
+          expiration_months: expirationMonths,
+          auto_delete_enabled: autoDeleteEnabled,
+          admin_operator: adminName,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        alert(json.message);
+        fetchSuperData();
+      } else {
+        alert(`Gagal menyimpan kebijakan retensi: ${json.message}`);
+      }
+    } catch (err: any) {
+      alert(`Error koneksi: ${err.message}`);
     } finally {
       setSavingRetention(false);
     }
   };
 
+  // Simpan batas hari retensi akun/proyek mahasiswa
+  const handleSaveStudentRetentionDays = async () => {
+    try {
+      setSavingStudentRetention(true);
+      setStudentCleanupMsg('');
+      setStudentCleanupErr('');
+
+      const res = await fetch('/api/admin/super-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save_student_retention',
+          student_retention_days: studentRetentionDays,
+          admin_operator: adminName,
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setStudentCleanupMsg(`✓ Masa retensi data mahasiswa berhasil disimpan (${studentRetentionDays} hari).`);
+        fetchStudentRetentionStats(studentRetentionDays);
+      } else {
+        setStudentCleanupErr(json.message || 'Gagal menyimpan masa retensi mahasiswa.');
+      }
+    } catch (err: any) {
+      setStudentCleanupErr(`Error koneksi: ${err.message}`);
+    } finally {
+      setSavingStudentRetention(false);
+    }
+  };
+
+  const handleExecuteStudentCleanup = async () => {
+    if (studentStats.expiredProjectsCount === 0) {
+      alert(`Tidak ada akun/proyek mahasiswa yang melewati batas retensi ${studentRetentionDays} hari.`);
+      return;
+    }
+
+    const confirmRun = window.confirm(
+      `⚠️ PERINGATAN HAPUS DATA KADALUARSA MAHASISWA\n\nSebanyak ${studentStats.expiredProjectsCount} proyek latihan praktikum mahasiswa yang berusia lebih dari ${studentRetentionDays} hari akan DIHAPUS PERMANEN beserta kriteria dan responnya.\n\nLanjutkan pembersihan?`
+    );
+
+    if (!confirmRun) return;
+
+    try {
+      setLoadingStudentCleanup(true);
+      setStudentCleanupMsg('');
+      setStudentCleanupErr('');
+
+      const res = await fetch('/api/admin/cleanup-student-projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          admin_email: adminEmail,
+          retention_days: studentRetentionDays 
+        }),
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        setStudentCleanupMsg(json.message);
+        fetchStudentRetentionStats();
+      } else {
+        setStudentCleanupErr(json.message || 'Gagal mengeksekusi pembersihan proyek mahasiswa.');
+      }
+    } catch (err: any) {
+      setStudentCleanupErr(`Terjadi kendala jaringan: ${err.message}`);
+    } finally {
+      setLoadingStudentCleanup(false);
+    }
+  };
+
+  const handleRunArchiveSimulation = async () => {
+    if (!window.confirm(`⚠️ PERINGATAN: Apakah Anda yakin ingin menjalankan simulasi pengarsipan sekarang?\n\nSemua proyek yang berusia lebih dari ${expirationMonths} bulan akan dipindahkan ke tabel arsip.`)) {
+      return;
+    }
+
+    try {
+      setRunningArchive(true);
+      const res = await fetch('/api/admin/archive-runner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const json = await res.json();
+      if (json.success) {
+        alert(`✅ ${json.message}`);
+        fetchSuperData();
+        fetchArchivedProjects();
+      } else {
+        alert(`⚠️ ${json.message}`);
+      }
+    } catch (err: any) {
+      alert(`Error koneksi runner arsip: ${err.message}`);
+    } finally {
+      setRunningArchive(false);
+    }
+  };
+
+  const handleDownloadArchive = async (projectId: string, projectName: string) => {
+    try {
+      const res = await fetch('/api/admin/archive-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'download_archive',
+          project_id: projectId,
+          admin_operator: adminName,
+        }),
+      });
+
+      const json = await res.json();
+      if (!json.success) {
+        alert(`Gagal mengunduh berkas arsip: ${json.message}`);
+        return;
+      }
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(json.data, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `AHP_Archive_${projectName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${projectId}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    } catch (err: any) {
+      alert(`Gagal koneksi saat unduh berkas: ${err.message}`);
+    }
+  };
+
+  const handleRestoreArchive = async (projectId: string) => {
+    if (!window.confirm(`Pulihkan proyek ID "${projectId}" dan seluruh kriteria serta responnya ke proyek aktif operasional?`)) return;
+
+    try {
+      const res = await fetch('/api/admin/archive-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restore_project',
+          project_id: projectId,
+          admin_operator: adminName,
+        }),
+      });
+      const json = await res.json();
+      alert(json.message);
+      if (json.success) {
+        fetchArchivedProjects();
+        fetchSuperData();
+      }
+    } catch (err: any) {
+      alert(`Gagal memulihkan proyek: ${err.message}`);
+    }
+  };
+
+  const handleDeletePermanent = async (projectId: string, projectName: string) => {
+    if (!window.confirm(`⚠️ PERINGATAN KERAS: Hapus proyek "${projectName}" (${projectId}) secara PERMANEN dari database arsip?\n\nData kriteria, subkriteria, dan respons yang terkait akan dihapus total dan TIDAK DAPAT dipulihkan kembali!`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/admin/archive-actions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete_permanent',
+          project_id: projectId,
+          admin_operator: adminName,
+        }),
+      });
+
+      const json = await res.json();
+      alert(json.message);
+      if (json.success) {
+        fetchArchivedProjects();
+      }
+    } catch (err: any) {
+      alert(`Gagal menghapus permanen: ${err.message}`);
+    }
+  };
+
   const handleDeleteAdminLogs = async () => {
-    if (!window.confirm('⚠️ PERINGATAN FATAL: Apakah Anda yakin ingin menghapus SELURUH riwayat aktivitas audit admin?')) return;
+    if (!window.confirm('⚠️ PERINGATAN: Apakah Anda yakin ingin membersihkan SELURUH riwayat aktivitas audit admin di MySQL?')) return;
 
     try {
       setLoading(true);
-      const res = await fetch(`${GOOGLE_SCRIPT_URL}?action=deleteadminlogsbulk`, {
+      const res = await fetch('/api/admin/super-control', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'deleteadminlogsbulk',
-          deleteAll: true,
-          adminName,
-          adminEmail,
-          adminRole
-        }),
-        redirect: 'follow'
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_admin_logs' }),
       });
 
-      const textRes = await res.text();
-      let json;
-      try { json = JSON.parse(textRes); } catch { json = { success: true }; }
-
-      if (json.success !== false) {
-        alert('Seluruh audit trail berhasil dibersihkan.');
+      const json = await res.json();
+      if (json.success) {
+        alert('Seluruh audit trail aktivitas admin berhasil dibersihkan.');
         fetchSuperData();
       } else {
-        alert(`Gagal dari server: ${json.message}`);
+        alert(`Gagal: ${json.message}`);
       }
     } catch (err: any) {
-      alert(`Gagal menghapus log audit: ${err.message}`);
-      fetchSuperData();
+      alert(`Gagal menghapus log: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -964,24 +969,17 @@ export default function SuperAdminControlPage() {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 20 }}>
                 {adminPerformanceStats.map((st, idx) => (
-                  <div key={idx} style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 10, padding: 16 }}>
-                    <strong style={{ fontSize: 14, color: '#1e3a8a' }}>{st.name}</strong>
-                    <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 10 }}>{st.email}</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, textAlign: 'center' }}>
-                      <div style={{ background: '#fff', padding: 6, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: 9, color: '#64748b' }}>TOTAL AKSI</div>
-                        <div style={{ fontSize: 16, fontWeight: 800 }}>{st.totalActions}</div>
-                      </div>
-                      <div style={{ background: '#fff', padding: 6, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: 9, color: '#64748b' }}>PAKAR</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: '#2563eb' }}>{st.expertsManaged}</div>
-                      </div>
-                      <div style={{ background: '#fff', padding: 6, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: 9, color: '#64748b' }}>CATATAN</div>
-                        <div style={{ fontSize: 16, fontWeight: 800, color: '#d97706' }}>{st.notesSent}</div>
-                      </div>
+                  <div key={idx} style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 10, padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong style={{ fontSize: 14, color: '#1e3a8a', display: 'block' }}>{st.name}</strong>
+                      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>{st.email}</div>
+                      <div style={{ fontSize: 11, color: '#0284c7', marginTop: 6, fontWeight: 600 }}>🕒 Terakhir: {st.lastActive}</div>
+                    </div>
+                    <div style={{ background: '#fff', padding: '10px 18px', borderRadius: 8, border: '1px solid #e2e8f0', textAlign: 'center', minWidth: 80 }}>
+                      <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, letterSpacing: 0.5 }}>TOTAL AKSI</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 2 }}>{st.totalActions}</div>
                     </div>
                   </div>
                 ))}
@@ -1000,16 +998,20 @@ export default function SuperAdminControlPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {adminLogsList.map((log, i) => (
-                      <tr key={i}>
-                        <td style={STYLES.td}>#{i + 1}</td>
-                        <td style={STYLES.td}>{String(log.timestamp || log[0] || '-')}</td>
-                        <td style={STYLES.td}><strong>{String(log.adminName || log[1] || '-')}</strong></td>
-                        <td style={STYLES.td}>{String(log.adminRole || log[3] || 'Admin')}</td>
-                        <td style={STYLES.td}>{String(log.actionName || log[4] || '-')}</td>
-                        <td style={STYLES.td}>{String(log.details || log[5] || '-')}</td>
-                      </tr>
-                    ))}
+                    {adminLogsList.length === 0 ? (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>{loading ? 'Memuat data log dari MySQL...' : 'Belum ada log audit aktivitas admin.'}</td></tr>
+                    ) : (
+                      adminLogsList.map((log, i) => (
+                        <tr key={i}>
+                          <td style={STYLES.td}>#{i + 1}</td>
+                          <td style={STYLES.td}>{String(log.timestamp || '-')}</td>
+                          <td style={STYLES.td}><strong>{String(log.nama_admin || '-')}</strong></td>
+                          <td style={STYLES.td}>{String(log.role || 'Admin')}</td>
+                          <td style={STYLES.td}><span style={STYLES.badgeActive}>{String(log.tindakan || '-')}</span></td>
+                          <td style={STYLES.td}>{String(log.detail || '-')}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1022,7 +1024,7 @@ export default function SuperAdminControlPage() {
               <div style={STYLES.cardTitleRow}>
                 <div>
                   <h3 style={STYLES.cardTitle}>👥 Kelola Akun Admin &amp; Wewenang Modul</h3>
-                  <p style={STYLES.cardDesc}>Atur centangan akses modul harian untuk Admin Pembantu.</p>
+                  <p style={STYLES.cardDesc}>Atur centangan akses modul operasional harian untuk Admin Pembantu.</p>
                 </div>
                 <button onClick={handleOpenAddAdmin} style={STYLES.btnAdd}>+ Tambah Admin Baru</button>
               </div>
@@ -1040,41 +1042,73 @@ export default function SuperAdminControlPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {admins.map((adm, i) => (
-                      <tr key={i}>
-                        <td style={STYLES.td}><strong>{String(adm.name || adm.nama || '-')}</strong></td>
-                        <td style={STYLES.td}>{String(adm.email || adm.admin_email || '-')}</td>
-                        <td style={STYLES.td}>{String(adm.role || 'Admin Pembantu')}</td>
-                        <td style={STYLES.td}>
-                          <div style={{ maxWidth: 200, fontSize: 11.5, color: '#475569', lineHeight: 1.4 }}>
-                            {String(adm.allowed_access || 'Direktori, Konsultasi').replace(/_/g, ' ')}
-                          </div>
-                        </td>
-                        <td style={STYLES.td}><span style={STYLES.badgeActive}>{String(adm.status || 'Aktif')}</span></td>
-                        <td style={{ ...STYLES.td, textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                            <button onClick={() => handleOpenEditAdmin(adm)} style={STYLES.btnEdit}>Edit Akses</button>
-                            {!String(adm.role).toLowerCase().includes('super') && (
-                              <button onClick={() => handleDeleteAdmin(adm)} style={STYLES.btnDelete}>Hapus</button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {admins.length === 0 ? (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>Belum ada akun admin terdaftar.</td></tr>
+                    ) : (
+                      admins.map((adm, i) => {
+                        let parsedModules: string[] = [];
+                        try {
+                          parsedModules = typeof adm.wewenang_modul === 'string' 
+                            ? JSON.parse(adm.wewenang_modul) 
+                            : (adm.wewenang_modul || []);
+                        } catch {
+                          parsedModules = String(adm.wewenang_modul || '').split(',');
+                        }
+
+                        return (
+                          <tr key={i}>
+                            <td style={STYLES.td}><strong>{String(adm.nama || adm.name || '-')}</strong></td>
+                            <td style={STYLES.td}>{String(adm.email || '-')}</td>
+                            <td style={STYLES.td}>
+                              <span style={{ 
+                                fontWeight: 700, 
+                                color: String(adm.role).toLowerCase().includes('super') ? '#1e3a8a' : '#0284c7' 
+                              }}>
+                                {String(adm.role || 'Admin Pembantu')}
+                              </span>
+                            </td>
+                            <td style={STYLES.td}>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 280 }}>
+                                {String(adm.role).toLowerCase().includes('super') ? (
+                                  <span style={{ fontSize: 11, background: '#eff6ff', color: '#1d4ed8', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+                                    ⭐ Akses Penuh (All Modules)
+                                  </span>
+                                ) : (
+                                  parsedModules.map((mod, mIdx) => (
+                                    <span key={mIdx} style={{ fontSize: 10.5, background: '#f1f5f9', color: '#334155', padding: '2px 6px', borderRadius: 4, border: '1px solid #e2e8f0' }}>
+                                      {String(mod).replace(/_/g, ' ')}
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                            </td>
+                            <td style={STYLES.td}><span style={STYLES.badgeActive}>{String(adm.status || 'Aktif')}</span></td>
+                            <td style={{ ...STYLES.td, textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                <button onClick={() => handleOpenEditAdmin(adm)} style={STYLES.btnEdit}>Edit Akses</button>
+                                {!String(adm.role).toLowerCase().includes('super') && (
+                                  <button onClick={() => handleDeleteAdmin(adm)} style={STYLES.btnDelete}>Hapus</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* 3. USER SUBSCRIPTIONS (100% DINAMIS TERHUBUNG DENGAN plan_settings) */}
+          {/* 3. USER SUBSCRIPTIONS */}
           {activeTab === 'subscriptions' && (
             <div>
               <div style={STYLES.cardTitleRow}>
                 <div>
                   <h3 style={STYLES.cardTitle}>📜 Subscriptions &amp; Hak Akses Komersial ({filteredUserSubs.length})</h3>
                   <p style={STYLES.cardDesc}>
-                    Pengaturan paket komersial (FREE, PLUS, PRO, PREMIUM). Data Evaluator Pakar dikelola terpisah pada Dashboard Operasional Admin.
+                    Pengaturan paket komersial (FREE, PLUS, PRO, PREMIUM) dan batas kuota pengguna.
                   </p>
                 </div>
                 <button onClick={fetchSuperData} disabled={loading} style={{ ...STYLES.btnUpload, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
@@ -1085,7 +1119,7 @@ export default function SuperAdminControlPage() {
               <div style={{ marginBottom: 16 }}>
                 <input
                   type="text"
-                  placeholder="🔍 Cari email, nama, paket, atau catatan pelanggan umum..."
+                  placeholder="🔍 Cari email, nama, paket..."
                   value={subSearchQuery}
                   onChange={(e) => setSubSearchQuery(e.target.value)}
                   style={STYLES.input}
@@ -1100,104 +1134,51 @@ export default function SuperAdminControlPage() {
                       <th style={STYLES.th}>Paket (Plan)</th>
                       <th style={STYLES.th}>Status Akses</th>
                       <th style={STYLES.th}>Expired Date</th>
-                      <th style={STYLES.th}>Rincian Privilese &amp; Batasan Aktif</th>
-                      <th style={STYLES.th}>Catatan SuperAdmin</th>
+                      <th style={STYLES.th}>Batas Kuota Khusus</th>
                       <th style={{ ...STYLES.th, textAlign: 'center' }}>Aksi Privilese</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredUserSubs.length === 0 ? (
-                      <tr><td colSpan={7} style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>{loading ? 'Sedang memuat data...' : 'Belum ada data pelanggan komersial ditemukan.'}</td></tr>
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>Belum ada data pelanggan ditemukan di database.</td></tr>
                     ) : (
                       filteredUserSubs.map((item, idx) => {
-                        const email = item.user_email || item.email || item.kontakUser || item.kontak || '-';
-                        const name = item.user_name || item.namaUser || item.nama || item.name || 'User Terdaftar';
-                        const plan = String(item.plan || item.Plan || 'FREE').toUpperCase();
-                        const status = String(item.status || item.Status || 'ACTIVE').toUpperCase();
-                        const exp = item.expired_date || item.expired || '-';
-                        
-                        // CARI DATA DINAMIS DARI plan_settings
-                        const matchedPlan = plans.find(p => p.plan_key.toUpperCase() === plan) || item.plan_details;
-
-                        // Evaluasi custom overrides secara aman
-                        const hasCustomProj = item.custom_max_projects !== undefined && item.custom_max_projects !== '' && item.custom_max_projects !== null;
-                        const hasCustomExpMan = item.custom_max_experts !== undefined && item.custom_max_experts !== '' && item.custom_max_experts !== null;
-                        const hasCustomExpDir = item.custom_max_experts_directory !== undefined && item.custom_max_experts_directory !== '' && item.custom_max_experts_directory !== null;
-                        const hasCustomCons = item.custom_max_consultation_per_expert !== undefined && item.custom_max_consultation_per_expert !== '' && item.custom_max_consultation_per_expert !== null;
-
-                        const maxProj = hasCustomProj ? item.custom_max_projects : (matchedPlan?.max_projects ?? 1);
-                        const maxExp = hasCustomExpMan ? item.custom_max_experts : (matchedPlan?.max_experts_manual ?? 4);
-                        const maxExpDir = hasCustomExpDir ? item.custom_max_experts_directory : (matchedPlan?.max_experts_directory ?? 0);
-                        const maxConsult = hasCustomCons ? item.custom_max_consultation_per_expert : (matchedPlan?.max_consultation_per_expert ?? 0);
-
-                        // RESOLVE STATUS FITUR
-                        const custFeatures = item.custom_features ? String(item.custom_features).toLowerCase() : '';
-                        const hasCustomOverride = custFeatures.length > 0;
-
-                        const allowSub = hasCustomOverride 
-                          ? custFeatures.includes('subcriteria') 
-                          : (matchedPlan?.allow_subcriteria ?? false);
-
-                        const allowAlt = hasCustomOverride 
-                          ? custFeatures.includes('alternative') 
-                          : (matchedPlan?.allow_alternative_method ?? false);
-
-                        const allowAi = hasCustomOverride 
-                          ? custFeatures.includes('ai') 
-                          : (matchedPlan?.allow_ai_features ?? true);
-
-                        const notes = item.notes || '-';
-                        
-                        let badgeBg = '#f1f5f9';
-                        let badgeColor = '#475569';
-                        if (plan === 'PRO') { badgeBg = '#eff6ff'; badgeColor = '#1d4ed8'; }
-                        else if (plan === 'PLUS') { badgeBg = '#f3e8ff'; badgeColor = '#7e22ce'; }
-                        else if (plan === 'PREMIUM') { badgeBg = '#fef3c7'; badgeColor = '#b45309'; }
+                        const isStudentItem = String(item.status_user || '').toLowerCase() === 'student';
+                        const customFeats = String(item.custom_features || '').split(',').map(s => s.trim()).filter(Boolean);
 
                         return (
                           <tr key={idx}>
                             <td style={STYLES.td}>
-                              <strong style={{ color: '#0f172a' }}>{name}</strong>
-                              <div style={{ fontSize: 11.5, color: '#64748b' }}>{email}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <strong style={{ color: '#0f172a' }}>{item.nama || item.user_name || 'Pengguna'}</strong>
+                                {isStudentItem && (
+                                  <span style={{ fontSize: 10, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '1px 5px', borderRadius: 4, fontWeight: 800 }}>
+                                    🎓 Student
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: '#64748b' }}>{item.email || item.user_email}</div>
                             </td>
+                            <td style={STYLES.td}><span style={STYLES.badgeActive}>{item.plan || 'FREE'}</span></td>
+                            <td style={STYLES.td}><span style={{ color: String(item.status).toUpperCase() === 'ACTIVE' ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{item.status || 'ACTIVE'}</span></td>
+                            <td style={STYLES.td}>{item.expired_date || '-'}</td>
                             <td style={STYLES.td}>
-                              <span style={{ background: badgeBg, color: badgeColor, padding: '4px 10px', borderRadius: 6, fontWeight: 700, fontSize: 11.5 }}>
-                                {plan}
-                              </span>
-                            </td>
-                            <td style={STYLES.td}>
-                              <span style={{ color: status === 'ACTIVE' ? '#16a34a' : '#dc2626', fontWeight: 700, fontSize: 12 }}>
-                                {status === 'ACTIVE' ? '🟢 AKTIF' : '🔴 EXPIRED'}
-                              </span>
-                            </td>
-                            <td style={{ ...STYLES.td, color: '#64748b', fontSize: 12 }}>{exp}</td>
-                            <td style={{ ...STYLES.td, fontSize: 11.5, color: '#334155', lineHeight: 1.5 }}>
-                              <div><strong>• Max Projects:</strong> {maxProj === 999999 ? 'Unlimited' : maxProj}</div>
-                              <div><strong>• Expert Manual:</strong> {maxExp === 999999 ? 'Unlimited' : maxExp}</div>
-                              <div><strong>• Expert Direktori:</strong> {maxExpDir === 999999 ? 'Unlimited' : maxExpDir}</div>
-                              <div><strong>• Konsultasi/Pakar:</strong> {maxConsult}</div>
-                              <div style={{ marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowAi ? '#dcfce7' : '#fee2e2', color: allowAi ? '#15803d' : '#b91c1c' }}>
-                                  AI: {allowAi ? 'AKTIF' : 'NON-AKTIF'}
-                                </span>
-                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowSub ? '#eff6ff' : '#f1f5f9', color: allowSub ? '#1d4ed8' : '#64748b' }}>
-                                  Subkriteria: {allowSub ? 'YA' : 'TIDAK'}
-                                </span>
-                                <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 10.5, fontWeight: 700, background: allowAlt ? '#eff6ff' : '#f1f5f9', color: allowAlt ? '#1d4ed8' : '#64748b' }}>
-                                  Alternatif: {allowAlt ? 'YA' : 'TIDAK'}
-                                </span>
+                              <div style={{ fontSize: 11.5, color: '#475569', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span>Proyek: <strong>{isStudentItem ? '2 (Student)' : (item.custom_max_projects !== '' && item.custom_max_projects !== null ? item.custom_max_projects : 'Default')}</strong></span>
+                                <span>Pakar: <strong>{isStudentItem ? '2 Pakar Simulasi' : (item.custom_max_experts !== '' && item.custom_max_experts !== null ? `${item.custom_max_experts} (Manual)` : 'Default')}</strong></span>
+                                {customFeats.length > 0 && (
+                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+                                    {customFeats.map((feat, fIdx) => (
+                                      <span key={fIdx} style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 5px', borderRadius: 4, border: '1px solid #bfdbfe', fontWeight: 700 }}>
+                                        +{feat.toUpperCase()}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </td>
-                            <td style={{ ...STYLES.td, fontSize: 11.5, color: '#64748b', fontStyle: 'italic', maxWidth: 160 }}>
-                              {notes}
-                            </td>
                             <td style={{ ...STYLES.td, textAlign: 'center' }}>
-                              <button
-                                onClick={() => handleOpenEditSub(item)}
-                                style={STYLES.btnEdit}
-                              >
-                                ✏️ Ubah Privilese
-                              </button>
+                              <button onClick={() => handleOpenEditSub(item)} style={STYLES.btnEdit}>✏️ Ubah Privilese</button>
                             </td>
                           </tr>
                         );
@@ -1214,303 +1195,548 @@ export default function SuperAdminControlPage() {
             <div>
               <div style={STYLES.cardTitleRow}>
                 <div>
-                  <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Harga &amp; Batasan Paket (Semester Pass)</h3>
-                  <p style={STYLES.cardDesc}>Ubah batasan kuota proyek, expert, serta fitur khusus untuk masing-masing paket bawaan.</p>
+                  <h3 style={STYLES.cardTitle}>⚙️ Konfigurasi Batasan Paket (Semester Pass)</h3>
+                  <p style={STYLES.cardDesc}>
+                    Ubah batasan kuota proyek, pakar, konsultasi, serta perizinan subkriteria, alternatif, dan AI secara dinamis.
+                  </p>
                 </div>
                 <button onClick={handleSavePlans} disabled={saving} style={STYLES.btnAdd}>
-                  {saving ? 'Menyimpan...' : '💾 Simpan Pengaturan Paket'}
+                  {saving ? 'Menyimpan ke Database...' : '💾 Simpan Pengaturan Paket'}
                 </button>
               </div>
 
-              {loading ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>⏳ Memuat konfigurasi paket...</div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-                  {plans.map((p, idx) => (
-                    <div key={p.plan_key} style={{ border: '1.5px solid #cbd5e1', borderRadius: 12, padding: 16, background: '#f8fafc' }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: '#1e3a8a', marginBottom: 10, textTransform: 'uppercase' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+                {plans.map((p, idx) => (
+                  <div key={p.plan_key} style={{ border: '1.5px solid #cbd5e1', borderRadius: 12, padding: 16, background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#1e3a8a' }}>
                         Paket {p.label}
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <div>
-                          <label style={STYLES.label}>Harga (IDR) / 6 Bulan</label>
-                          <input type="number" value={p.price} onChange={(e) => handlePlanChange(idx, 'price', Number(e.target.value))} style={STYLES.input} />
-                        </div>
-
-                        <div>
-                          <label style={STYLES.label}>Max Proyek (999999 = Unlimited)</label>
-                          <input type="number" value={p.max_projects} onChange={(e) => handlePlanChange(idx, 'max_projects', Number(e.target.value))} style={STYLES.input} />
-                        </div>
-
-                        <div>
-                          <label style={STYLES.label}>Max Expert Manual</label>
-                          <input type="number" value={p.max_experts_manual} onChange={(e) => handlePlanChange(idx, 'max_experts_manual', Number(e.target.value))} style={STYLES.input} />
-                        </div>
-
-                        <div>
-                          <label style={STYLES.label}>Max Expert Direktori</label>
-                          <input type="number" value={p.max_experts_directory} onChange={(e) => handlePlanChange(idx, 'max_experts_directory', Number(e.target.value))} style={STYLES.input} />
-                        </div>
-
-                        <div>
-                          <label style={STYLES.label}>Kuota Tiket Konsultasi/Pakar</label>
-                          <input type="number" value={p.max_consultation_per_expert} onChange={(e) => handlePlanChange(idx, 'max_consultation_per_expert', Number(e.target.value))} style={STYLES.input} />
-                        </div>
-
-                        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={p.allow_subcriteria} onChange={(e) => handlePlanChange(idx, 'allow_subcriteria', e.target.checked)} />
-                            <span>Penyusunan Subkriteria</span>
-                          </label>
-
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={p.allow_alternative_method} onChange={(e) => handlePlanChange(idx, 'allow_alternative_method', e.target.checked)} />
-                            <span>Bobot &amp; Ranking Alternatif</span>
-                          </label>
-
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={p.allow_ai_features} onChange={(e) => handlePlanChange(idx, 'allow_ai_features', e.target.checked)} />
-                            <span>Akses Fitur AI Analisis</span>
-                          </label>
-                        </div>
-                      </div>
+                      </span>
+                      <span style={{ fontSize: 11, background: '#e0e7ff', color: '#3730a3', padding: '2px 8px', borderRadius: 999, fontWeight: 700 }}>
+                        {p.plan_key}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* 5. PENGATURAN TANDA TANGAN, LOGO, & PEMBAYARAN */}
-          {activeTab === 'signature_stamp' && (
-            <div>
-              <h3 style={STYLES.cardTitle}>✍️ Pengaturan Pengesah Sertifikat, Logo &amp; Pembayaran</h3>
-              <p style={STYLES.cardDesc}>Konfigurasi tanda tangan digital, stempel resmi, serta gateway pembayaran.</p>
-              
-              <form onSubmit={handleSaveSignatureSettings} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 16, maxWidth: 600 }}>
-                <div>
-                  <label style={STYLES.label}>Pilih Penandatangan Aktif:</label>
-                  <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: 600, color: '#1e3a8a' }}>
-                      <input type="radio" name="signerType" value="main" checked={activeSignerType === 'main'} onChange={() => setActiveSignerType('main')} />
-                      <span>1. SuperAdmin Utama</span>
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: 600, color: '#0284c7' }}>
-                      <input type="radio" name="signerType" value="backup" checked={activeSignerType === 'backup'} onChange={() => setActiveSignerType('backup')} />
-                      <span>2. Admin Cadangan / Perwakilan</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
-                  <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>🟢 Tanda Tangan SuperAdmin Utama</h4>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <input type="text" placeholder="URL TTD atau Base64..." value={superAdminSignatureUrl} onChange={e => setSuperAdminSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
-                    <label style={STYLES.btnUpload}>
-                      Upload File
-                      <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setSuperAdminSignatureUrl)} style={{ display: 'none' }} />
-                    </label>
-                  </div>
-                  {superAdminSignatureUrl && (
-                    <div style={{ marginTop: 8, textAlign: 'center', background: '#fff', padding: 8, borderRadius: 6, border: '1px dashed #cbd5e1' }}>
-                      <img src={superAdminSignatureUrl} alt="TTD Utama" style={{ maxHeight: 60, maxWidth: 180, objectFit: 'contain' }} />
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
-                  <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>🔵 Tanda Tangan Admin Cadangan / Perwakilan</h4>
-                  <input type="text" placeholder="Nama Lengkap Cadangan" value={backupSignerName} onChange={e => setBackupSignerName(e.target.value)} style={{ ...STYLES.input, marginBottom: 10 }} />
-                  <input type="text" placeholder="Jabatan Cadangan" value={backupSignerTitle} onChange={e => setBackupSignerTitle(e.target.value)} style={{ ...STYLES.input, marginBottom: 10 }} />
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <input type="text" placeholder="URL TTD Cadangan..." value={backupSignerSignatureUrl} onChange={e => setBackupSignerSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
-                    <label style={STYLES.btnUpload}>
-                      Upload File
-                      <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setBackupSignerSignatureUrl)} style={{ display: 'none' }} />
-                    </label>
-                  </div>
-                  {backupSignerSignatureUrl && (
-                    <div style={{ marginTop: 8, textAlign: 'center', background: '#fff', padding: 8, borderRadius: 6, border: '1px dashed #cbd5e1' }}>
-                      <img src={backupSignerSignatureUrl} alt="TTD Cadangan" style={{ maxHeight: 60, maxWidth: 180, objectFit: 'contain' }} />
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ background: '#fdf4ff', padding: 14, borderRadius: 8, border: '1px solid #f0abfc' }}>
-                  <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#86198f' }}>🟣 Logo Stempel Aplikasi</h4>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <input type="text" placeholder="URL Logo PNG..." value={appSystemStampUrl} onChange={e => setAppSystemStampUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
-                    <label style={{ ...STYLES.btnUpload, background: '#a855f7' }}>
-                      Upload Logo
-                      <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setAppSystemStampUrl)} style={{ display: 'none' }} />
-                    </label>
-                  </div>
-                  {appSystemStampUrl && (
-                    <div style={{ marginTop: 8, textAlign: 'center', background: '#fff', padding: 8, borderRadius: 6, border: '1px dashed #f0abfc' }}>
-                      <img src={appSystemStampUrl} alt="Logo Aplikasi" style={{ maxHeight: 60, maxWidth: 180, objectFit: 'contain' }} />
-                    </div>
-                  )}
-                </div>
-
-                {/* XENDIT */}
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
-                  <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>💳 Konfigurasi Xendit Payment Gateway</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div>
-                        <strong style={{ fontSize: 13, color: '#1e3a8a' }}>Status Aktif Xendit</strong>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>Aktifkan otomatisasi tagihan pembayaran langganan di halaman user.</div>
+                        <label style={STYLES.label}>Harga (IDR) / 6 Bln</label>
+                        <input type="number" value={p.price} onChange={(e) => handlePlanChange(idx, 'price', Number(e.target.value))} style={STYLES.input} />
                       </div>
-                      <input 
-                        type="checkbox" 
-                        checked={xenditActive} 
-                        onChange={(e) => setXenditActive(e.target.checked)}
-                        style={{ width: 18, height: 18, cursor: 'pointer' }}
-                      />
+                      <div>
+                        <label style={STYLES.label}>Max Proyek</label>
+                        <input type="number" value={p.max_projects} onChange={(e) => handlePlanChange(idx, 'max_projects', Number(e.target.value))} style={STYLES.input} />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <label style={STYLES.label}>Expert Manual</label>
+                        <input type="number" value={p.max_experts_manual} onChange={(e) => handlePlanChange(idx, 'max_experts_manual', Number(e.target.value))} style={STYLES.input} />
+                      </div>
+                      <div>
+                        <label style={STYLES.label}>Expert Direktori</label>
+                        <input type="number" value={p.max_experts_directory} onChange={(e) => handlePlanChange(idx, 'max_experts_directory', Number(e.target.value))} style={STYLES.input} />
+                      </div>
                     </div>
 
                     <div>
-                      <label style={STYLES.label}>Xendit Mode:</label>
+                      <label style={STYLES.label}>Max Konsultasi / Pakar (Sesi)</label>
+                      <input 
+                        type="number" 
+                        value={p.max_consultation_per_expert} 
+                        onChange={(e) => handlePlanChange(idx, 'max_consultation_per_expert', Number(e.target.value))} 
+                        style={STYLES.input} 
+                        placeholder="0 = Tanpa Konsultasi"
+                      />
+                    </div>
+
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Izin Fitur &amp; Analisis:
+                      </div>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={Boolean(p.allow_subcriteria)} 
+                          onChange={(e) => handlePlanChange(idx, 'allow_subcriteria', e.target.checked)} 
+                          style={{ width: 16, height: 16, accentColor: '#1d4ed8', cursor: 'pointer' }}
+                        />
+                        <span>Izinkan Subkriteria Bertingkat</span>
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={Boolean(p.allow_alternative_method)} 
+                          onChange={(e) => handlePlanChange(idx, 'allow_alternative_method', e.target.checked)} 
+                          style={{ width: 16, height: 16, accentColor: '#1d4ed8', cursor: 'pointer' }}
+                        />
+                        <span>Izinkan Bobot Alternatif</span>
+                      </label>
+
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#334155', cursor: 'pointer' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={Boolean(p.allow_ai_features)} 
+                          onChange={(e) => handlePlanChange(idx, 'allow_ai_features', e.target.checked)} 
+                          style={{ width: 16, height: 16, accentColor: '#1d4ed8', cursor: 'pointer' }}
+                        />
+                        <span>Izinkan Bantuan AI Analisis</span>
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 5. PENGATURAN TANDA TANGAN & PEMBAYARAN */}
+          {activeTab === 'signature_stamp' && (
+            <div>
+              <div style={STYLES.cardTitleRow}>
+                <div>
+                  <h3 style={STYLES.cardTitle}>✍️ Pengaturan Pengesah Sertifikat &amp; Gateway Pembayaran</h3>
+                  <p style={STYLES.cardDesc}>Data disimpan ke database `AHP - system_assets`, `AHP - payment_settings`, dan `AHP - didit_settings`.</p>
+                </div>
+                <button onClick={handleSaveSignatureSettings} disabled={saving} style={STYLES.btnAdd}>
+                  {saving ? 'Menyimpan...' : '💾 Simpan Seluruh Pengaturan'}
+                </button>
+              </div>
+              
+              <form onSubmit={handleSaveSignatureSettings} style={{ display: 'flex', flexDirection: 'column', gap: 18, marginTop: 10, maxWidth: 800 }}>
+                <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #cbd5e1' }}>
+                  <label style={{ ...STYLES.label, color: '#1e3a8a', fontSize: 13, marginBottom: 8 }}>Pilih Pejabat Penandatangan E-Sertifikat Aktif:</label>
+                  <div style={{ display: 'flex', gap: 20 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      <input 
+                        type="radio" 
+                        name="signerType" 
+                        value="main" 
+                        checked={activeSignerType === 'main'} 
+                        onChange={() => setActiveSignerType('main')} 
+                      />
+                      Penandatangan Utama (SuperAdmin)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                      <input 
+                        type="radio" 
+                        name="signerType" 
+                        value="backup" 
+                        checked={activeSignerType === 'backup'} 
+                        onChange={() => setActiveSignerType('backup')} 
+                      />
+                      Penandatangan Pengganti / Perwakilan
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: 13, color: '#0f172a' }}>🟢 TTD SuperAdmin Utama</h4>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="text" placeholder="URL TTD atau Base64..." value={superAdminSignatureUrl} onChange={e => setSuperAdminSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
+                      <label style={STYLES.btnUpload}>
+                        Pilih File
+                        <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setSuperAdminSignatureUrl)} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                    {superAdminSignatureUrl && (
+                      <div style={{ marginTop: 8, height: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 6 }}>
+                        <img src={superAdminSignatureUrl} alt="TTD Utama" style={{ maxHeight: 40, objectFit: 'contain' }} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ background: '#fdf4ff', padding: 14, borderRadius: 8, border: '1px solid #f0abfc' }}>
+                    <h4 style={{ margin: '0 0 10px 0', fontSize: 13, color: '#86198f' }}>🟣 Logo Stempel Aplikasi</h4>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="text" placeholder="URL Stempel PNG..." value={appSystemStampUrl} onChange={e => setAppSystemStampUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
+                      <label style={{ ...STYLES.btnUpload, background: '#a855f7' }}>
+                        Pilih File
+                        <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setAppSystemStampUrl)} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                    {appSystemStampUrl && (
+                      <div style={{ marginTop: 8, height: 45, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff', border: '1px dashed #f0abfc', borderRadius: 6 }}>
+                        <img src={appSystemStampUrl} alt="Stempel" style={{ maxHeight: 40, objectFit: 'contain' }} />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: 13, color: '#0f172a' }}>🟡 Pejabat Penandatangan Cadangan / Perwakilan</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={STYLES.label}>Nama Penandatangan Perwakilan</label>
+                      <input type="text" placeholder="Contoh: Nama Wakil Admin" value={backupSignerName} onChange={e => setBackupSignerName(e.target.value)} style={STYLES.input} />
+                    </div>
+                    <div>
+                      <label style={STYLES.label}>Jabatan Penandatangan Perwakilan</label>
+                      <input type="text" placeholder="Contoh: Perwakilan SuperAdmin" value={backupSignerTitle} onChange={e => setBackupSignerTitle(e.target.value)} style={STYLES.input} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={STYLES.label}>Tanda Tangan Digital Perwakilan</label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input type="text" placeholder="URL TTD atau Base64..." value={backupSignerSignatureUrl} onChange={e => setBackupSignerSignatureUrl(e.target.value)} style={{ ...STYLES.input, flex: 1 }} />
+                      <label style={STYLES.btnUpload}>
+                        Pilih File
+                        <input type="file" accept="image/*" onChange={e => handleFileUpload(e, setBackupSignerSignatureUrl)} style={{ display: 'none' }} />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ background: '#f0fdf4', padding: 16, borderRadius: 10, border: '1px solid #bbf7d0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div>
+                      <strong style={{ fontSize: 14, color: '#166534' }}>💳 Integrasi Xendit Payment Gateway</strong>
+                      <div style={{ fontSize: 11.5, color: '#4ade80' }}>Disimpan ke tabel `AHP - payment_settings`.</div>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={xenditActive} onChange={e => setXenditActive(e.target.checked)} />
+                      Aktifkan Xendit
+                    </label>
+                  </div>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={STYLES.label}>Mode Gateway</label>
                       <select value={xenditMode} onChange={e => setXenditMode(e.target.value)} style={STYLES.input}>
                         <option value="sandbox">Sandbox (Testing)</option>
                         <option value="production">Production (Live)</option>
                       </select>
                     </div>
-
                     <div>
-                      <label style={STYLES.label}>Xendit Public Key:</label>
-                      <input 
-                        type="text" 
-                        placeholder="xnd_public_..." 
-                        value={xenditPublicKey} 
-                        onChange={e => setXenditPublicKey(e.target.value)} 
-                        style={STYLES.input} 
-                      />
+                      <label style={STYLES.label}>Public Key Xendit</label>
+                      <input type="text" placeholder="xnd_public_..." value={xenditPublicKey} onChange={e => setXenditPublicKey(e.target.value)} style={STYLES.input} />
                     </div>
-
-                    <div>
-                      <label style={STYLES.label}>Xendit Secret Key:</label>
-                      <input 
-                        type="password" 
-                        placeholder="xnd_development_... / xnd_production_..." 
-                        value={xenditSecretKey} 
-                        onChange={e => setXenditSecretKey(e.target.value)} 
-                        style={STYLES.input} 
-                      />
-                    </div>
+                  </div>
+                  <div>
+                    <label style={STYLES.label}>Secret Key Xendit</label>
+                    <input type="password" placeholder="xnd_development_... atau xnd_production_..." value={xenditSecretKey} onChange={e => setXenditSecretKey(e.target.value)} style={STYLES.input} />
                   </div>
                 </div>
 
-                {/* DIDIT.ME */}
-                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #cbd5e1' }}>
-                  <h4 style={{ margin: '0 0 10px 0', fontSize: 14, color: '#0f172a' }}>🔗 Integrasi Didit.me (Halaman Publik Expert Directory)</h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#fff', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                      <div>
-                        <strong style={{ fontSize: 13, color: '#1e3a8a' }}>Status Aktif Didit.me</strong>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>Aktifkan verifikasi otomatis Didit.me saat publik mendaftar di direktori pakar.</div>
-                      </div>
-                      <input 
-                        type="checkbox" 
-                        checked={diditMeActive} 
-                        onChange={(e) => setDiditMeActive(e.target.checked)}
-                        style={{ width: 18, height: 18, cursor: 'pointer' }}
-                      />
-                    </div>
-
+                <div style={{ background: '#f8fafc', padding: 16, borderRadius: 10, border: '1px solid #cbd5e1' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <div>
-                      <label style={STYLES.label}>Didit.me API Key / Secret:</label>
-                      <input 
-                        type="password" 
-                        placeholder="Masukkan API Key Didit.me..." 
-                        value={diditApiKey} 
-                        onChange={e => setDiditApiKey(e.target.value)} 
-                        style={STYLES.input} 
-                      />
+                      <strong style={{ fontSize: 14, color: '#0f172a' }}>🆔 Integrasi Didit.me Verifikasi</strong>
+                      <div style={{ fontSize: 11.5, color: '#64748b' }}>Disimpan ke tabel `AHP - didit_settings`.</div>
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={diditMeActive} onChange={e => setDiditMeActive(e.target.checked)} />
+                      Aktifkan Didit.me
+                    </label>
+                  </div>
+                  <div>
+                    <label style={STYLES.label}>Didit API Key</label>
+                    <input type="password" placeholder="API Key Didit.me..." value={diditApiKey} onChange={e => setDiditApiKey(e.target.value)} style={STYLES.input} />
                   </div>
                 </div>
 
-                <button type="submit" disabled={loading} style={STYLES.btnSaveModal}>
-                  {loading ? 'Menyimpan...' : 'Simpan Pengaturan Sistem'}
+                <button type="submit" disabled={saving} style={{ ...STYLES.btnSaveModal, padding: '12px 20px', fontSize: 14 }}>
+                  {saving ? 'Menyimpan ke MySQL...' : '💾 Simpan Seluruh Pengaturan'}
                 </button>
               </form>
             </div>
           )}
 
-          {/* 6. TAB: PENGATURAN RETENSI & ARSIP PROYEK */}
+          {/* 6. RETENSI PROYEK (UMUM & MAHASISWA) */}
           {activeTab === 'project_retention' && (
             <div>
-              <div style={STYLES.cardTitleRow}>
-                <div>
-                  <h3 style={STYLES.cardTitle}>⏳ Kebijakan Retensi &amp; Kedaluwarsa Proyek AHP</h3>
-                  <p style={STYLES.cardDesc}>
-                    Atur batas waktu proyek yang tidak aktif sebelum dicadangkan (*backup*) dan dibersihkan otomatis dari basis data.
-                  </p>
-                </div>
-                <button 
-                  onClick={() => router.push('/admin/archives')} 
-                  style={{ ...STYLES.btnAdd, background: '#0284c7' }}
-                >
-                  🗄️ Buka Halaman Arsip Proyek
-                </button>
-              </div>
-
-              {loading ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>⏳ Memuat konfigurasi retensi...</div>
-              ) : (
-                <form onSubmit={handleSaveProjectRetention} style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 640, marginTop: 10 }}>
-                  
-                  {/* TOGGLE AUTOMATISASI */}
-                  <div style={{ background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #cbd5e1' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-                      <div>
-                        <strong style={{ fontSize: 14, color: '#0f172a' }}>Otomatisasi Backup &amp; Pembersihan</strong>
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                          Jalankan pemindahan otomatis proyek kedaluwarsa ke lembar cadangan (*Archive_Projects*).
-                        </div>
-                      </div>
-                      <input 
-                        type="checkbox" 
-                        checked={autoDeleteEnabled} 
-                        onChange={(e) => setAutoDeleteEnabled(e.target.checked)}
-                        style={{ width: 20, height: 20, cursor: 'pointer' }}
-                      />
-                    </label>
+              {/* KARTU PENGATURAN RETENSI MAHASISWA (STUDENT EDITION) */}
+              <div style={{
+                background: '#ffffff',
+                border: '1.5px solid #cbd5e1',
+                borderRadius: 12,
+                padding: '20px 22px',
+                marginBottom: 28,
+                boxShadow: '0 4px 12px rgba(15, 23, 42, 0.04)'
+              }}>
+                <div style={STYLES.cardTitleRow}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 11, background: '#fef3c7', color: '#92400e', padding: '3px 8px', borderRadius: 6, fontWeight: 800 }}>
+                        🎓 AKUN MAHASISWA (PRAKTIKUM)
+                      </span>
+                      <h4 style={{ margin: 0, fontSize: 16, color: '#0f172a', fontWeight: 800 }}>
+                        Kebijakan Retensi &amp; Pembersihan Data Praktikum
+                      </h4>
+                    </div>
+                    <p style={STYLES.cardDesc}>
+                      Tentukan masa aktif akun/proyek simulasi mahasiswa dan lakukan pembersihan data latihan secara fleksibel.
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => fetchStudentRetentionStats(studentRetentionDays)}
+                    disabled={loadingStudentCleanup}
+                    style={{ ...STYLES.btnUpload, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}
+                  >
+                    {loadingStudentCleanup ? 'Memuat...' : '🔄 Refresh Data Praktikum'}
+                  </button>
+                </div>
 
-                  {/* PILIHAN BATAS WAKTU */}
-                  <div style={{ opacity: autoDeleteEnabled ? 1 : 0.5, pointerEvents: autoDeleteEnabled ? 'auto' : 'none' }}>
-                    <label style={STYLES.label}>Batas Waktu Tanpa Aktivitas:</label>
-                    <select 
-                      value={expirationMonths} 
-                      onChange={(e) => setExpirationMonths(Number(e.target.value))}
-                      style={{ ...STYLES.input, fontWeight: 700, marginTop: 6 }}
-                    >
-                      <option value={1}>1 Bulan (30 Hari)</option>
-                      <option value={3}>3 Bulan (90 Hari)</option>
-                      <option value={6}>6 Bulan (180 Hari) - Rekomendasi Standar</option>
-                      <option value={12}>12 Bulan (1 Tahun)</option>
-                      <option value={24}>24 Bulan (2 Tahun)</option>
-                    </select>
-
-                    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 12, marginTop: 12, fontSize: 12.5, color: '#1e40af', lineHeight: 1.5 }}>
-                      💡 <strong>Perlindungan Data:</strong> Sebelum data dihapus dari daftar aktif, seluruh baris proyek beserta respons kuesioner akan disalin terlebih dahulu ke tab arsip. <strong>Sertifikat Pakar (Certificate Requests) tidak akan pernah dihapus</strong> dan tetap aman selamanya.
+                {/* Indikator Statistik Data Mahasiswa */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, margin: '16px 0' }}>
+                  <div style={{ background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>Total Akun Mahasiswa</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                      {studentStats.totalStudents} Akun
                     </div>
                   </div>
+                  <div style={{ background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                    <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>Total Proyek Praktikum</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>
+                      {studentStats.totalStudentProjects} Proyek
+                    </div>
+                  </div>
+                  <div style={{
+                    background: studentStats.expiredProjectsCount > 0 ? '#fef2f2' : '#f0fdf4',
+                    padding: 14,
+                    borderRadius: 10,
+                    border: studentStats.expiredProjectsCount > 0 ? '1.5px solid #fecaca' : '1.5px solid #bbf7d0'
+                  }}>
+                    <div style={{ fontSize: 11.5, color: studentStats.expiredProjectsCount > 0 ? '#991b1b' : '#166534', fontWeight: 700 }}>
+                      Kadaluarsa (&gt; {studentRetentionDays} Hari)
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: studentStats.expiredProjectsCount > 0 ? '#dc2626' : '#16a34a', marginTop: 4 }}>
+                      {studentStats.expiredProjectsCount} Proyek
+                    </div>
+                  </div>
+                </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 10, paddingTop: 6 }}>
-                    <button 
-                      type="submit" 
-                      disabled={savingRetention} 
-                      style={savingRetention ? { ...STYLES.btnSaveModal, background: '#94a3b8' } : STYLES.btnSaveModal}
+                {/* Kontrol Pilihan Masa Retensi Mahasiswa */}
+                <div style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  padding: '14px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  marginBottom: 16
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: 13, fontWeight: 700, color: '#334155' }}>
+                      Batas Waktu Retensi Mahasiswa:
+                    </label>
+                    <select
+                      value={studentRetentionDays}
+                      onChange={(e) => {
+                        const newDays = Number(e.target.value);
+                        setStudentRetentionDays(newDays);
+                        fetchStudentRetentionStats(newDays);
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: '1px solid #cbd5e1',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        background: '#ffffff',
+                        minWidth: 200,
+                      }}
                     >
-                      {savingRetention ? 'Menyimpan Pengaturan...' : '💾 Simpan Kebijakan Retensi'}
+                      <option value={7}>7 Hari (1 Minggu - Praktikum Singkat)</option>
+                      <option value={14}>14 Hari (2 Minggu)</option>
+                      <option value={30}>30 Hari (1 Bulan - Standar)</option>
+                      <option value={60}>60 Hari (2 Bulan)</option>
+                      <option value={90}>90 Hari (3 Bulan - Tengah Semester)</option>
+                      <option value={180}>180 Hari (6 Bulan - 1 Semester Penuh)</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveStudentRetentionDays}
+                      disabled={savingStudentRetention}
+                      style={{
+                        background: '#0f172a',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 6,
+                        padding: '8px 14px',
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        cursor: savingStudentRetention ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {savingStudentRetention ? 'Menyimpan...' : '💾 Simpan Kebijakan Retensi'}
                     </button>
                   </div>
-                </form>
-              )}
+
+                  <button
+                    type="button"
+                    onClick={handleExecuteStudentCleanup}
+                    disabled={loadingStudentCleanup || studentStats.expiredProjectsCount === 0}
+                    style={{
+                      background: studentStats.expiredProjectsCount > 0 ? '#dc2626' : '#94a3b8',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '9px 18px',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: studentStats.expiredProjectsCount > 0 ? 'pointer' : 'not-allowed',
+                      boxShadow: studentStats.expiredProjectsCount > 0 ? '0 2px 8px rgba(220,38,38,0.25)' : 'none',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {loadingStudentCleanup ? 'Memproses...' : `🧹 Hapus Data Kadaluarsa (${studentStats.expiredProjectsCount})`}
+                  </button>
+                </div>
+
+                {studentCleanupMsg && (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>
+                    ✅ {studentCleanupMsg}
+                  </div>
+                )}
+
+                {studentCleanupErr && (
+                  <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>
+                    ⚠ {studentCleanupErr}
+                  </div>
+                )}
+              </div>
+
+              {/* KARTU PENGATURAN RETENSI PROYEK UMUM */}
+              <div style={STYLES.cardTitleRow}>
+                <div>
+                  <h3 style={STYLES.cardTitle}>⏳ Kebijakan Retensi &amp; Kedaluwarsa Proyek Umum</h3>
+                  <p style={STYLES.cardDesc}>Pengarsipan otomatis data proyek umum ke tabel `AHP - Archive_*`.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveProjectRetention} style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 640, marginTop: 10 }}>
+                <div style={{ background: '#f8fafc', padding: 14, borderRadius: 10, border: '1px solid #cbd5e1' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    <div>
+                      <strong style={{ fontSize: 14, color: '#0f172a' }}>Otomatisasi Backup &amp; Pembersihan</strong>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>Pindahkan proyek kadaluarsa ke tabel arsip.</div>
+                    </div>
+                    <input type="checkbox" checked={autoDeleteEnabled} onChange={(e) => setAutoDeleteEnabled(e.target.checked)} style={{ width: 20, height: 20 }} />
+                  </label>
+                </div>
+
+                <div>
+                  <label style={STYLES.label}>Batas Waktu Tanpa Aktivitas:</label>
+                  <select value={expirationMonths} onChange={(e) => setExpirationMonths(Number(e.target.value))} style={STYLES.input}>
+                    <option value={1}>1 Bulan</option>
+                    <option value={3}>3 Bulan</option>
+                    <option value={6}>6 Bulan (Standar)</option>
+                    <option value={12}>12 Bulan</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="submit" disabled={savingRetention} style={STYLES.btnSaveModal}>
+                    {savingRetention ? 'Menyimpan ke Database...' : '💾 Simpan Kebijakan Retensi'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleRunArchiveSimulation}
+                    disabled={runningArchive}
+                    style={{
+                      background: '#0284c7',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '10px 16px',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {runningArchive ? 'Sedang Memproses Arsip...' : '🚀 Jalankan Simulasi Pembersihan & Arsip'}
+                  </button>
+                </div>
+              </form>
+
+              {/* DAFTAR PROYEK TERARSIP */}
+              <div style={{ marginTop: 36, borderTop: '2px solid #e2e8f0', paddingTop: 20 }}>
+                <div style={STYLES.cardTitleRow}>
+                  <div>
+                    <h4 style={{ margin: '0 0 4px 0', fontSize: 16, color: '#0f172a', fontWeight: 800 }}>
+                      🗄️ Daftar Proyek Terarsip ({archivedList.length})
+                    </h4>
+                    <p style={STYLES.cardDesc}>
+                      Data yang dipindahkan ke tabel `AHP - Archive_*`. Anda dapat mengunduh salinan backup, memulihkan, atau menghapusnya secara permanen.
+                    </p>
+                  </div>
+                  <button onClick={fetchArchivedProjects} disabled={loadingArchiveList} style={{ ...STYLES.btnUpload, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
+                    {loadingArchiveList ? 'Memuat...' : '🔄 Muat Ulang Arsip'}
+                  </button>
+                </div>
+
+                <div style={STYLES.tableWrap}>
+                  <table style={STYLES.table}>
+                    <thead>
+                      <tr>
+                        <th style={STYLES.th}>ID Proyek</th>
+                        <th style={STYLES.th}>Nama Proyek</th>
+                        <th style={STYLES.th}>Pemilik / Email</th>
+                        <th style={STYLES.th}>Tanggal Dibuat</th>
+                        <th style={{ ...STYLES.th, textAlign: 'center' }}>Aksi Arsip</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {archivedList.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} style={{ textAlign: 'center', padding: 24, color: '#64748b' }}>
+                            {loadingArchiveList ? 'Memuat data arsip...' : 'Belum ada proyek yang tersimpan di tabel arsip.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        archivedList.map((item, idx) => (
+                          <tr key={idx}>
+                            <td style={STYLES.td}><code>{item.project_id}</code></td>
+                            <td style={STYLES.td}><strong>{item.nama_proyek}</strong></td>
+                            <td style={STYLES.td}>{item.pemilik}</td>
+                            <td style={STYLES.td}>{item.created_at}</td>
+                            <td style={{ ...STYLES.td, textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadArchive(item.project_id, item.nama_proyek)}
+                                  title="Unduh satu paket data JSON"
+                                  style={{ ...STYLES.btnEdit, background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0' }}
+                                >
+                                  📥 Unduh JSON
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreArchive(item.project_id)}
+                                  title="Kembalikan ke proyek aktif"
+                                  style={STYLES.btnEdit}
+                                >
+                                  ↺ Pulihkan
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeletePermanent(item.project_id, item.nama_proyek)}
+                                  title="Hapus permanen dari database"
+                                  style={STYLES.btnDelete}
+                                >
+                                  🗑️ Hapus Permanen
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1522,7 +1748,7 @@ export default function SuperAdminControlPage() {
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalBox, maxWidth: 520 }}>
             <div style={STYLES.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: 17, color: '#0f172a' }}>{editingAdmin ? 'Edit Akses Admin' : 'Tambah Admin Baru'}</h3>
+              <h3 style={{ margin: 0, fontSize: 17, color: '#0f172a' }}>{editingAdmin ? 'Edit Akses & Kata Sandi Admin' : 'Tambah Admin Baru'}</h3>
               <button onClick={() => setIsAdminModalOpen(false)} style={STYLES.btnCloseModal}>✕</button>
             </div>
             <form onSubmit={handleSaveAdminSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 14 }}>
@@ -1530,17 +1756,21 @@ export default function SuperAdminControlPage() {
                 <label style={STYLES.label}>Nama Lengkap Admin *</label>
                 <input type="text" required placeholder="Nama Operator / Admin" value={adminForm.name} onChange={e => setAdminForm({ ...adminForm, name: e.target.value })} style={STYLES.input} />
               </div>
-
               <div>
                 <label style={STYLES.label}>Email Login *</label>
                 <input type="email" required disabled={!!editingAdmin} placeholder="admin@email.com" value={adminForm.email} onChange={e => setAdminForm({ ...adminForm, email: e.target.value })} style={{ ...STYLES.input, background: editingAdmin ? '#f1f5f9' : '#fff' }} />
               </div>
-
               <div>
-                <label style={STYLES.label}>{editingAdmin ? 'Password Baru (Opsional)' : 'Password Login *'}</label>
-                <input type="password" required={!editingAdmin} placeholder={editingAdmin ? 'Kosongkan jika tidak diubah' : '••••••••'} value={adminForm.password} onChange={e => setAdminForm({ ...adminForm, password: e.target.value })} style={STYLES.input} />
+                <label style={STYLES.label}>{editingAdmin ? 'Ganti Password Baru (Opsional, min. 6 karakter)' : 'Password Login * (min. 6 karakter)'}</label>
+                <input 
+                  type="password" 
+                  required={!editingAdmin} 
+                  placeholder={editingAdmin ? 'Kosongkan jika password tidak ingin diubah' : 'Minimal 6 karakter...'} 
+                  value={adminForm.password} 
+                  onChange={e => setAdminForm({ ...adminForm, password: e.target.value })} 
+                  style={STYLES.input} 
+                />
               </div>
-
               <div>
                 <label style={STYLES.label}>Role Akses Admin</label>
                 <select value={adminForm.role} onChange={e => setAdminForm({ ...adminForm, role: e.target.value })} style={STYLES.input}>
@@ -1593,25 +1823,38 @@ export default function SuperAdminControlPage() {
       {/* MODAL EDIT PRIVILESE USER */}
       {isEditSubModalOpen && (
         <div style={STYLES.modalOverlay}>
-          <div style={{ ...STYLES.modalBox, maxWidth: 500 }}>
+          <div style={{ ...STYLES.modalBox, maxWidth: 540 }}>
             <div style={STYLES.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: 16, color: '#0f172a' }}>Ubah Privilese User LENGKAP</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h3 style={{ margin: 0, fontSize: 16, color: '#0f172a' }}>Ubah Privilese Pelanggan</h3>
+                {subForm.status_user === 'student' && (
+                  <span style={{ fontSize: 10.5, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '2px 6px', borderRadius: 4, fontWeight: 800 }}>
+                    🎓 Student Edition
+                  </span>
+                )}
+              </div>
               <button onClick={() => setIsEditSubModalOpen(false)} style={STYLES.btnCloseModal}>✕</button>
             </div>
-
             <form onSubmit={handleSaveUserSub} style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+              
+              {subForm.status_user === 'student' && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#1e40af', lineHeight: 1.45 }}>
+                  💡 <strong>Akun Praktikum Mahasiswa:</strong> Akun ini menggunakan <strong>2 Pakar Simulasi Sistem</strong> (<em>Prof. Linglungan</em> &amp; <em>DR. Raos</em>). Mahasiswa tidak diperkenankan menambah pakar manual mandiri.
+                </div>
+              )}
+
               <div>
-                <label style={STYLES.label}>Email User (Pengguna)</label>
+                <label style={STYLES.label}>Email Pengguna</label>
                 <input type="email" value={subForm.user_email} readOnly style={{ ...STYLES.input, background: '#f1f5f9', fontWeight: 700 }} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={STYLES.label}>Pilih Paket (Plan Privilese)</label>
-                  <select
-                    value={subForm.plan.toUpperCase()}
-                    onChange={handlePlanSelectionChange}
-                    style={{ ...STYLES.input, fontWeight: 700 }}
+                  <label style={STYLES.label}>Paket Langganan (Plan)</label>
+                  <select 
+                    value={subForm.plan} 
+                    onChange={(e) => handlePlanSelectChange(e.target.value)} 
+                    style={STYLES.input}
                   >
                     <option value="FREE">FREE</option>
                     <option value="PRO">PRO</option>
@@ -1619,145 +1862,170 @@ export default function SuperAdminControlPage() {
                     <option value="PREMIUM">PREMIUM</option>
                   </select>
                 </div>
-
                 <div>
-                  <label style={STYLES.label}>Status Akses</label>
-                  <select
-                    value={subForm.status}
-                    onChange={(e) => setSubForm({ ...subForm, status: e.target.value })}
-                    style={STYLES.input}
-                  >
-                    <option value="ACTIVE">ACTIVE (Aktif)</option>
-                    <option value="EXPIRED">EXPIRED (Kedaluwarsa)</option>
-                    <option value="CANCELLED">CANCELLED (Dibatalkan)</option>
+                  <label style={STYLES.label}>Status Akun</label>
+                  <select value={subForm.status} onChange={(e) => setSubForm({ ...subForm, status: e.target.value })} style={STYLES.input}>
+                    <option value="ACTIVE">ACTIVE</option>
+                    <option value="INACTIVE">INACTIVE</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label style={STYLES.label}>Tanggal Kadaluarsa (Expired Date)</label>
-                <input
-                  type="date"
-                  value={subForm.expired_date}
-                  onChange={(e) => setSubForm({ ...subForm, expired_date: e.target.value })}
-                  style={STYLES.input}
+                <label style={STYLES.label}>Tanggal Kedaluwarsa (Expired Date)</label>
+                <input 
+                  type="date" 
+                  value={subForm.expired_date} 
+                  onChange={(e) => setSubForm({ ...subForm, expired_date: e.target.value })} 
+                  style={STYLES.input} 
                 />
               </div>
 
-              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
-                <strong style={{ fontSize: 12, color: '#1e3a8a', display: 'block', marginBottom: 8 }}>Overriding Limits (Custom Limits):</strong>
-                
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ ...STYLES.label, color: '#1e3a8a', margin: 0 }}>
+                    Batas Kuota Kustom (Mengikuti Paket {subForm.plan}):
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => handlePlanSelectChange(subForm.plan)}
+                    style={{ background: 'none', border: 'none', color: '#0284c7', fontSize: 11, cursor: 'pointer', fontWeight: 700, padding: 0 }}
+                  >
+                    ↺ Reset ke Nilai Default
+                  </button>
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
-                    <label style={STYLES.label}>Max Projects</label>
-                    <input
-                      type="number"
-                      placeholder="Kosong = Ikut Plan"
-                      value={subForm.custom_max_projects}
-                      onChange={(e) => setSubForm({ ...subForm, custom_max_projects: e.target.value })}
-                      style={STYLES.input}
+                    <label style={{ fontSize: 11, color: '#64748b' }}>
+                      {subForm.status_user === 'student' ? 'Max Proyek (Praktikum)' : 'Max Proyek'}
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Kuota proyek" 
+                      value={subForm.custom_max_projects} 
+                      onChange={(e) => setSubForm({ ...subForm, custom_max_projects: e.target.value })} 
+                      style={STYLES.input} 
                     />
                   </div>
 
                   <div>
-                    <label style={STYLES.label}>Max Manual Experts</label>
-                    <input
-                      type="number"
-                      placeholder="Kosong = Ikut Plan"
-                      value={subForm.custom_max_experts}
-                      onChange={(e) => setSubForm({ ...subForm, custom_max_experts: e.target.value })}
-                      style={STYLES.input}
+                    <label style={{ fontSize: 11, color: subForm.status_user === 'student' ? '#1e40af' : '#64748b', fontWeight: subForm.status_user === 'student' ? 700 : 400 }}>
+                      {subForm.status_user === 'student' ? 'Pakar Simulasi (Terkunci Sistem)' : 'Max Expert Manual'}
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Kuota pakar manual" 
+                      value={subForm.status_user === 'student' ? 2 : subForm.custom_max_experts} 
+                      readOnly={subForm.status_user === 'student'}
+                      disabled={subForm.status_user === 'student'}
+                      onChange={(e) => setSubForm({ ...subForm, custom_max_experts: e.target.value })} 
+                      style={{
+                        ...STYLES.input,
+                        background: subForm.status_user === 'student' ? '#f1f5f9' : '#fff',
+                        color: subForm.status_user === 'student' ? '#1e40af' : '#0f172a',
+                        fontWeight: subForm.status_user === 'student' ? 800 : 400,
+                        cursor: subForm.status_user === 'student' ? 'not-allowed' : 'text'
+                      }} 
+                    />
+                    {subForm.status_user === 'student' && (
+                      <span style={{ fontSize: 10, color: '#64748b', marginTop: 2, display: 'block' }}>
+                        🔒 2 Slot Pakar Otomatis Sistem
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 11, color: '#64748b' }}>
+                      {subForm.status_user === 'student' ? 'Direktori Pakar (Nonaktif)' : 'Max Expert Direktori'}
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Kuota direktori pakar" 
+                      value={subForm.status_user === 'student' ? 0 : subForm.custom_max_experts_directory} 
+                      readOnly={subForm.status_user === 'student'}
+                      disabled={subForm.status_user === 'student'}
+                      onChange={(e) => setSubForm({ ...subForm, custom_max_experts_directory: e.target.value })} 
+                      style={{
+                        ...STYLES.input,
+                        background: subForm.status_user === 'student' ? '#f1f5f9' : '#fff',
+                        cursor: subForm.status_user === 'student' ? 'not-allowed' : 'text'
+                      }} 
                     />
                   </div>
 
                   <div>
-                    <label style={STYLES.label}>Max Directory Experts</label>
-                    <input
-                      type="number"
-                      placeholder="Kosong = Ikut Plan"
-                      value={subForm.custom_max_experts_directory}
-                      onChange={(e) => setSubForm({ ...subForm, custom_max_experts_directory: e.target.value })}
-                      style={STYLES.input}
-                    />
-                  </div>
-
-                  <div>
-                    <label style={STYLES.label}>Max Consultation / Expert</label>
-                    <input
-                      type="number"
-                      placeholder="Kosong = Ikut Plan"
-                      value={subForm.custom_max_consultation_per_expert}
-                      onChange={(e) => setSubForm({ ...subForm, custom_max_consultation_per_expert: e.target.value })}
-                      style={STYLES.input}
+                    <label style={{ fontSize: 11, color: '#64748b' }}>
+                      {subForm.status_user === 'student' ? 'Konsultasi (Nonaktif)' : 'Max Konsultasi/Pakar'}
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Kuota konsultasi" 
+                      value={subForm.status_user === 'student' ? 0 : subForm.custom_max_consultation_per_expert} 
+                      readOnly={subForm.status_user === 'student'}
+                      disabled={subForm.status_user === 'student'}
+                      onChange={(e) => setSubForm({ ...subForm, custom_max_consultation_per_expert: e.target.value })} 
+                      style={{
+                        ...STYLES.input,
+                        background: subForm.status_user === 'student' ? '#f1f5f9' : '#fff',
+                        cursor: subForm.status_user === 'student' ? 'not-allowed' : 'text'
+                      }} 
                     />
                   </div>
                 </div>
-              </div>
 
-              {/* OPSI CHECKBOX UNTUK CUSTOM FEATURES */}
-              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #cbd5e1', marginTop: 4 }}>
-                <label style={{ ...STYLES.label, color: '#1e3a8a', marginBottom: 8 }}>
-                  ⚡ Opsi Fitur Khusus (Custom Features / Overrides):
-                </label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#0f172a' }}>
-                    <input
-                      type="checkbox"
-                      checked={isCustomFeatureChecked('subcriteria')}
-                      onChange={() => toggleCustomFeatureCheck('subcriteria')}
-                    />
-                    <span>Penyusunan Subkriteria (<code style={{ fontSize: 11, background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>subcriteria</code>)</span>
+                <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, marginTop: 10 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#1e3a8a', display: 'block', marginBottom: 8, textTransform: 'uppercase' }}>
+                    Izin Fitur Khusus User Ini:
                   </label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#ffffff', padding: '10px 12px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={subForm.custom_allow_subcriteria}
+                        onChange={(e) => setSubForm(prev => ({ ...prev, custom_allow_subcriteria: e.target.checked }))}
+                        style={{ width: 16, height: 16, accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                      <span>Izinkan Struktur Subkriteria Bertingkat</span>
+                    </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#0f172a' }}>
-                    <input
-                      type="checkbox"
-                      checked={isCustomFeatureChecked('alternative')}
-                      onChange={() => toggleCustomFeatureCheck('alternative')}
-                    />
-                    <span>Bobot &amp; Ranking Alternatif (<code style={{ fontSize: 11, background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>alternative</code>)</span>
-                  </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={subForm.custom_allow_alternative}
+                        onChange={(e) => setSubForm(prev => ({ ...prev, custom_allow_alternative: e.target.checked }))}
+                        style={{ width: 16, height: 16, accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                      <span>Izinkan Modul Bobot Alternatif (Perankingan)</span>
+                    </label>
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', color: '#0f172a' }}>
-                    <input
-                      type="checkbox"
-                      checked={isCustomFeatureChecked('ai')}
-                      onChange={() => toggleCustomFeatureCheck('ai')}
-                    />
-                    <span>Akses Fitur AI Analisis (<code style={{ fontSize: 11, background: '#e2e8f0', padding: '1px 4px', borderRadius: 4 }}>ai</code>)</span>
-                  </label>
-                </div>
-
-                <div style={{ marginTop: 10 }}>
-                  <label style={{ ...STYLES.label, fontSize: 11, color: '#64748b' }}>Custom Feature String / Tag tambahan:</label>
-                  <input
-                    type="text"
-                    placeholder="Kosong = Ikut Plan"
-                    value={subForm.custom_features}
-                    onChange={(e) => setSubForm({ ...subForm, custom_features: e.target.value })}
-                    style={{ ...STYLES.input, fontSize: 12, background: '#fff' }}
-                  />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', color: '#334155' }}>
+                      <input
+                        type="checkbox"
+                        checked={subForm.custom_allow_ai}
+                        onChange={(e) => setSubForm(prev => ({ ...prev, custom_allow_ai: e.target.checked }))}
+                        style={{ width: 16, height: 16, accentColor: '#2563eb', cursor: 'pointer' }}
+                      />
+                      <span>Izinkan Fitur AI Analisis (Pembuatan Proyek &amp; Narasi Laporan)</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label style={STYLES.label}>Catatan SuperAdmin (notes)</label>
-                <textarea
-                  rows={2}
-                  placeholder="Keterangan khusus, alasan upgrade manual, dll."
-                  value={subForm.notes}
-                  onChange={(e) => setSubForm({ ...subForm, notes: e.target.value })}
-                  style={{ ...STYLES.input, resize: 'vertical' }}
+                <label style={STYLES.label}>Catatan Tambahan (Notes)</label>
+                <textarea 
+                  rows={2} 
+                  placeholder="Catatan khusus dari SuperAdmin..." 
+                  value={subForm.notes} 
+                  onChange={(e) => setSubForm({ ...subForm, notes: e.target.value })} 
+                  style={{ ...STYLES.input, resize: 'vertical' }} 
                 />
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-                <button type="button" onClick={() => setIsEditSubModalOpen(false)} style={STYLES.btnCancel}>
-                  Batal
-                </button>
-                <button type="submit" disabled={saving} style={STYLES.btnSaveModal}>
-                  {saving ? 'Menyimpan...' : 'Simpan Privilese'}
-                </button>
+                <button type="button" onClick={() => setIsEditSubModalOpen(false)} style={STYLES.btnCancel}>Batal</button>
+                <button type="submit" disabled={saving} style={STYLES.btnSaveModal}>{saving ? 'Menyimpan...' : 'Simpan Privilese'}</button>
               </div>
             </form>
           </div>

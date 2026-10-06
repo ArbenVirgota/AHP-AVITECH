@@ -4,8 +4,6 @@ import React, { useEffect, useState, CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession } from '@/lib/auth';
 
-const GOOGLESCRIPTURL = 'https://script.google.com/macros/s/AKfycbxAjj0RuDMuXwMof8aXTchGcdwafykfLAGv_IgSfypkp8LrP4WlPRgJj66_J5w9juyH/exec';
-
 interface ProductItem {
   id?: string;
   title?: string;
@@ -25,6 +23,9 @@ export default function ProductsPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
+  // State untuk melacak ID produk mana yang sedang dibuka detailnya
+  const [expandedProductIds, setExpandedProductIds] = useState<Record<string, boolean>>({});
+
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [activeWaitlistProductId, setActiveWaitlistProductId] = useState<string | null>(null);
   const [submittingWaitlist, setSubmittingWaitlist] = useState(false);
@@ -42,40 +43,36 @@ export default function ProductsPage() {
     const fetchProducts = async () => {
       try {
         setLoading(true);
-        const timestamp = new Date().getTime();
-        
-        const res = await fetch(`${GOOGLESCRIPTURL}?action=getproducts&t=${timestamp}`, { 
-          cache: 'no-store',
-          redirect: 'follow'
+        // 🟢 Mengambil data produk langsung dari endpoint MySQL Hostinger via Prisma
+        const res = await fetch(`/api/products?_t=${Date.now()}`, { 
+          cache: 'no-store'
         });
         
         const json = await res.json();
 
         let rawList: any[] = [];
-        if (Array.isArray(json)) {
-          rawList = json;
-        } else if (json && json.data && Array.isArray(json.data)) {
+        if (json && json.success && Array.isArray(json.data)) {
           rawList = json.data;
-        } else if (json && json.result && Array.isArray(json.result)) {
-          rawList = json.result;
+        } else if (Array.isArray(json)) {
+          rawList = json;
         }
 
         if (rawList.length > 0) {
           const formattedProducts = rawList.map((item: any) => ({
-            id: item.id || item.idproduk || '',
-            title: item.title || item.nama || item.namaproduk || item.nama_produk || 'Tools Riset',
-            description: item.description || item.deskripsi || '',
-            category: item.category || item.kategori || 'Umum',
-            link: item.link || item.url || '',
-            status: item.status || 'Tersedia',
-            imageurl: item.imageurl || item.gambar || item.image || item.urlgambar || ''
+            id: item.id || item.ID_Produk || item.idproduk || '',
+            title: item.nama || item.Nama_Produk || item.title || 'Tools Riset',
+            description: item.deskripsi || item.Deskripsi || item.description || '',
+            category: item.kategori || item.Kategori || item.category || 'Umum',
+            link: item.link || item.Link || '',
+            status: item.status || item.Status || 'Tersedia',
+            imageurl: item.imageurl || item.Image_URL || item.gambar || ''
           }));
           setProducts(formattedProducts);
         } else {
           setProducts([]);
         }
       } catch (err) {
-        console.error('Gagal memuat produk:', err);
+        console.error('Gagal memuat produk dari database MySQL:', err);
       } finally {
         setLoading(false);
       }
@@ -83,6 +80,13 @@ export default function ProductsPage() {
 
     fetchProducts();
   }, []);
+
+  const toggleDetail = (productId: string) => {
+    setExpandedProductIds(prev => ({
+      ...prev,
+      [productId]: !prev[productId]
+    }));
+  };
 
   const handleWaitlistSubmit = async (e: React.FormEvent, productId: string, productTitle: string) => {
     e.preventDefault();
@@ -93,24 +97,21 @@ export default function ProductsPage() {
 
     try {
       setSubmittingWaitlist(true);
-      
-      await fetch(GOOGLESCRIPTURL, {
+      await fetch('/api/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          action: 'saveWaitlist',
-          email: waitlistEmail,
-          productId: productId,
-          productTitle: productTitle
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'admin@avitech.cloud',
+          subject: `Pendaftaran Waitlist Produk: ${productTitle}`,
+          textBody: `Pengguna (${waitlistEmail}) telah mendaftar waitlist untuk produk #${productId} - ${productTitle}.`
         })
-      });
+      }).catch(() => null);
 
-      alert(`Terima kasih! Email ${waitlistEmail} telah dicatat dalam daftar tunggu (waitlist) untuk produk "${productTitle}".`);
+      alert(`Terima kasih! Email ${waitlistEmail} telah dicatat dalam daftar tunggu untuk produk "${productTitle}".`);
       setWaitlistEmail('');
       setActiveWaitlistProductId(null);
     } catch (err) {
-      console.error('Gagal menyimpan waitlist:', err);
-      alert('Terjadi kesalahan koneksi, namun email Anda telah dicatat secara lokal.');
+      console.error('Gagal mencatat waitlist:', err);
       setWaitlistEmail('');
       setActiveWaitlistProductId(null);
     } finally {
@@ -125,7 +126,7 @@ export default function ProductsPage() {
           <div>
             <h1 style={STYLES.pageTitle}>Produk &amp; Tools Riset Pilihan</h1>
             <p style={STYLES.pageDesc}>
-              Jelajahi berbagai perangkat, software, dan penawaran eksklusif untuk mendukung riset Anda.
+              Jelajahi berbagai perangkat, software, dan modul analitik untuk mendukung riset Anda.
             </p>
           </div>
 
@@ -151,25 +152,27 @@ export default function ProductsPage() {
         <div style={STYLES.noticeBox}>
           <span style={STYLES.noticeTitle}>🎯 Info:</span>
           <span style={STYLES.noticeText}>
-            Tools riset di bawah ini dikurasi untuk membantu analisis metodologi Anda. Bergabunglah ke daftar tunggu (*waitlist*) jika produk belum rilis.
+            Tools riset di bawah ini dikurasi langsung dari database sistem untuk membantu analisis metodologi Anda. Klik tombol <strong>Lihat Detail</strong> untuk membaca gambaran lengkap perangkat.
           </span>
         </div>
 
         {loading ? (
-          <div style={STYLES.loader}>Memuat Daftar Produk &amp; Tools...</div>
+          <div style={STYLES.loader}>Memuat Daftar Produk dari Database...</div>
         ) : products.length === 0 ? (
           <div style={STYLES.emptyBox}>Belum ada produk atau tools promosi yang tersedia saat ini.</div>
         ) : (
           <div style={STYLES.grid}>
             {products.map((prod, idx) => {
               const productId = prod.id || String(idx);
-              const hasMainLink = Boolean(prod.link && prod.link.trim() !== '');
+              const isAvailable = (prod.status || '').toLowerCase() === 'tersedia';
+              const hasMainLink = Boolean(prod.link && prod.link.trim() !== '' && isAvailable);
               const isShowingForm = activeWaitlistProductId === productId;
               const hasImage = Boolean(prod.imageurl && prod.imageurl.trim() !== '');
+              const isExpanded = Boolean(expandedProductIds[productId]);
 
               return (
                 <div key={productId} style={STYLES.card}>
-                  {/* GAMBAR BACKGROUND TERANG & BENING */}
+                  {/* GAMBAR BACKGROUND TERANG PROPORSIONAL */}
                   {hasImage && (
                     <div 
                       style={{
@@ -179,17 +182,17 @@ export default function ProductsPage() {
                     />
                   )}
 
-                  {/* KONTEN KARTU DIPADATKAN */}
+                  {/* KONTEN KARTU */}
                   <div style={{
                     ...STYLES.cardContent,
                     background: hasImage 
-                      ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.05) 0%, rgba(15, 23, 42, 0.2) 100%)' 
+                      ? 'linear-gradient(180deg, rgba(15, 23, 42, 0.05) 0%, rgba(15, 23, 42, 0.25) 100%)' 
                       : '#ffffff'
                   }}>
-                    {/* KOTAK KETIKAN PADAT (GLASSMORPHISM) */}
+                    {/* KOTAK KETIKAN GLASSMORPHISM */}
                     <div style={{
                       ...STYLES.textBlock,
-                      background: hasImage ? 'rgba(255, 255, 255, 0.92)' : 'transparent',
+                      background: hasImage ? 'rgba(255, 255, 255, 0.95)' : 'transparent',
                       backdropFilter: hasImage ? 'blur(4px)' : 'none',
                       border: hasImage ? '1px solid rgba(255, 255, 255, 0.6)' : 'none',
                       padding: hasImage ? '8px 10px' : '0',
@@ -204,12 +207,34 @@ export default function ProductsPage() {
                         </span>
                       </div>
 
-                      <p style={STYLES.productDesc}>
-                        {prod.description}
-                      </p>
+                      {/* 🟢 AREA DESKRIPSI DENGAN TOGGLE BACA LEBIH / TUTUP */}
+                      {prod.description ? (
+                        <div style={{ marginTop: 4 }}>
+                          <p style={{
+                            ...STYLES.productDesc,
+                            display: isExpanded ? 'block' : '-webkit-box',
+                            WebkitLineClamp: isExpanded ? 'unset' : 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: isExpanded ? 'visible' : 'hidden',
+                          }}>
+                            {prod.description}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => toggleDetail(productId)}
+                            style={STYLES.btnToggleDetail}
+                          >
+                            {isExpanded ? '▲ Tutup Deskripsi' : '▼ Lihat Detail...'}
+                          </button>
+                        </div>
+                      ) : (
+                        <p style={{ ...STYLES.productDesc, fontStyle: 'italic', color: '#94a3b8' }}>
+                          Tidak ada deskripsi tambahan.
+                        </p>
+                      )}
                     </div>
                     
-                    <div style={{ marginTop: 'auto', paddingTop: 6 }}>
+                    <div style={{ marginTop: 'auto', paddingTop: 8 }}>
                       {hasMainLink ? (
                         <a 
                           href={prod.link} 
@@ -218,8 +243,8 @@ export default function ProductsPage() {
                           style={{
                             ...STYLES.btnLink,
                             background: hasImage ? 'rgba(255, 255, 255, 0.95)' : 'transparent',
-                            padding: hasImage ? '4px 8px' : '0',
-                            borderRadius: hasImage ? '4px' : '0',
+                            padding: hasImage ? '5px 10px' : '0',
+                            borderRadius: hasImage ? '5px' : '0',
                             border: hasImage ? '1px solid #cbd5e1' : 'none'
                           }}
                         >
@@ -305,10 +330,8 @@ const STYLES: Record<string, CSSProperties> = {
   loader: { textAlign: 'center', padding: '20px', color: '#1e293b', fontSize: 13, fontWeight: 700 },
   emptyBox: { background: 'rgba(255,255,255,0.92)', padding: '16px', borderRadius: 8, textAlign: 'center', color: '#475569', border: '1px solid #e2e8f0', fontSize: 12.5 },
   
-  // 🟢 GRID PADAT: Kolom mengecil ke min 200px
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 },
   
-  // 🟢 KARTU RINGKAS & KECIL
   card: { 
     position: 'relative', 
     background: '#ffffff', 
@@ -318,7 +341,7 @@ const STYLES: Record<string, CSSProperties> = {
     boxShadow: '0 2px 6px rgba(15, 23, 42, 0.06)', 
     display: 'flex', 
     flexDirection: 'column',
-    minHeight: 150 
+    minHeight: 160 
   },
 
   bgImage: {
@@ -327,8 +350,10 @@ const STYLES: Record<string, CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundSize: 'cover',
+    backgroundSize: 'contain',
     backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+    backgroundColor: '#ffffff',
     zIndex: 1
   },
 
@@ -370,8 +395,19 @@ const STYLES: Record<string, CSSProperties> = {
     margin: 0, 
     fontSize: 11.5, 
     lineHeight: 1.35, 
-    fontWeight: 600,
+    fontWeight: 500,
     color: '#334155'
+  },
+  btnToggleDetail: {
+    background: 'none',
+    border: 'none',
+    color: '#2563eb',
+    fontSize: 10.5,
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: '2px 0 0',
+    display: 'inline-block',
+    textAlign: 'left'
   },
   
   btnLink: { 

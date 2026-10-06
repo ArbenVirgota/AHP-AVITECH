@@ -2,25 +2,21 @@
 
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { clearSession, getSession } from '@/lib/auth'
 import type { UserSession } from '@/lib/auth'
 import { PLAN_CONFIG } from '@/lib/subscription'
 import type { Subscription, PlanType } from '@/lib/subscription'
-
-// 🟢 1. IMPORT KOMPONEN SAFEJOYRIDE UNIVERSAL
 import SafeJoyride from '@/components/SafeJoyride'
-
-const API_URL = process.env.NEXT_PUBLIC_APPS_SCRIPT_URL || 
-  'https://script.google.com/macros/s/AKfycbzD6mDNF5en6HZ8uK85ITZhDKGydEn11X9bveo1keiMILrx4ShC2oecIBW_QL1NJp1oSg/exec'
 
 interface Project {
   id: string
   user_id: string
   user_email: string
   nama_proyek: string
+  nama_expert?: string
   deskripsi: string
   metode: string
   jumlah_expert: number
@@ -43,58 +39,7 @@ interface UserProfileData {
   city: string
   digital_signature: string
   foto_profil?: string
-}
-
-interface ConsultationTicket {
-  idTiket: string
-  projectId?: string
-  namaUser: string
-  kontakUser: string
-  expertTujuan: string
-  topikPesan: string
-  pertanyaan?: string
-  status: string
-  created_at?: string
-  jawabanExpert?: string
-  fileUrl?: string
-}
-
-interface RawConsultation {
-  idTiket?: string
-  id_tiket?: string
-  ticket_id?: string
-  id?: string
-  projectId?: string
-  project_id?: string
-  id_proyek?: string
-  namaUser?: string
-  nama_user?: string
-  user_name?: string
-  userEmail?: string
-  user_email?: string
-  kontakUser?: string
-  kontak_user?: string
-  user_contact?: string
-  expertTujuan?: string
-  expert_tujuan?: string
-  expert_name?: string
-  topikPesan?: string
-  topik_pesan?: string
-  topik_penelitian?: string
-  topic?: string
-  pertanyaan?: string
-  pesan?: string
-  status?: string
-  created_at?: string
-  tanggalDibuat?: string
-  timestamp?: string
-  jawabanExpert?: string
-  jawaban_expert?: string
-  expertResponse?: string
-  balasanExpert?: string
-  fileUrl?: string
-  file_url?: string
-  lampiran?: string
+  status_user?: string
 }
 
 interface DynamicPlanSetting {
@@ -106,9 +51,12 @@ interface DynamicPlanSetting {
   max_experts_manual: number
   max_experts_directory: number
   max_consultation_per_expert: number
-  allow_subcriteria: boolean | string
-  allow_alternative_method: boolean | string
-  allow_ai_features: boolean | string
+  allow_subcriteria: boolean | number | string
+  allow_alternative_method: boolean | number | string
+  allow_ai_features: boolean | number | string
+  max_criteria?: number
+  max_subcriteria?: number
+  max_alternatives?: number
 }
 
 type RawProject = Record<string, unknown>
@@ -135,8 +83,8 @@ const FEATURE_EXPLANATIONS = [
     desc: 'Jumlah pakar terverifikasi di direktori platform yang bisa Anda undang langsung ke proyek Anda.'
   },
   {
-    feature: 'Konsultasi / Pakar',
-    desc: 'Batas kuota pengajuan pertanyaan/diskusi riset resmi yang dapat Anda kirimkan kepada pakar tujuan.'
+    feature: 'Konsultasi per Pakar',
+    desc: 'Batas kuota sesi tanya jawab/konsultasi ilmiah terstruktur per evaluator pakar.'
   },
   {
     feature: 'Akses Subkriteria',
@@ -148,7 +96,7 @@ const FEATURE_EXPLANATIONS = [
   },
   {
     feature: 'Fitur AI Analisis',
-    desc: 'Kecerdasan buatan untuk membantu sintesis data riset, analisis sentimen masukan, dan draf kesimpulan otomatis.'
+    desc: 'Kecerdasan buatan untuk membantu perumusan kriteria dan sintesis struktur riset otomatis.'
   }
 ]
 
@@ -169,70 +117,27 @@ function formatRupiah(amount: number) {
   }).format(amount)
 }
 
-async function safeFetchJson(url: string) {
-  try {
-    const res = await fetch(url, { method: 'GET', cache: 'no-store' })
-    if (!res.ok) return null
-    const text = await res.text()
-    try {
-      return JSON.parse(text)
-    } catch {
-      return null
-    }
-  } catch {
-    return null
-  }
+function isFeatureAllowed(val: unknown): boolean {
+  if (val === true || val === 1 || val === '1') return true
+  if (typeof val === 'string' && val.trim().toLowerCase() === 'true') return true
+  return false
 }
 
-function normalizeSubscriptionData(raw: any, targetEmail: string): any {
-  if (!raw) return null;
+function isStudentSimulationProject(raw: RawProject): boolean {
+  const expName = String(raw?.nama_expert ?? raw?.namaExpert ?? '').toLowerCase()
+  const fasilitatorNama = String(raw?.fasilitator_nama ?? raw?.fasilitatorNama ?? '').toLowerCase()
+  const projId = String(raw?.project_id ?? raw?.id ?? '').toUpperCase()
   
-  // 🟢 Ekstraksi respons bertingkat dari Apps Script
-  let dataObj = raw.data || raw.result || raw.payload || raw;
-  
-  if (Array.isArray(dataObj)) {
-    dataObj = dataObj.find((item: any) => {
-      const em = String(item.user_email || item.email || item.useremail || '').trim().toLowerCase();
-      return em === targetEmail.trim().toLowerCase();
-    }) || dataObj[0] || null;
-  }
-  
-  if (!dataObj || typeof dataObj !== 'object') return null;
-
-  const getField = (keys: string[]) => {
-    for (const k of keys) {
-      for (const objKey of Object.keys(dataObj)) {
-        const cleanObjKey = objKey.toLowerCase().replace(/[\s_\-]/g, '');
-        const cleanTargetKey = k.toLowerCase().replace(/[\s_\-]/g, '');
-        if (cleanObjKey === cleanTargetKey && dataObj[objKey] !== undefined && dataObj[objKey] !== '') {
-          return dataObj[objKey];
-        }
-      }
-    }
-    return undefined;
-  };
-
-  const rawPlan = getField(['plan', 'plantype', 'status_plan', 'plankey', 'role']);
-  const rawStatus = getField(['status', 'subscription_status']);
-  const rawExpDate = getField(['expired_date', 'expireddate', 'expirydate', 'end_date', 'deactivated_at']);
-  
-  const rawMaxProjects = getField(['max_projects', 'maxprojects']);
-  const rawMaxExperts = getField(['max_experts', 'maxexperts', 'max_experts_manual', 'maxexpertsmanual']);
-  const rawMaxExpDir = getField(['max_experts_directory', 'maxexpertsdirectory']);
-  const rawMaxConsult = getField(['max_consultation_per_expert', 'maxconsultationperexpert']);
-  const rawCustomFeatures = getField(['custom_features', 'customfeatures']);
-
-  return {
-    user_email: String(getField(['user_email', 'email', 'useremail']) || targetEmail).trim().toLowerCase(),
-    plan: rawPlan ? String(rawPlan).toLowerCase().trim() : 'free',
-    status: rawStatus ? String(rawStatus).toLowerCase().trim() : 'active',
-    expired_date: rawExpDate ? String(rawExpDate) : '',
-    max_projects: rawMaxProjects !== undefined && rawMaxProjects !== null ? Number(rawMaxProjects) : null,
-    max_experts: rawMaxExperts !== undefined && rawMaxExperts !== null ? Number(rawMaxExperts) : null,
-    max_experts_directory: rawMaxExpDir !== undefined && rawMaxExpDir !== null ? Number(rawMaxExpDir) : null,
-    max_consultation_per_expert: rawMaxConsult !== undefined && rawMaxConsult !== null ? Number(rawMaxConsult) : null,
-    custom_features: rawCustomFeatures !== undefined ? String(rawCustomFeatures) : '',
-  };
+  return (
+    expName.includes('simulasi') ||
+    expName.includes('praktikum') ||
+    expName.includes('linglungan') ||
+    expName.includes('raos') ||
+    fasilitatorNama.includes('simulasi') ||
+    projId.includes('SIM') ||
+    Boolean(raw?.is_student_project) ||
+    Boolean(raw?.is_student)
+  )
 }
 
 function FeatureComparisonModal({
@@ -247,7 +152,7 @@ function FeatureComparisonModal({
 
   return (
     <div style={S.overlay} onClick={onClose}>
-      <div style={{ ...S.modal, maxWidth: 900, maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...S.modal, maxWidth: 920, maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={S.header}>
           <h2 style={S.title}>📊 Tabel Perbandingan &amp; Penjelasan Detail Fitur</h2>
           <button onClick={onClose} style={S.closeBtn} type="button">✕</button>
@@ -279,7 +184,7 @@ function FeatureComparisonModal({
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Pakar Manual (Undang Mandiri)</td>
                 {planKeys.map(k => {
-                  const val = dynamicPlans[k]?.max_experts_manual ?? (k === 'free' ? 5 : k === 'pro' ? 8 : k === 'plus' ? 15 : 999999)
+                  const val = dynamicPlans[k]?.max_experts_manual ?? (k === 'free' ? 4 : k === 'pro' ? 8 : k === 'plus' ? 15 : 999999)
                   return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{val >= 999999 ? '∞ Unlimited' : `${val} Pakar`}</td>
                 })}
               </tr>
@@ -291,23 +196,32 @@ function FeatureComparisonModal({
                 })}
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Konsultasi/Pakar (Kuota Tiket)</td>
+                <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Konsultasi per Pakar</td>
                 {planKeys.map(k => {
                   const val = dynamicPlans[k]?.max_consultation_per_expert ?? (k === 'free' ? 0 : k === 'pro' ? 3 : k === 'plus' ? 5 : 15)
-                  return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{val === 0 ? '❌ Nonaktif' : `${val} Tiket`}</td>
+                  return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{val === 0 ? '❌ Tidak Ada' : `${val} Sesi`}</td>
                 })}
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Subkriteria Multi-Level</td>
-                {planKeys.map(k => <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>✔️ Ya</td>)}
+                {planKeys.map(k => {
+                  const allowed = isFeatureAllowed(dynamicPlans[k]?.allow_subcriteria ?? (k !== 'free'))
+                  return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{allowed ? '✔ Ya' : '❌ Tidak'}</td>
+                })}
               </tr>
               <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Matriks Bobot Alternatif</td>
-                {planKeys.map(k => <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{k === 'free' ? '❌ Bobot Saja' : '✔️ Ya'}</td>)}
+                {planKeys.map(k => {
+                  const allowed = isFeatureAllowed(dynamicPlans[k]?.allow_alternative_method ?? (k !== 'free'))
+                  return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{allowed ? '✔ Bobot Alternatif' : '❌ Bobot Alternatif'}</td>
+                })}
               </tr>
               <tr>
                 <td style={{ padding: '10px 14px', fontWeight: 700, color: '#0f172a' }}>Modul AI Analisis Riset</td>
-                {planKeys.map(k => <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{k === 'free' || k === 'pro' ? '❌ Tidak' : '🤖 Ya'}</td>)}
+                {planKeys.map(k => {
+                  const allowed = isFeatureAllowed(dynamicPlans[k]?.allow_ai_features ?? (k === 'plus' || k === 'premium'))
+                  return <td key={k} style={{ padding: '10px 14px', textAlign: 'center' }}>{allowed ? '🤖 Ya' : '❌ AI Analisis'}</td>
+                })}
               </tr>
             </tbody>
           </table>
@@ -331,67 +245,46 @@ function FeatureComparisonModal({
 
 function UpgradeModal({
   currentPlan,
+  isStudent,
+  userEmail,
+  userId,
+  userProfile,
+  initialDynamicPlans,
+  onSuccessSwitch,
   onClose,
 }: {
   currentPlan: PlanType
+  isStudent?: boolean
+  userEmail?: string
+  userId?: string
+  userProfile?: UserProfileData
+  initialDynamicPlans?: Record<string, DynamicPlanSetting>
+  onSuccessSwitch: () => void
   onClose: () => void
 }) {
   const plans: PlanType[] = ['free', 'pro', 'plus', 'premium']
   const S = modalStyles
 
-  const [dynamicPlans, setDynamicPlans] = useState<Record<string, DynamicPlanSetting>>({})
-  const [fetchingPlans, setFetchingPlans] = useState(true)
+  const [dynamicPlans, setDynamicPlans] = useState<Record<string, DynamicPlanSetting>>(initialDynamicPlans || {})
+  const [fetchingPlans, setFetchingPlans] = useState(!initialDynamicPlans || Object.keys(initialDynamicPlans).length === 0)
   const [showComparisonTable, setShowComparisonTable] = useState(false)
-  const [isXenditActive, setIsXenditActive] = useState(false)
-  const [processingPlan, setProcessingPlan] = useState<string | null>(null)
-
-  const [userLocation, setUserLocation] = useState('Indonesia (Default)')
-  const [showAdminModal, setShowAdminModal] = useState(false)
-  const [selectedPlanTarget, setSelectedPlanTarget] = useState('Custom / Upgrade Plan')
-  const [adminMessage, setAdminMessage] = useState('')
-  const [submittingAdmin, setSubmittingAdmin] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const [requestingPlan, setRequestingPlan] = useState<string | null>(null)
 
   useEffect(() => {
-    try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const language = navigator.language || 'id-ID'
-      
-      let detectedRegion = 'Indonesia'
-      if (timezone) {
-        const parts = timezone.split('/')
-        if (parts.length > 1) {
-          detectedRegion = `${parts[1].replace('_', ' ')} (${parts[0]})`
-        } else {
-          detectedRegion = timezone
-        }
-      }
-      setUserLocation(`${detectedRegion} [${language}]`)
-    } catch (e) {
-      setUserLocation('Indonesia (Default)')
-    }
-
     async function loadPlanSettings() {
       try {
-        setFetchingPlans(true)
-        const [jsonPlans, jsonPayment] = await Promise.all([
-          safeFetchJson(`${API_URL}?action=getplansettings&_t=${Date.now()}`),
-          safeFetchJson(`${API_URL}?action=getpaymentsettings&_t=${Date.now()}`)
-        ])
-
-        if (jsonPlans && jsonPlans.success && Array.isArray(jsonPlans.data)) {
+        const res = await fetch(`/api/dashboard/summary?_t=${Date.now()}`)
+        const json = await res.json()
+        if (json?.success && Array.isArray(json.data?.plans)) {
           const map: Record<string, DynamicPlanSetting> = {}
-          jsonPlans.data.forEach((p: DynamicPlanSetting) => {
+          json.data.plans.forEach((p: DynamicPlanSetting) => {
             if (p.plan_key) {
               map[String(p.plan_key).toLowerCase().trim()] = p
             }
           })
           setDynamicPlans(map)
         }
-
-        if (jsonPayment && jsonPayment.success && jsonPayment.data) {
-          setIsXenditActive(String(jsonPayment.data.is_xendit_active).toUpperCase() === 'TRUE')
-        }
-
       } catch (err) {
         console.warn('Gagal memuat pengaturan plan dinamis:', err)
       } finally {
@@ -401,104 +294,218 @@ function UpgradeModal({
     void loadPlanSettings()
   }, [])
 
-  const handleSelectPlan = async (planKey: string, price: number | string) => {
-    if (planKey === 'free') {
-      alert('Anda sudah berada di paket Free.')
-      return
-    }
+  // 🟢 Pengajuan tiket koordinasi aktivasi lisensi ke tabel AHP - ConsultationRequests
+  // Menggunakan rute folder: /api/subscriptions/request-upgrade
+  const handleRequestUpgrade = async (selectedPlanKey: string, planLabel: string) => {
+    const konfirmasi = window.confirm(
+      `Hubungi Administrator untuk Aktivasi Paket ${planLabel}?\n\nTiket permohonan aktivasi lisensi akan otomatis dikirimkan ke meja operasional Admin. Lanjutkan?`
+    )
 
-    if (!isXenditActive) {
-      alert(
-        `Sistem pembayaran otomatis Xendit sedang dalam tahap persiapan infrastruktur badan usaha.\n\nSilakan gunakan tombol "Hubungi Admin" di dalam card paket untuk pengaktifan paket ${planKey.toUpperCase()} secara manual.`
-      )
-      return
-    }
-
-    const confirmCheckout = window.confirm(`Anda akan memilih paket ${planKey.toUpperCase()}. Lanjutkan ke halaman pembayaran Xendit?`)
-    if (!confirmCheckout) return
-
-    setProcessingPlan(planKey)
+    if (!konfirmasi) return
 
     try {
-      const session = getSession()
-      const response = await fetch(API_URL, {
+      setRequestingPlan(selectedPlanKey)
+      const res = await fetch('/api/subscriptions/request-upgrade', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'createxenditinvoice',
-          user_id: session?.id || '',
-          user_email: session?.email || '',
-          plan: planKey
+          plan: selectedPlanKey,
+          user_email: userEmail,
+          user_name: userProfile?.nama || userEmail,
+          institusi: userProfile?.institusi || '',
         }),
-        redirect: 'follow',
       })
 
-      const result = await response.json()
-
-      if (result.success && result.invoice_url) {
-        window.location.href = result.invoice_url
-      } else {
-        alert('❌ Gagal membuat tagihan: ' + (result.message || 'Terjadi kesalahan pada server.'))
-        setProcessingPlan(null)
-      }
-    } catch (err) {
-      console.error('Error proses pembayaran:', err)
-      alert('Gagal menyambung ke server pembayaran. Silakan coba beberapa saat lagi.')
-      setProcessingPlan(null)
-    }
-  }
-
-  const handleOpenAdminModal = (planName: string) => {
-    setSelectedPlanTarget(planName)
-    setShowAdminModal(true)
-  }
-
-  const handleAdminMessageSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!adminMessage.trim()) {
-      alert('Mohon tuliskan pesan atau pertanyaan Anda.')
-      return
-    }
-
-    try {
-      setSubmittingAdmin(true)
-      const session = getSession()
-      const ticketId = `PRICING-SUP-${Date.now()}`
-      
-      const payload = {
-        action: 'submitconsultation',
-        ticket_id: ticketId,
-        expert_id: 'ADMIN-PRICING',
-        expert_email: 'admin@avitech.cloud',
-        expert_name: 'Tim Layanan Pelanggan & Billing',
-        user_name: session?.nama || session?.email || 'Pengguna Dashboard',
-        user_email: session?.email ? session.email.trim().toLowerCase() : 'tamu@pricing.com',
-        asal_instansi: `Lokasi User: ${userLocation}`,
-        pertanyaan: `[Peminatan Plan: ${selectedPlanTarget}] ${adminMessage.trim()}`,
-        userPlan: currentPlan,
-        status: 'Pending Admin'
+      const contentType = res.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        throw new Error('Endpoint /api/subscriptions/request-upgrade belum ditemukan atau mengembalikan respons non-JSON.')
       }
 
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-        redirect: 'follow'
-      })
-
-      const result = JSON.parse(await res.text())
-      if (result && result.success) {
-        alert(`✅ Pesan Anda berhasil dikirim ke Admin (#${ticketId}). Tim kami akan segera menanggapi melalui email.`);
-        setShowAdminModal(false)
-        setAdminMessage('')
+      const json = await res.json()
+      if (json.success) {
+        alert(
+          `✅ Permohonan Terkirim!\n\n${json.message}\n\nID Tiket: ${json.ticket_id}\nAnda dapat memantau balasannya melalui menu Pusat Konsultasi.`
+        )
+        onClose()
       } else {
-        alert('Gagal mengirim pesan: ' + (result.message || 'Terjadi kesalahan.'))
+        alert(`❌ Gagal: ${json.message}`)
       }
     } catch (err: any) {
-      alert(`Kesalahan jaringan: ${err.message}`)
+      alert(`Terjadi kendala jaringan: ${err.message}`)
     } finally {
-      setSubmittingAdmin(false)
+      setRequestingPlan(null)
     }
+  }
+
+  const handleSwitchToGeneral = async () => {
+    const konfirmasi = window.confirm(
+      'Beralih ke General Edition (Paket FREE)?\n\n' +
+      '• Akun praktikum Anda akan beralih menjadi akun Peneliti / Fasilitator Mandiri.\n' +
+      '• Proyek simulasi praktikum sebelumnya akan dibersihkan dari sistem agar ruang kerja bersih.\n' +
+      '• Kuota proyek riset mandiri Anda akan dimulai dari 0 / 1.\n' +
+      '• Mode 2 pakar simulasi otomatis dinonaktifkan.\n' +
+      '• Batasan kuota proyek, pakar, dan hierarki akan mengikuti aturan aktif SuperAdmin.\n\n' +
+      'Lanjutkan proses ini?'
+    )
+
+    if (!konfirmasi) return
+
+    try {
+      setSwitching(true)
+      const res = await fetch('/api/user/switch-to-general', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: userEmail, user_id: userId }),
+      })
+      const json = await res.json()
+
+      if (json.success) {
+        // SINKRONKAN SELURUH PENYIMPANAN SESI LOKAL
+        const sessionKeys = ['ahp_user_session', 'user_session']
+        sessionKeys.forEach((key) => {
+          const raw = localStorage.getItem(key)
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw)
+              parsed.status_user = 'general'
+              parsed.plan = 'FREE'
+              parsed.role = 'user'
+              localStorage.setItem(key, JSON.stringify(parsed))
+            } catch {}
+          }
+        })
+
+        alert('✅ Akun Anda telah resmi beralih ke General Edition (FREE). Ruang kerja telah direset ke 0 / 1 proyek.')
+        onSuccessSwitch()
+        onClose()
+        window.location.reload()
+      } else {
+        alert('❌ Gagal beralih akun: ' + (json.message || 'Terjadi kesalahan sistem.'))
+      }
+    } catch {
+      alert('Gagal menghubungi server.')
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  if (isStudent) {
+    const freeCfg = dynamicPlans['free']
+    const freePriceText = freeCfg ? formatRupiah(Number(freeCfg.price || 0)) : 'Gratis'
+    const freeMaxProj = freeCfg?.max_projects !== undefined
+      ? (freeCfg.max_projects >= 999999 ? 'Unlimited' : `${freeCfg.max_projects}`)
+      : '1'
+    const freeMaxExpManual = freeCfg?.max_experts_manual !== undefined
+      ? (freeCfg.max_experts_manual >= 999999 ? 'Unlimited' : `${freeCfg.max_experts_manual}`)
+      : '4'
+    const freeMaxExpDir = Number(freeCfg?.max_experts_directory || 0)
+    const freeMaxConsult = Number(freeCfg?.max_consultation_per_expert || 0)
+
+    const allowSub = isFeatureAllowed(freeCfg?.allow_subcriteria)
+    const allowAlt = isFeatureAllowed(freeCfg?.allow_alternative_method)
+    const allowAi = isFeatureAllowed(freeCfg?.allow_ai_features)
+
+    return (
+      <div style={S.overlay} onClick={onClose}>
+        <div style={{ ...S.modal, maxWidth: 540 }} onClick={(e) => e.stopPropagation()}>
+          <div style={S.header}>
+            <div>
+              <h2 style={S.title}>🎓 Beralih ke General Edition</h2>
+              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#64748b' }}>
+                Tingkatkan akun praktikum Anda menjadi akun Peneliti / Fasilitator Mandiri.
+              </p>
+            </div>
+            <button onClick={onClose} style={S.closeBtn} type="button">✕</button>
+          </div>
+
+          {fetchingPlans && Object.keys(dynamicPlans).length === 0 ? (
+            <div style={{ padding: '30px 0', textAlign: 'center', fontSize: 13, color: '#64748b' }}>
+              ⏳ Memuat konfigurasi batasan paket dari SuperAdmin...
+            </div>
+          ) : (
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px solid #e2e8f0',
+              borderRadius: 12,
+              padding: '18px 20px',
+              marginTop: 14,
+              marginBottom: 16
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: '#16a34a', background: '#dcfce7', padding: '3px 8px', borderRadius: 999 }}>
+                    PAKET RISET UMUM
+                  </span>
+                  <h3 style={{ margin: '6px 0 0', fontSize: 17, fontWeight: 800, color: '#0f172a' }}>
+                    {freeCfg?.label || 'General Edition (FREE)'}
+                  </h3>
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#16a34a' }}>
+                  {freePriceText}
+                </div>
+              </div>
+
+              <p style={{ fontSize: 12, color: '#475569', lineHeight: 1.5, margin: '0 0 12px' }}>
+                Akun keluar dari pembatasan simulasi otomatis praktikum. Proyek latihan sebelumnya akan dibersihkan agar kuota riset mandiri dimulai bersih dari 0.
+              </p>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.04em' }}>
+                Fasilitas &amp; Batasan Aktif (Kebijakan SuperAdmin):
+              </div>
+
+              <ul style={{ paddingLeft: 18, margin: 0, fontSize: 12, color: '#334155', display: 'flex', flexDirection: 'column', gap: 6, lineHeight: 1.4 }}>
+                <li>
+                  <strong>Maksimal Proyek:</strong> {freeMaxProj} proyek riset aktif.
+                </li>
+                <li>
+                  <strong>Pakar / Responden:</strong> Hingga {freeMaxExpManual} pakar manual (diundang mandiri via tautan/email).
+                </li>
+                <li>
+                  <strong>Direktori Pakar Platform:</strong> {freeMaxExpDir > 0 ? `Hingga ${freeMaxExpDir} pakar direktori` : 'Terkunci (0 Pakar)'}.
+                </li>
+                <li>
+                  <strong>Konsultasi Pakar:</strong> {freeMaxConsult > 0 ? `Maksimal ${freeMaxConsult} sesi / pakar` : 'Tidak tersedia (0 Sesi)'}.
+                </li>
+                <li>
+                  <strong>Struktur Subkriteria:</strong> {allowSub ? '✔️️ Diizinkan (Hirarki bertingkat)' : '❌ Dinonaktifkan (Hanya kriteria utama)'}.
+                </li>
+                <li>
+                  <strong>Metode Bobot Alternatif:</strong> {allowAlt ? '✔️️ Diizinkan (Kombinasi perankingan alternatif)' : '❌ Dinonaktifkan (Bobot Saja)'}.
+                </li>
+                <li>
+                  <strong>Bantuan AI Analisis:</strong> {allowAi ? '🤖 Diizinkan (Saat pembuatan proyek & laporan)' : '❌ Dinonaktifkan oleh SuperAdmin'}.
+                </li>
+              </ul>
+
+              <button
+                type="button"
+                onClick={handleSwitchToGeneral}
+                disabled={switching}
+                style={{
+                  width: '100%',
+                  marginTop: 18,
+                  padding: '11px 0',
+                  background: '#16a34a',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: switching ? 'not-allowed' : 'pointer',
+                  boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
+                }}
+              >
+                {switching ? 'Memproses Peralihan...' : '⚡ Beralih ke General Edition Sekarang'}
+              </button>
+            </div>
+          )}
+
+          <div style={{ ...S.infoBox, background: '#f0fdf4', borderColor: '#bbf7d0', color: '#166534', fontSize: 11.5, margin: 0 }}>
+            💡 <strong>Ketentuan Sistem:</strong> Seluruh batasan fasilitas di atas disinkronkan otomatis dari konfigurasi SuperAdmin. Pilihan paket komersial (Pro/Plus/Premium) dapat diakses setelah akun beralih ke General Edition.
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -507,49 +514,13 @@ function UpgradeModal({
         <FeatureComparisonModal dynamicPlans={dynamicPlans} onClose={() => setShowComparisonTable(false)} />
       )}
 
-      {showAdminModal && (
-        <div style={S.overlay} onClick={(e) => e.stopPropagation()}>
-          <div style={{ ...S.modal, maxWidth: 460 }}>
-            <div style={S.header}>
-              <h3 style={S.title}>✉️ Hubungi Admin ({selectedPlanTarget})</h3>
-              <button onClick={() => setShowAdminModal(false)} style={S.closeBtn} type="button">✕</button>
-            </div>
-
-            <p style={{ fontSize: 12, color: '#64748b', marginBottom: 12, lineHeight: 1.4 }}>
-              Sampaikan kendala atau pertanyaan Anda mengenai paket ini, admin akan membalas langsung melalui email akun Anda.
-            </p>
-
-            <form onSubmit={handleAdminMessageSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: '#334155', display: 'block', marginBottom: 4 }}>Pesan / Kebutuhan Paket *</label>
-                <textarea 
-                  rows={4} 
-                  placeholder="Tuliskan pertanyaan atau kendala langganan Anda di sini..." 
-                  value={adminMessage} 
-                  onChange={(e) => setAdminMessage(e.target.value)} 
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13, outline: 'none', background: '#fff', boxSizing: 'border-box', resize: 'vertical' }}
-                  required 
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-                <button type="button" onClick={() => setShowAdminModal(false)} style={S.btnClose}>
-                  Batal
-                </button>
-                <button type="submit" disabled={submittingAdmin} style={{ ...S.btnClose, background: '#2563eb', color: 'white', fontWeight: 700 }}>
-                  {submittingAdmin ? 'Mengirim...' : 'Kirim Pesan ke Admin →'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       <div style={{ ...S.modal, maxWidth: 1000 }} onClick={(e) => e.stopPropagation()}>
         <div style={S.header}>
           <div>
-            <h2 style={S.title}>🚀 Upgrade Semester Pass</h2>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>Pilih paket Semester Pass (6 Bulan) sesuai skala kebutuhan riset atau instansi Anda.</p>
+            <h2 style={S.title}>🚀 Pilihan Paket Komersial</h2>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+              Pilih paket Semester Pass (6 Bulan) sesuai skala kebutuhan riset atau instansi Anda.
+            </p>
           </div>
           
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -564,7 +535,7 @@ function UpgradeModal({
           </div>
         </div>
 
-        {fetchingPlans ? (
+        {fetchingPlans && Object.keys(dynamicPlans).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b', fontSize: 13 }}>
             ⏳ Memuat daftar paket terbaru...
           </div>
@@ -587,25 +558,27 @@ function UpgradeModal({
                 const expDirCount = Number(dynamicCfg.max_experts_directory || 0)
                 if (expDirCount > 0) {
                   featuresList.push(`Hingga ${expDirCount >= 999999 ? 'Unlimited' : expDirCount} Expert Direktori`)
+                } else {
+                  featuresList.push('❌ Expert Direktori')
                 }
 
                 const consultCount = Number(dynamicCfg.max_consultation_per_expert || 0)
                 if (consultCount > 0) {
-                  featuresList.push(`Max ${consultCount >= 999999 ? 'Unlimited' : consultCount} Konsultasi/Pakar`)
+                  featuresList.push(`Maks. ${consultCount} Konsultasi / Pakar`)
                 }
 
                 featuresList.push(
-                  String(dynamicCfg.allow_subcriteria).toUpperCase() === 'TRUE' || dynamicCfg.allow_subcriteria === true 
-                    ? '✔️ Subkriteria' 
+                  isFeatureAllowed(dynamicCfg.allow_subcriteria)
+                    ? '✔ Subkriteria' 
                     : '❌ Subkriteria'
                 )
                 featuresList.push(
-                  String(dynamicCfg.allow_alternative_method).toUpperCase() === 'TRUE' || dynamicCfg.allow_alternative_method === true 
-                    ? '✔️ Bobot Alternatif' 
+                  isFeatureAllowed(dynamicCfg.allow_alternative_method)
+                    ? '✔ Bobot Alternatif' 
                     : '❌ Bobot Alternatif'
                 )
                 featuresList.push(
-                  String(dynamicCfg.allow_ai_features).toUpperCase() === 'TRUE' || dynamicCfg.allow_ai_features === true 
+                  isFeatureAllowed(dynamicCfg.allow_ai_features)
                     ? '🤖 Fitur AI Analisis' 
                     : '❌ AI Analisis'
                 )
@@ -630,12 +603,13 @@ function UpgradeModal({
                     </ul>
                   </div>
 
-                  <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ marginTop: 14 }}>
                     {isActive ? (
-                      <div style={{ ...S.planBadge, padding: '6px 10px', fontSize: 11.5, width: '100%', textAlign: 'center', boxSizing: 'border-box', margin: 0 }}>✔️ Paket Saat Ini</div>
+                      <div style={{ ...S.planBadge, padding: '6px 10px', fontSize: 11.5, width: '100%', textAlign: 'center', boxSizing: 'border-box', margin: 0 }}>✔ Paket Saat Ini</div>
                     ) : (
                       <button 
-                        onClick={() => handleSelectPlan(plan, dynamicCfg?.price ?? 0)}
+                        onClick={() => handleRequestUpgrade(plan, label)}
+                        disabled={plan === 'free' || requestingPlan === plan}
                         style={{
                           width: '100%',
                           padding: '9px 0',
@@ -645,32 +619,12 @@ function UpgradeModal({
                           borderRadius: 8,
                           fontSize: 12.5,
                           fontWeight: 700,
-                          cursor: plan === 'free' ? 'not-allowed' : 'pointer',
-                          boxShadow: plan === 'free' ? 'none' : '0 2px 8px rgba(37,99,235,0.2)'
+                          cursor: plan === 'free' || requestingPlan === plan ? 'not-allowed' : 'pointer',
                         }}
-                        disabled={plan === 'free' || processingPlan === plan}
                       >
-                        {processingPlan === plan ? 'Memproses...' : plan === 'free' ? 'Tidak Tersedia' : 'Pilih Paket'}
+                        {requestingPlan === plan ? 'Mengirim Tiket...' : (plan === 'free' ? 'Paket Aktif' : `Pilih ${plan.toUpperCase()}`)}
                       </button>
                     )}
-
-                    <button
-                      onClick={() => handleOpenAdminModal(label)}
-                      style={{
-                        width: '100%',
-                        padding: '6px 0',
-                        background: '#f8fafc',
-                        color: '#475569',
-                        border: '1px solid #cbd5e1',
-                        borderRadius: 8,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                      type="button"
-                    >
-                      ✉️ Hubungi Admin
-                    </button>
                   </div>
                 </div>
               )
@@ -679,7 +633,7 @@ function UpgradeModal({
         )}
 
         <div style={{ ...S.infoBox, background: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }}>
-          💡 <strong>Informasi Sistem:</strong> Pengaktifan paket saat ini dilayani secara langsung melalui koordinasi administrator sambil mempersiapkan integrasi kanal pembayaran resmi.
+          💡 <strong>Informasi Sistem:</strong> Pengaktifan paket komersial dilayani melalui koordinasi Administrator platform.
         </div>
       </div>
     </div>
@@ -689,17 +643,19 @@ function UpgradeModal({
 function ProfileModal({
   user,
   profile,
+  isStudent,
   onClose,
   onSaveSuccess,
 }: {
   user: UserSession
   profile: UserProfileData
+  isStudent?: boolean
   onClose: () => void
   onSaveSuccess: (updated: UserProfileData) => void
 }) {
   const [formData, setFormData] = useState<UserProfileData>({
     nama: profile.nama || user.nama || '',
-    institusi: profile.institusi || '',
+    institusi: profile.institusi || (isStudent ? 'Universitas / Akademik' : ''),
     city: profile.city || '',
     digital_signature: profile.digital_signature || '',
     foto_profil: profile.foto_profil || '',
@@ -749,22 +705,18 @@ function ProfileModal({
     setErrorMsg('')
 
     try {
-      const payload = {
-        action: 'updateuserprofile',
-        email: user.email,
-        user_id: user.id,
-        nama: formData.nama,
-        institusi: formData.institusi,
-        city: formData.city,
-        digital_signature: formData.digital_signature || '',
-        foto_profil: formData.foto_profil || '',
-      }
-
-      const response = await fetch(API_URL, {
+      const response = await fetch('/api/user/profile', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-        redirect: 'follow',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: user.email,
+          user_id: user.id,
+          nama: formData.nama,
+          institusi: formData.institusi || (isStudent ? 'Universitas / Akademik' : ''),
+          city: formData.city,
+          digital_signature: formData.digital_signature || '',
+          foto_profil: formData.foto_profil || '',
+        }),
       })
 
       const result = await response.json()
@@ -775,10 +727,10 @@ function ProfileModal({
           digital_signature: formData.digital_signature || '',
           foto_profil: formData.foto_profil || '' 
         })
-        alert('✅ ' + result.message)
+        alert('✅ Profil berhasil diperbarui')
         onClose()
       } else {
-        alert('❌ Gagal dari Server: ' + result.message)
+        alert('❌ Gagal: ' + result.message)
         setErrorMsg(result.message)
       }
 
@@ -807,14 +759,14 @@ function ProfileModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ ...S.header, marginBottom: 12, flexShrink: 0 }}>
-          <h2 style={S.title}>⚙️ Pengaturan Profil &amp; Pengesahan</h2>
-          <button onClick={onClose} style={S.closeBtn} type="button">
-            ✕
-          </button>
+          <h2 style={S.title}>⚙ Pengaturan Profil &amp; Pengesahan</h2>
+          <button onClick={onClose} style={S.closeBtn} type="button">✕</button>
         </div>
 
         <p style={{ ...S.desc, flexShrink: 0, marginBottom: 12 }}>
-          Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.
+          {isStudent
+            ? 'Untuk akun Student Edition, cukup lengkapi nama dan kota domisili Anda.'
+            : 'Lengkapi identitas Anda, unggah foto profil, dan unggah file tanda tangan digital Anda.'}
         </p>
 
         {errorMsg && (
@@ -836,31 +788,19 @@ function ProfileModal({
           }}
         >
           <div>
-            <label style={formStyles.label}>Nama Lengkap &amp; Gelar</label>
+            <label style={formStyles.label}>Nama Lengkap *</label>
             <input
               type="text"
               required
               value={formData.nama}
               onChange={(e) => setFormData({ ...formData, nama: e.target.value })}
-              placeholder="Contoh: Dr. Arben Virgota, S.Pi., M.Si"
+              placeholder="Contoh: Andi Pratama"
               style={formStyles.input}
             />
           </div>
 
           <div>
-            <label style={formStyles.label}>Nama Institusi / Afiliasi</label>
-            <input
-              type="text"
-              required
-              value={formData.institusi}
-              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
-              placeholder="Contoh: Universitas Mataram"
-              style={formStyles.input}
-            />
-          </div>
-
-          <div>
-            <label style={formStyles.label}>Kota</label>
+            <label style={formStyles.label}>Kota Domisili *</label>
             <input
               type="text"
               required
@@ -872,27 +812,27 @@ function ProfileModal({
           </div>
 
           <div>
-            <label style={formStyles.label}>Foto Profil (Upload File Gambar)</label>
+            <label style={formStyles.label}>
+              Nama Institusi / Universitas {isStudent ? '(Opsional)' : '*'}
+            </label>
+            <input
+              type="text"
+              required={!isStudent}
+              value={formData.institusi}
+              onChange={(e) => setFormData({ ...formData, institusi: e.target.value })}
+              placeholder="Contoh: Universitas Mataram"
+              style={formStyles.input}
+            />
+          </div>
+
+          <div>
+            <label style={formStyles.label}>Foto Profil (Opsional)</label>
             <input
               type="file"
               accept="image/*"
               onChange={handleFotoFileChange}
               style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
             />
-            <div style={{
-              marginTop: 2,
-              marginBottom: 4,
-              fontSize: 11,
-              color: '#b45309',
-              background: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderRadius: 6,
-              padding: '6px 8px',
-              lineHeight: 1.4,
-            }}>
-              ⚠️ <strong>Catatan Batas Ukuran:</strong> Pastikan ukuran file foto di bawah <strong>35 KB</strong>.
-            </div>
-
             <div style={{ ...formStyles.previewBox, height: 50, marginTop: 4 }}>
               {previewFoto ? (
                 <img 
@@ -901,36 +841,22 @@ function ProfileModal({
                   style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover' }} 
                 />
               ) : (
-                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
-                  Belum ada foto yang dipilih
-                </span>
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Belum ada foto yang dipilih</span>
               )}
             </div>
           </div>
 
           <div>
-            <label style={formStyles.label}>Tanda Tangan Digital (.png Transparan)</label>
+            <label style={formStyles.label}>
+              Tanda Tangan Digital {isStudent ? '(Opsional untuk Student Edition)' : '(.png Transparan) *'}
+            </label>
             <input
               type="file"
               accept="image/*"
-              required={!previewSig}
+              required={!isStudent && !previewSig}
               onChange={handleSigFileChange}
               style={{ fontSize: 12, marginBottom: 4, cursor: 'pointer' }}
             />
-            <div style={{
-              marginTop: 2,
-              marginBottom: 4,
-              fontSize: 11,
-              color: '#b45309',
-              background: '#fffbeb',
-              border: '1px solid #fef3c7',
-              borderRadius: 6,
-              padding: '6px 8px',
-              lineHeight: 1.4,
-            }}>
-              ⚠️ <strong>Catatan Batas Ukuran:</strong> Pastikan ukuran file tanda tangan di bawah <strong>35 KB</strong>.
-            </div>
-
             <div style={formStyles.previewBox}>
               {previewSig ? (
                 <img 
@@ -939,28 +865,19 @@ function ProfileModal({
                   style={{ maxHeight: 45, objectFit: 'contain' }} 
                 />
               ) : (
-                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
-                  Belum ada tanda tangan yang dipilih
-                </span>
+                <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Belum ada tanda tangan yang dipilih</span>
               )}
             </div>
           </div>
         </form>
 
         <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
-          <button onClick={onClose} style={S.btnClose} type="button">
-            Batal
-          </button>
+          <button onClick={onClose} style={S.btnClose} type="button">Batal</button>
           <button
             type="button"
             onClick={handleSubmit}
             disabled={saving}
-            style={{
-              ...S.btnClose,
-              background: '#2563eb',
-              color: 'white',
-              fontWeight: 700,
-            }}
+            style={{ ...S.btnClose, background: '#2563eb', color: 'white', fontWeight: 700 }}
           >
             {saving ? 'Menyimpan...' : 'Simpan Profil'}
           </button>
@@ -1005,77 +922,37 @@ function splitCsv(value: unknown): string[] {
     )
 }
 
-function countSubcriteriaFromMap(value: unknown): number {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return 0
-
-  return Object.values(value as Record<string, unknown>).reduce<number>((sum, item) => {
-    if (!Array.isArray(item)) return sum
-    return sum + item.length
-  }, 0)
-}
-
 function normalizeProject(raw: RawProject): Project {
-  const criteriaList = splitCsv(raw?.kriteria ?? raw?.criteria ?? raw?.criteria_csv ?? (raw as any)?.['criteria'])
-  const alternatifList = splitCsv(raw?.alternatif ?? raw?.alternatives ?? raw?.alternatif_csv)
+  const criteriaList = splitCsv(raw?.criteria ?? raw?.kriteria ?? '')
+  const alternatifList = splitCsv(raw?.alternatif ?? raw?.alternatives ?? '')
 
-  const subMap =
-    raw?.subkriteria_map && typeof raw.subkriteria_map === 'object'
-      ? raw.subkriteria_map
-      : {}
-
-  const subcriteriaCount =
-    Number(raw?.subcriteria_count ?? 0) || countSubcriteriaFromMap(subMap)
-
-  let calculatedAltCount = 0;
-  if (raw?.alternatif_count !== undefined && raw?.alternatif_count !== null && raw?.alternatif_count !== '') {
-    calculatedAltCount = Number(raw.alternatif_count);
-  } else {
-    calculatedAltCount = alternatifList.length;
-  }
-  if (alternatifList.length === 0) {
-    calculatedAltCount = 0;
-  }
-
-  let calculatedCritCount = 0;
-  if (raw?.criteria_count !== undefined && raw?.criteria_count !== null && raw?.criteria_count !== '') {
-    calculatedCritCount = Number(raw.criteria_count);
-  } else {
-    calculatedCritCount = criteriaList.length;
-  }
-  
-  if (calculatedCritCount === 0 && criteriaList.length > 0) {
-    calculatedCritCount = criteriaList.length;
-  }
-
-  const expertCount = Number(raw?.jumlah_expert ?? raw?.jumlahexpert ?? 0)
+  let calculatedCritCount = criteriaList.length
+  let calculatedAltCount = alternatifList.length
+  const expertCount = Number(raw?.jumlahExpert ?? raw?.jumlah_expert ?? 0)
 
   return {
-    id: String(raw?.id ?? raw?.project_id ?? raw?.projectid ?? '').trim(),
-    user_id: String(raw?.user_id ?? raw?.userid ?? '').trim(),
-    user_email: String(raw?.user_email ?? raw?.email ?? '').trim(),
-    nama_proyek: String(raw?.nama_proyek ?? raw?.namaproyek ?? raw?.judul ?? raw?.title ?? '').trim(),
+    id: String(raw?.project_id ?? raw?.id ?? '').trim(),
+    user_id: String(raw?.userId ?? raw?.user_id ?? '').trim(),
+    user_email: String(raw?.user_email ?? '').trim(),
+    nama_proyek: String(raw?.namaProyek ?? raw?.nama_proyek ?? '').trim(),
+    nama_expert: String(raw?.nama_expert ?? raw?.namaExpert ?? '').trim(),
     deskripsi: String(raw?.deskripsi ?? '').trim(),
     metode: String(raw?.metode ?? '').trim(),
     jumlah_expert: expertCount,
     jumlah_expert_responden: expertCount, 
-    punya_subkriteria: Boolean(raw?.punya_subkriteria),
-    fasilitator_email: String(raw?.fasilitator_email ?? raw?.fasilitatoremail ?? '').trim(),
-    fasilitator_whatsapp: String(
-      raw?.fasilitator_whatsapp ?? raw?.fasilitatorwhatsapp ?? ''
-    ).trim(),
-    
-    criteria_count: Number.isNaN(calculatedCritCount) ? 0 : calculatedCritCount,
-    subcriteria_count: Number.isNaN(subcriteriaCount) ? 0 : subcriteriaCount,
-    alternatif_count: Number.isNaN(calculatedAltCount) ? 0 : calculatedAltCount,
-    
+    punya_subkriteria: Boolean(raw?.punyaSubkriteria ?? raw?.punya_subkriteria),
+    fasilitator_email: String(raw?.fasilitatorEmail ?? raw?.fasilitator_email ?? '').trim(),
+    fasilitator_whatsapp: String(raw?.fasilitatorWhatsapp ?? raw?.fasilitator_whatsapp ?? '').trim(),
+    criteria_count: calculatedCritCount,
+    subcriteria_count: Number(raw?.subcriteria_count ?? 0),
+    alternatif_count: calculatedAltCount,
     criteria_preview: criteriaList.slice(0, 4),
     alternatif_preview: alternatifList.slice(0, 4),
-    created_at: String(raw?.created_at ?? '').trim(),
-    updated_at: String(raw?.updated_at ?? raw?.created_at ?? '').trim(),
+    created_at: String(raw?.createdAt ?? raw?.created_at ?? '').trim(),
+    updated_at: String(raw?.updatedAt ?? raw?.updated_at ?? '').trim(),
   }
 }
 
-// 🟢 KOMPONEN TOP BAR UTAMA
 function AppTopBar() {
   return (
     <div style={topBarStyles.container} className="no-print">
@@ -1090,243 +967,19 @@ function AppTopBar() {
   )
 }
 
-// 🟢 KOMPONEN SIDEBAR BERSIH
-function DashboardSidebar({
-  user,
-  userProfile,
-  userPlan,
-  projects,
-  isProfileComplete,
-  isCollapsed,
-  consultationCount,
-  onToggleCollapse,
-  onOpenProfile,
-  onOpenUpgrade,
-  onLogout,
-}: {
-  user: UserSession | null
-  userProfile: UserProfileData
-  userPlan: string
-  projects: Project[]
-  isProfileComplete: boolean
-  isCollapsed: boolean
-  consultationCount: number
-  onToggleCollapse: () => void
-  onOpenProfile: () => void
-  onOpenUpgrade: () => void
-  onLogout: () => void
-}) {
+export default function DashboardPage() {
   const router = useRouter()
-  const pathname = usePathname()
-
-  const planLabelFormatted = `Plan: ${userPlan.toUpperCase()}`
-  const planBadgeColor = 
-    userPlan === 'premium' ? '#9333ea' : 
-    userPlan === 'plus' ? '#2563eb' : 
-    userPlan === 'pro' ? '#16a34a' : '#64748b'
-
-  const navItems = [
-    {
-      label: planLabelFormatted,
-      icon: '⭐',
-      badgeColor: planBadgeColor,
-      onClick: onOpenUpgrade
-    },
-    {
-      label: 'Dashboard Utama',
-      icon: '📊',
-      active: pathname === '/dashboard',
-      onClick: () => router.push('/dashboard')
-    },
-    {
-      label: 'Proyek AHP Saya',
-      icon: '📁',
-      badge: projects.length > 0 ? String(projects.length) : undefined,
-      badgeColor: '#2563eb',
-      active: pathname === '/user/projects',
-      onClick: () => router.push('/user/projects'),
-      tourClass: 'tour-step-project'
-    },
-    {
-      label: 'Pusat Konsultasi',
-      icon: '💬',
-      badge: consultationCount > 0 ? String(consultationCount) : undefined,
-      badgeColor: '#10b981',
-      active: pathname === '/user/consultations',
-      onClick: () => router.push('/user/consultations'),
-      tourClass: 'tour-step-consultation'
-    },
-    {
-      label: 'Direktori Pakar',
-      icon: '👥',
-      active: pathname === '/expert-directory' || pathname === '/expert/directory',
-      onClick: () => router.push('/expert-directory'),
-      tourClass: 'tour-step-expert'
-    },
-    {
-      label: 'Profil & Pengesahan',
-      icon: '⚙️',
-      badge: !isProfileComplete ? '!' : undefined,
-      badgeColor: '#ef4444',
-      onClick: onOpenProfile,
-      tourClass: 'tour-step-profile'
-    },
-    {
-      label: 'Panduan Sistem',
-      icon: '📖',
-      active: pathname === '/panduan',
-      onClick: () => router.push('/panduan')
-    }
-  ]
-
-  return (
-    <aside style={{
-      ...sidebarStyles.aside,
-      width: isCollapsed ? 76 : 260,
-      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)'
-    }}>
-      <div style={sidebarStyles.brandContainer}>
-        {!isCollapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
-            <div style={sidebarStyles.brandLogo}>AHP</div>
-            <div>
-              <div style={sidebarStyles.brandTitle}>AHP Avitech</div>
-              <div style={sidebarStyles.brandSubtitle}>DSS Platform</div>
-            </div>
-          </div>
-        )}
-        <button 
-          type="button" 
-          onClick={onToggleCollapse} 
-          style={sidebarStyles.collapseBtn}
-          title={isCollapsed ? "Buka Sidebar" : "Sembunyikan Sidebar"}
-        >
-          <svg 
-            width="16" 
-            height="16" 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2.5" 
-            strokeLinecap="round" 
-            strokeLinejoin="round"
-            style={{
-              transform: isCollapsed ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: 'transform 0.25s ease'
-            }}
-          >
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-      </div>
-
-      <div style={{
-        ...sidebarStyles.userCard,
-        justifyContent: isCollapsed ? 'center' : 'flex-start',
-        padding: isCollapsed ? '10px 4px' : '12px'
-      }}>
-        <div style={{
-          ...sidebarStyles.userAvatar,
-          background: userProfile.foto_profil ? 'transparent' : '#2563eb'
-        }}>
-          {userProfile.foto_profil ? (
-            <img 
-              src={userProfile.foto_profil} 
-              alt="Avatar" 
-              style={sidebarStyles.userAvatarImg} 
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <span>{(userProfile.nama || user?.nama || user?.email || 'U').charAt(0).toUpperCase()}</span>
-          )}
-        </div>
-
-        {!isCollapsed && (
-          <div style={sidebarStyles.userInfo}>
-            <div style={sidebarStyles.userName}>{userProfile.nama || user?.nama || 'Pengguna'}</div>
-            <div style={sidebarStyles.userEmail}>{user?.email}</div>
-          </div>
-        )}
-      </div>
-
-      <nav style={sidebarStyles.nav}>
-        {navItems.map((item, idx) => (
-          <button
-            key={idx}
-            type="button"
-            onClick={item.onClick}
-            title={isCollapsed ? item.label : undefined}
-            className={item.tourClass}
-            style={{
-              ...sidebarStyles.navButton,
-              justifyContent: isCollapsed ? 'center' : 'flex-start',
-              padding: isCollapsed ? '12px 0' : '10px 14px',
-              ...(item.active ? sidebarStyles.navButtonActive : {}),
-              ...(idx === 0 ? { background: '#1e293b', border: '1px solid #334155', fontWeight: 700, color: '#f8fafc' } : {})
-            }}
-          >
-            <span style={sidebarStyles.navIcon}>{item.icon}</span>
-            {!isCollapsed && <span style={sidebarStyles.navLabel}>{item.label}</span>}
-            {item.badge && (
-              <span style={{
-                ...sidebarStyles.badgeWarn,
-                background: item.badgeColor || '#ef4444',
-                position: isCollapsed ? 'absolute' : 'relative',
-                top: isCollapsed ? 4 : 'auto',
-                right: isCollapsed ? 12 : 'auto'
-              }}>
-                {item.badge}
-              </span>
-            )}
-            {idx === 0 && !isCollapsed && (
-              <span style={{ fontSize: 9.5, background: planBadgeColor, color: '#fff', padding: '1px 5px', borderRadius: 4, textTransform: 'uppercase', fontWeight: 700 }}>
-                Upgrade
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
-
-      <div style={{
-        ...sidebarStyles.footer,
-        padding: isCollapsed ? '12px 6px' : '16px'
-      }}>
-        <button 
-          type="button" 
-          onClick={onLogout} 
-          style={sidebarStyles.btnLogout}
-          title={isCollapsed ? "Logout" : undefined}
-        >
-          {isCollapsed ? '🚪' : '🚪 Logout Akun'}
-        </button>
-      </div>
-    </aside>
-  )
-}
-
-function DashboardContent() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
 
   const [session, setSession] = useState<UserSession | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [dynamicPlans, setDynamicPlans] = useState<Record<string, DynamicPlanSetting>>({})
 
   const [projects, setProjects] = useState<Project[]>([])
-  const [consultations, setConsultations] = useState<ConsultationTicket[]>([])
   const [visitorStats, setVisitorStats] = useState(0)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [showUpgrade, setShowUpgrade] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
-
-  const [showPaymentModal, setShowPaymentModal] = useState(false)
-  const [paymentTicket, setPaymentTicket] = useState<any>(null)
-  const [paymentReceiptUrl, setPaymentReceiptUrl] = useState('')
-  const [submittingPayment, setSubmittingPayment] = useState(false)
 
   const [userProfile, setUserProfile] = useState<UserProfileData>({
     nama: '',
@@ -1334,23 +987,51 @@ function DashboardContent() {
     city: '',
     digital_signature: '',
     foto_profil: '',
+    status_user: '',
   })
   const [showProfileModal, setShowProfileModal] = useState(false)
 
+  const isStudent = useMemo(() => {
+    const sRole = (session as any)?.status_user || userProfile.status_user || ''
+    return String(sRole).toLowerCase().trim() === 'student'
+  }, [session, userProfile.status_user])
+
+  // Penanganan query action dan event pemanggil modal
   useEffect(() => {
-    if (searchParams.get('action') === 'profile') {
-      setShowProfileModal(true)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('action') === 'profile') {
+        setShowProfileModal(true)
+      }
+      if (params.get('action') === 'upgrade') {
+        setShowUpgrade(true)
+      }
+
+      const handleOpenUpgradeEvent = () => {
+        setShowUpgrade(true)
+      }
+      window.addEventListener('open-upgrade-modal', handleOpenUpgradeEvent)
+
+      return () => {
+        window.removeEventListener('open-upgrade-modal', handleOpenUpgradeEvent)
+      }
     }
-  }, [searchParams])
+  }, [])
 
   const isProfileComplete = useMemo(() => {
+    if (isStudent) {
+      return Boolean(
+        (userProfile.nama?.trim() || session?.nama?.trim()) &&
+        userProfile.city?.trim()
+      )
+    }
     return Boolean(
       userProfile.nama?.trim() &&
       userProfile.institusi?.trim() &&
       userProfile.city?.trim() &&
       userProfile.digital_signature?.trim()
     )
-  }, [userProfile])
+  }, [isStudent, userProfile, session])
 
   const loadDashboard = useCallback(async (user: UserSession, isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -1360,49 +1041,54 @@ function DashboardContent() {
 
     try {
       const cleanUserEmail = String(user.email || '').trim().toLowerCase()
+      const cleanUserId = String((user as any)?.user_id || user.id || '').trim()
 
-      const [subJson, projJson, consultJson, userJson, statsJson, planJson] = await Promise.all([
-        safeFetchJson(`${API_URL}?action=getusersubscription&user_id=${encodeURIComponent(user.id)}&email=${encodeURIComponent(cleanUserEmail)}&user_email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
-        safeFetchJson(`${API_URL}?action=getprojects&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
-        safeFetchJson(`${API_URL}?action=getconsultationrequests&_t=${Date.now()}`),
-        safeFetchJson(`${API_URL}?action=getuserprofile&email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(user.id)}&_t=${Date.now()}`),
-        safeFetchJson(`${API_URL}?action=getvisitorstats&email=${encodeURIComponent(cleanUserEmail)}&_t=${Date.now()}`),
-        safeFetchJson(`${API_URL}?action=getplansettings&_t=${Date.now()}`)
-      ])
+      const res = await fetch(`/api/dashboard/summary?email=${encodeURIComponent(cleanUserEmail)}&user_id=${encodeURIComponent(cleanUserId)}&_t=${Date.now()}`)
+      const json = await res.json()
 
-      let currentSub: any = null
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || 'Gagal memuat data dashboard')
+      }
 
-      if (userJson && userJson.data) {
+      const { user: userData, subscription: subData, projects: projData, plans: planData, visitorStats: visits, isStudent: apiIsStudent } = json.data
+
+      const effectiveStatusUser = userData?.status_user || (apiIsStudent ? 'student' : 'general')
+
+      if (userData) {
         setUserProfile({
-          nama: userJson.data.nama || user.nama || '',
-          institusi: userJson.data.institusi || '',
-          city: userJson.data.city || userJson.data.kota || '',
-          digital_signature: userJson.data.digital_signature || userJson.data.tandatangan || '',
-          foto_profil: userJson.data.foto_profil || userJson.data.fotoprofil || '',
+          nama: userData.nama || user.nama || '',
+          institusi: userData.institusi || '',
+          city: userData.city || '',
+          digital_signature: userData.digital_signature || '',
+          foto_profil: userData.foto_profil || '',
+          status_user: effectiveStatusUser,
+        })
+
+        // SINKRONISASI KEMBALI KE PENYIMPANAN SESI LOKAL
+        const sessionKeys = ['ahp_user_session', 'user_session']
+        sessionKeys.forEach((key) => {
+          const raw = localStorage.getItem(key)
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw)
+              parsed.status_user = effectiveStatusUser
+              parsed.plan = subData?.plan || parsed.plan || (effectiveStatusUser === 'student' ? 'student' : 'free')
+              localStorage.setItem(key, JSON.stringify(parsed))
+            } catch {}
+          }
         })
       }
 
-      if (subJson) {
-        const parsed = normalizeSubscriptionData(subJson, cleanUserEmail)
-        if (parsed) currentSub = parsed
-      }
+      setSubscription(subData || {
+        plan: effectiveStatusUser === 'student' ? 'student' : 'free',
+        status: 'active',
+        user_email: cleanUserEmail,
+        user_id: user.id
+      })
 
-      // 🟢 SUMBER KEBENARAN UTAMA (SINGLE SOURCE OF TRUTH) UNTUK STATUS PLAN MURNI DARI SUBSCRIPTIONS
-      if (!currentSub || !currentSub.plan) {
-        currentSub = {
-          plan: 'free',
-          status: 'active',
-          user_email: cleanUserEmail,
-          user_id: user.id
-        }
-      } else {
-        currentSub.plan = String(currentSub.plan).toLowerCase().trim()
-      }
-      setSubscription(currentSub)
-
-      if (planJson && planJson.success && Array.isArray(planJson.data)) {
+      if (Array.isArray(planData)) {
         const map: Record<string, DynamicPlanSetting> = {}
-        planJson.data.forEach((p: DynamicPlanSetting) => {
+        planData.forEach((p: DynamicPlanSetting) => {
           if (p.plan_key) {
             map[String(p.plan_key).toLowerCase().trim()] = p
           }
@@ -1410,59 +1096,34 @@ function DashboardContent() {
         setDynamicPlans(map)
       }
 
-      if (statsJson && statsJson.success) {
-        const totalVisits = typeof statsJson.data === 'object' && statsJson.data !== null 
-          ? (statsJson.data.total_visits || statsJson.data.total_public_visits || 0)
-          : (statsJson.total_visits || statsJson.total_public_visits || 0)
-        setVisitorStats(totalVisits)
-      }
+      setVisitorStats(visits || 0)
 
-      const rawProjectList = projJson?.data || (Array.isArray(projJson) ? projJson : [])
-      if (Array.isArray(rawProjectList)) {
-        setProjects(rawProjectList.map(normalizeProject))
+      if (Array.isArray(projData)) {
+        const isCurrentlyGeneral = !apiIsStudent && String(effectiveStatusUser).toLowerCase() !== 'student'
+
+        if (isCurrentlyGeneral) {
+          const hasSimulationProject = projData.some(isStudentSimulationProject)
+          if (hasSimulationProject) {
+            fetch('/api/user/switch-to-general', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: cleanUserEmail, user_id: user.id }),
+            }).catch(() => {})
+          }
+        }
+
+        const filteredProjects = isCurrentlyGeneral
+          ? projData.filter((p: any) => !isStudentSimulationProject(p))
+          : projData
+
+        setProjects(filteredProjects.map(normalizeProject))
       } else {
         setProjects([])
       }
 
-      if (consultJson && consultJson.success && Array.isArray(consultJson.data)) {
-        const myTickets: ConsultationTicket[] = (consultJson.data as RawConsultation[])
-          .filter((item: RawConsultation) => {
-            const itemEmail = String(
-              item.user_email || 
-              item.userEmail || 
-              item.kontakUser || 
-              item.kontak_user || 
-              item.user_contact || 
-              ''
-            ).toLowerCase().trim()
-
-            if (cleanUserEmail.includes('admin') || cleanUserEmail === 'admin@ahp.avitech.cloud') {
-              return true
-            }
-            return itemEmail === cleanUserEmail || (itemEmail && cleanUserEmail.includes(itemEmail))
-          })
-          .map((item: RawConsultation) => ({
-            idTiket: String(item.idTiket || item.id_tiket || item.ticket_id || item.id || '-'),
-            projectId: String(item.projectId || item.project_id || item.id_proyek || 'Umum'),
-            namaUser: String(item.namaUser || item.nama_user || item.user_name || 'User'),
-            kontakUser: String(item.kontakUser || item.user_email || item.userEmail || item.kontak_user || user.email),
-            expertTujuan: String(item.expertTujuan || item.expert_tujuan || item.expert_name || 'Expert'),
-            topikPesan: String(item.topikPesan || item.topik_penelitian || item.topik_pesan || item.topic || '-'),
-            pertanyaan: String(item.pertanyaan || item.pesan || ''),
-            status: String(item.status || 'Menunggu'),
-            created_at: String(item.created_at || item.tanggalDibuat || item.timestamp || ''),
-            jawabanExpert: String(item.jawabanExpert || item.jawaban_expert || item.expertResponse || item.balasanExpert || ''),
-            fileUrl: String(item.fileUrl || item.file_url || item.lampiran || '')
-          }))
-
-        setConsultations(myTickets)
-      } else {
-        setConsultations([])
-      }
-
     } catch (err) {
       console.error('Dashboard load error:', err)
-      setError('Gagal memuat beberapa data dashboard. Silakan coba klik refresh.')
+      setError('Gagal memuat data dashboard dari database.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -1481,106 +1142,34 @@ function DashboardContent() {
     void loadDashboard(s)
   }, [router, loadDashboard])
 
-  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    if (!file.type.startsWith('image/')) {
-      alert('⚠️ Harap unggah file gambar (JPG/PNG).')
-      e.target.value = ''
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const img = document.createElement('img')
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        let width = img.width
-        let height = img.height
-        const maxDim = 400
-
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width)
-          width = maxDim
-        } else if (height > maxDim) {
-          width = Math.round((width * maxDim) / height)
-          height = maxDim
-        }
-
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, width, height)
-        
-        const compressed = canvas.toDataURL('image/jpeg', 0.5)
-        
-        if (compressed.length > 50000) {
-          alert('⚠️ Gambar struk masih terlalu besar/kompleks. Harap crop gambar Anda menjadi lebih kecil.')
-          e.target.value = ''
-          return
-        }
-
-        setPaymentReceiptUrl(compressed)
-      }
-      img.src = ev.target?.result as string
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleSubmitPayment = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!paymentReceiptUrl) {
-      alert('Harap pilih/unggah gambar bukti transfer terlebih dahulu.')
-      return
-    }
-    try {
-      setSubmittingPayment(true)
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'submitpaymentreceipt',
-          ticket_id: paymentTicket.idTiket,
-          file_url: paymentReceiptUrl
-        }),
-        redirect: 'follow'
-      })
-      const json = await res.json()
-      if (json.success) {
-        alert('✅ Bukti pembayaran berhasil diunggah. Tim admin akan segera memverifikasi transaksi Anda.')
-        setShowPaymentModal(false)
-        setPaymentReceiptUrl('')
-        if (session) void loadDashboard(session, true)
-      } else {
-        alert('Gagal mengunggah bukti: ' + (json.message || 'Terjadi kesalahan.'))
-      }
-    } catch (err: any) {
-      alert('Kesalahan jaringan: ' + err.message)
-    } finally {
-      setSubmittingPayment(false)
-    }
-  }
-
   const currentPlan: PlanType = subscription?.plan ? (String(subscription.plan).toLowerCase().trim() as PlanType) : 'free'
   const planConfig = PLAN_CONFIG[currentPlan] || PLAN_CONFIG['free']
   const subscriptionLike = subscription as SubscriptionLike | null
   const globalDynamicPlan = dynamicPlans[currentPlan]
 
   const maxProjects = useMemo(() => {
+    if (isStudent) return 2
+
+    const dynamicLimit = globalDynamicPlan ? toFiniteLimit(globalDynamicPlan.max_projects) : null
+    if (currentPlan === 'free') {
+      return dynamicLimit !== null ? dynamicLimit : 1
+    }
+
     if (subscriptionLike && (subscriptionLike.max_projects !== undefined && subscriptionLike.max_projects !== null)) {
       const explicitLimit = toFiniteLimit(subscriptionLike.max_projects)
-      return explicitLimit !== null ? explicitLimit : 0
+      if (explicitLimit !== null) return explicitLimit
     }
     return (
-      (globalDynamicPlan ? toFiniteLimit(globalDynamicPlan.max_projects) : null) ??
+      dynamicLimit ??
       planConfig.maxProjects
     )
-  }, [subscriptionLike, globalDynamicPlan, planConfig])
+  }, [isStudent, currentPlan, subscriptionLike, globalDynamicPlan, planConfig])
 
   const totalProjects = projects.length
-  const projectUsageText =
-    maxProjects === Number.POSITIVE_INFINITY
+
+  const projectUsageText = isStudent
+    ? `${totalProjects} / 2`
+    : maxProjects === Number.POSITIVE_INFINITY
       ? `${totalProjects} / ∞`
       : `${totalProjects} / ${maxProjects}`
 
@@ -1599,51 +1188,59 @@ function DashboardContent() {
     [projects]
   )
 
-  const canCreateProject =
-    maxProjects === Number.POSITIVE_INFINITY || totalProjects < maxProjects
-
-  const handleLogout = () => {
-    clearSession()
-    router.replace('/login')
-  }
+  const canCreateProject = isStudent
+    ? totalProjects < 2
+    : maxProjects === Number.POSITIVE_INFINITY || totalProjects < maxProjects
 
   const handleRefresh = () => {
     if (!session) return
     void loadDashboard(session, true)
   }
 
-  // 🟢 Pemicu Mulai Ulang Tur Panduan
   const handleStartDashboardTour = () => {
-    window.dispatchEvent(new Event('start-tour-ahp_tour_dashboard'));
-  };
+    window.dispatchEvent(new Event('start-tour-ahp_tour_dashboard'))
+  }
 
   const handleCreateProject = () => {
     if (!isProfileComplete) {
-      alert('⚠️ Mohon lengkapi Profil (Institusi, Kota, & Tanda Tangan Digital) terlebih dahulu sebelum membuat proyek baru.')
+      alert(
+        isStudent
+          ? '⚠ Mohon lengkapi Kota Domisili Anda terlebih dahulu sebelum membuat proyek Student Edition.'
+          : '⚠ Mohon lengkapi Profil (Institusi, Kota, & Tanda Tangan Digital) terlebih dahulu sebelum membuat proyek baru.'
+      )
       setShowProfileModal(true)
       return
     }
 
     if (!canCreateProject) {
-      setShowUpgrade(true)
+      if (isStudent) {
+        alert('Batas kuota akun Student Edition telah tercapai (maksimal 2 proyek). Anda dapat menghapus salah satu proyek lama atau melakukan upgrade ke General Edition.')
+        setShowUpgrade(true)
+      } else {
+        alert(`Batas kuota akun Anda telah tercapai (${maxProjects} proyek). Silakan tingkatkan paket untuk menambah ruang kerja.`)
+        setShowUpgrade(true)
+      }
       return
     }
     router.push('/buat-proyek/baru')
   }
 
-  // 🟢 LANGKAH-LANGKAH TOUR DIBUNGKUS useMemo
   const dashboardSteps = useMemo(() => [
     {
       target: 'body', 
-      content: 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
-      title: '👋 Selamat Datang!',
+      content: isStudent
+        ? 'Selamat datang di Ruang Kerja AHP Student Edition! Ikuti tur singkat untuk mengenal fitur-fitur praktikum ini.'
+        : 'Selamat datang di Platform AHP Avitech! Mari ikuti tur singkat untuk mengenal fitur-fitur utama sistem ini.',
+      title: isStudent ? '🎓 AHP Student Edition' : '👋 Selamat Datang!',
       placement: 'center' as const,
       disableBeacon: true,
     },
     {
       target: '.tour-step-profile',
-      content: 'Sebelum memulai riset, pastikan Anda melengkapi profil dan mengunggah tanda tangan digital agar e-sertifikat riset Anda sah secara administratif.',
-      title: '⚙️ Lengkapi Profil Anda',
+      content: isStudent
+        ? 'Lengkapi asal kota domisili Anda untuk memulai pembuatan proyek Student Edition.'
+        : 'Sebelum memulai riset, pastikan Anda melengkapi profil dan mengunggah tanda tangan digital agar e-sertifikat riset Anda sah secara administratif.',
+      title: '⚙ Lengkapi Profil Anda',
     },
     {
       target: '.tour-step-project',
@@ -1651,21 +1248,11 @@ function DashboardContent() {
       title: '📁 Proyek AHP Saya',
     },
     {
-      target: '.tour-step-expert',
-      content: 'Butuh responden berkualitas? Cari dan temukan pakar yang relevan dengan riset Anda di menu Direktori Pakar.',
-      title: '👥 Direktori Pakar',
-    },
-    {
-      target: '.tour-step-consultation',
-      content: 'Jika Anda memiliki kendala atau butuh masukan dari pakar, gunakan fitur Pusat Konsultasi untuk mengirim tiket pertanyaan.',
-      title: '💬 Pusat Konsultasi',
-    },
-    {
       target: '.tour-step-create-project',
-      content: 'Setelah profil lengkap, klik tombol ini untuk mulai membangun struktur hirarki dan membuat proyek riset AHP pertama Anda!',
-      title: '🚀 Mulai Riset Sekarang',
+      content: 'Klik tombol ini untuk mulai membuat proyek latihan dan menyusun model matriks keputusan berpasangan!',
+      title: '🚀 Mulai Analisis Sekarang',
     }
-  ], []); 
+  ], [isStudent])
 
   const S = styles
 
@@ -1681,30 +1268,20 @@ function DashboardContent() {
 
   return (
     <div style={S.layoutWrapper}>
-      
-      {/* 🟢 KOMPONEN SAFEJOYRIDE DENGAN SPOTLIGHT & FLOATING POINTER */}
       <SafeJoyride steps={dashboardSteps} storageKey="ahp_tour_dashboard" />
 
-      {/* 🟢 SIDEBAR BERSIH */}
-      <DashboardSidebar
-        user={session}
-        userProfile={userProfile}
-        userPlan={currentPlan}
-        projects={projects}
-        isProfileComplete={isProfileComplete}
-        isCollapsed={isSidebarCollapsed}
-        consultationCount={consultations.length}
-        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onOpenProfile={() => setShowProfileModal(true)}
-        onOpenUpgrade={() => setShowUpgrade(true)}
-        onLogout={handleLogout}
-      />
-
-      {/* 🟢 KONTEN UTAMA */}
       <main style={S.mainContent}>
         {showUpgrade && (
           <UpgradeModal
             currentPlan={currentPlan}
+            isStudent={isStudent}
+            userEmail={session?.email}
+            userId={(session as any)?.user_id || session?.id}
+            userProfile={userProfile}
+            initialDynamicPlans={dynamicPlans}
+            onSuccessSwitch={() => {
+              if (session) void loadDashboard(session, true)
+            }}
             onClose={() => setShowUpgrade(false)}
           />
         )}
@@ -1713,14 +1290,13 @@ function DashboardContent() {
           <ProfileModal
             user={session}
             profile={userProfile}
+            isStudent={isStudent}
             onClose={() => setShowProfileModal(false)}
             onSaveSuccess={(updated) => setUserProfile(updated)}
           />
         )}
 
         <div style={S.container}>
-          
-          {/* TOP BAR */}
           <AppTopBar />
 
           <div style={S.topbar}>
@@ -1741,7 +1317,9 @@ function DashboardContent() {
               </div>
 
               <div>
-                <span style={S.academicTag}>AHP Decision Support System</span>
+                <span style={isStudent ? { ...S.academicTag, background: 'rgba(161, 98, 7, 0.7)', color: '#fef08a', borderColor: 'rgba(254, 240, 138, 0.4)' } : S.academicTag}>
+                  {isStudent ? '🎓 AHP Student Edition' : 'AHP Decision Support System'}
+                </span>
                 <h1 style={S.pageTitle}>Dashboard Analisis</h1>
               </div>
             </div>
@@ -1749,27 +1327,33 @@ function DashboardContent() {
             <div style={S.topbarActions}>
               <button
                 onClick={() => router.push('/user/projects')}
+                className="tour-step-project"
                 style={S.btnPrimarySmall}
                 type="button"
               >
                 📁 Proyek Saya
               </button>
-              <button
-                onClick={() => router.push('/expert-directory')}
-                style={S.btnSecondary}
-                type="button"
-              >
-                👥 Direktori Pakar
-              </button>
+              
+              {!isStudent && (
+                <button
+                  onClick={() => router.push('/expert-directory')}
+                  className="tour-step-expert"
+                  style={S.btnSecondary}
+                  type="button"
+                >
+                  👥 Direktori Pakar
+                </button>
+              )}
+
               <button
                 onClick={() => setShowProfileModal(true)}
+                className="tour-step-profile"
                 style={S.btnProfile}
                 type="button"
               >
-                ⚙️ Profil {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
+                ⚙ Profil {!isProfileComplete && <span style={S.badgeWarn}>!</span>}
               </button>
               
-              {/* 🟢 TOMBOL PANDUAN INTERAKTIF TERPASANG KEMBALI */}
               <button
                 onClick={handleStartDashboardTour}
                 style={S.btnSecondary}
@@ -1792,7 +1376,9 @@ function DashboardContent() {
                 <div>
                   <strong style={{ fontSize: 13, color: '#92400e' }}>Profil Belum Lengkap:</strong>
                   <span style={{ fontSize: 12.5, color: '#b45309', marginLeft: 6 }}>
-                    Harap lengkapi nama institusi, kota, dan tanda tangan digital untuk pengesahan sertifikat.
+                    {isStudent
+                      ? 'Harap lengkapi kota domisili Anda untuk mengaktifkan pembuatan proyek Student Edition.'
+                      : 'Harap lengkapi nama institusi, kota, dan tanda tangan digital untuk pengesahan sertifikat.'}
                   </span>
                 </div>
               </div>
@@ -1808,12 +1394,35 @@ function DashboardContent() {
 
           <div style={S.heroCard}>
             <div style={S.heroLeft}>
-              <div style={S.userBadge}>Halo, {userProfile.nama || session?.nama || session?.email}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={S.userBadge}>Halo, {userProfile.nama || session?.nama || session?.email}</div>
+                {isStudent && (
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    border: '1px solid #fde68a',
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4
+                  }}>
+                    🎓 Student Edition
+                  </span>
+                )}
+              </div>
+
               <h2 style={S.heroTitle}>
-                Siap Melakukan Sintesis Keputusan Hari Ini
+                {isStudent
+                  ? 'Ruang Kerja AHP Student Edition'
+                  : 'Siap Melakukan Sintesis Keputusan Hari Ini'}
               </h2>
               <p style={S.heroDesc}>
-                Kelola hirarki kriteria, distribusikan kuesioner token pakar, dan evaluasi hasil agregat geometric mean dalam satu platform terintegrasi.
+                {isStudent
+                  ? 'Edisi praktikum & pembelajaran AHP: susun hierarki kriteria, evaluasi perbandingan berpasangan dengan 2 pakar simulasi standar, dan lakukan sintesis bobot prioritas.'
+                  : 'Kelola hirarki kriteria, distribusikan kuesioner token pakar, dan evaluasi hasil agregat geometric mean dalam satu platform terintegrasi.'}
               </p>
             </div>
 
@@ -1823,24 +1432,36 @@ function DashboardContent() {
                   <span
                     style={{
                       ...S.planPill,
-                      color: planConfig.color,
-                      background: planConfig.bg,
-                      border: `1px solid ${planConfig.border}`,
+                      color: isStudent ? '#92400e' : planConfig.color,
+                      background: isStudent ? '#fef3c7' : planConfig.bg,
+                      border: `1px solid ${isStudent ? '#fde68a' : planConfig.border}`,
                     }}
                   >
-                    {planConfig.label}
+                    {isStudent ? 'Student Edition' : planConfig.label}
                   </span>
-                  <span style={S.planPrice}>{planConfig.price}</span>
+                  <span style={S.planPrice}>{isStudent ? 'Gratis / Academic' : planConfig.price}</span>
                 </div>
                 <div style={S.planMeta}>Proyek: <strong>{projectUsageText}</strong></div>
                 <button onClick={handleCreateProject} className="tour-step-create-project" style={S.btnPrimary} type="button">
-                  {canCreateProject ? '+ Buat Proyek' : 'Upgrade Paket'}
+                  {canCreateProject ? '+ Buat Proyek' : (isStudent ? 'Batas Kuota (2 Proyek)' : 'Upgrade Paket')}
                 </button>
-                {currentPlan === 'free' && (
-                  <button onClick={() => setShowUpgrade(true)} style={{ ...S.btnSecondary, marginTop: 4, width: '100%', textAlign: 'center' }} type="button">
-                    🚀 Menu Upgrade Paket
-                  </button>
-                )}
+                
+                <button 
+                  onClick={() => setShowUpgrade(true)} 
+                  style={{ 
+                    ...S.btnSecondary, 
+                    marginTop: 4, 
+                    width: '100%', 
+                    textAlign: 'center',
+                    background: isStudent ? '#fef3c7' : '#eff6ff',
+                    borderColor: isStudent ? '#fde68a' : '#bfdbfe',
+                    color: isStudent ? '#92400e' : '#1d4ed8',
+                    fontWeight: 800
+                  }} 
+                  type="button"
+                >
+                  {isStudent ? '🚀 Upgrade ke General / Peneliti' : '🚀 Menu Upgrade Paket'}
+                </button>
               </div>
             </div>
           </div>
@@ -1855,7 +1476,9 @@ function DashboardContent() {
 
             <div style={S.statCard}>
               <div style={S.statLabel}>Expert</div>
-              <div style={S.statValue}>{totalExperts}</div>
+              <div style={S.statValue}>
+                {isStudent && totalProjects === 0 ? '2 (Simulasi)' : totalExperts}
+              </div>
             </div>
 
             <div style={S.statCard}>
@@ -1883,142 +1506,85 @@ function DashboardContent() {
               <div style={S.emptyIcon}>📂</div>
               <h3 style={S.emptyTitle}>Belum ada proyek</h3>
               <p style={S.emptyDesc}>
-                Klik <strong>Buat Proyek</strong> untuk mulai menyusun model analisis.
+                Klik <strong>Buat Proyek</strong> untuk mulai menyusun model analisis hierarki AHP.
               </p>
             </div>
           ) : (
             <div style={S.projectList}>
-              {projects.slice(0, 2).map((project) => (
-                <div key={project.id} style={S.projectCard}>
-                  <div style={S.projectCardTop}>
-                    <div>
-                      <div style={S.projectTitleRow}>
-                        <h4 style={S.projectTitle}>{project.nama_proyek}</h4>
-                        <span style={S.projectId}>ID: {project.id}</span>
+              {projects.slice(0, 2).map((project) => {
+                return (
+                  <div key={project.id} style={S.projectCard}>
+                    <div style={S.projectCardTop}>
+                      <div>
+                        <div style={S.projectTitleRow}>
+                          <h4 style={S.projectTitle}>{project.nama_proyek}</h4>
+                          <span style={S.projectId}>ID: {project.id}</span>
+                        </div>
+
+                        <div style={S.projectMetaRow}>
+                          <span style={S.metaChip}>{methodLabel(project.metode)}</span>
+                          <span style={S.metaChip}>
+                            {project.punya_subkriteria ? 'Subkriteria' : 'Tanpa Subkriteria'}
+                          </span>
+                          <span style={S.metaChip}>
+                            {project.jumlah_expert_responden} expert
+                          </span>
+                        </div>
                       </div>
 
-                      <div style={S.projectMetaRow}>
-                        <span style={S.metaChip}>{methodLabel(project.metode)}</span>
-                        <span style={S.metaChip}>
-                          {project.punya_subkriteria ? 'Subkriteria' : 'Tanpa Subkriteria'}
-                        </span>
-                        <span style={S.metaChip}>
-                          {project.jumlah_expert_responden} expert
-                        </span>
+                      <div style={S.actionGroup}>
+                        <button
+                          style={S.btnPrimarySmall}
+                          type="button"
+                          onClick={() =>
+                            router.push(`/proyek/kelola?id=${encodeURIComponent(project.id)}`)
+                          }
+                        >
+                          Buka Ruang Kerja
+                        </button>
                       </div>
                     </div>
 
-                    <div style={S.actionGroup}>
-                      <button
-                        style={S.btnPrimarySmall}
-                        type="button"
-                        onClick={() =>
-                          router.push(`/proyek/kelola?id=${encodeURIComponent(project.id)}`)
-                        }
-                      >
-                        Buka Ruang Kerja
-                      </button>
+                    <p style={S.projectDesc}>
+                      {project.deskripsi?.trim()
+                        ? project.deskripsi
+                        : 'Tidak ada deskripsi.'}
+                    </p>
+
+                    <div style={S.projectStats}>
+                      <div style={S.projectStatBox}>
+                        <div style={S.projectStatLabel}>Kriteria</div>
+                        <div style={S.projectStatValue}>{project.criteria_count}</div>
+                      </div>
+                      <div style={S.projectStatBox}>
+                        <div style={S.projectStatLabel}>Subkriteria</div>
+                        <div style={S.projectStatValue}>{project.subcriteria_count}</div>
+                      </div>
+                      <div style={S.projectStatBox}>
+                        <div style={S.projectStatLabel}>Alternatif</div>
+                        <div style={S.projectStatValue}>{project.alternatif_count}</div>
+                      </div>
+                    </div>
+
+                    <div style={S.projectFooter}>
+                      <span style={S.footerMeta}>
+                        Fasilitator: {project.fasilitator_email || '-'}
+                      </span>
+                      <span style={S.footerMeta}>
+                        Dibuat: {formatDate(project.created_at)}
+                      </span>
                     </div>
                   </div>
-
-                  <p style={S.projectDesc}>
-                    {project.deskripsi?.trim()
-                      ? project.deskripsi
-                      : 'Tidak ada deskripsi.'}
-                  </p>
-
-                  <div style={S.projectStats}>
-                    <div style={S.projectStatBox}>
-                      <div style={S.projectStatLabel}>Kriteria</div>
-                      <div style={S.projectStatValue}>{project.criteria_count}</div>
-                    </div>
-                    <div style={S.projectStatBox}>
-                      <div style={S.projectStatLabel}>Subkriteria</div>
-                      <div style={S.projectStatValue}>{project.subcriteria_count}</div>
-                    </div>
-                    <div style={S.projectStatBox}>
-                      <div style={S.projectStatLabel}>Alternatif</div>
-                      <div style={S.projectStatValue}>{project.alternatif_count}</div>
-                    </div>
-                  </div>
-
-                  <div style={S.projectFooter}>
-                    <span style={S.footerMeta}>
-                      Fasilitator: {project.fasilitator_email || '-'}
-                    </span>
-                    <span style={S.footerMeta}>
-                      Diperbarui: {formatDate(project.updated_at)}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
         </div>
-
-        {showPaymentModal && paymentTicket && (
-          <div style={modalStyles.overlay} onClick={() => setShowPaymentModal(false)}>
-            <div style={{ ...modalStyles.modal, maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-              <div style={modalStyles.header}>
-                <h3 style={modalStyles.title}>💸 Konfirmasi Pembayaran</h3>
-                <button onClick={() => setShowPaymentModal(false)} style={modalStyles.closeBtn} type="button">✕</button>
-              </div>
-              
-              <p style={{ fontSize: 12.5, color: '#64748b', marginBottom: 14, lineHeight: 1.4 }}>
-                Unggah foto/struk bukti transfer Anda untuk tiket <strong>#{paymentTicket.idTiket}</strong>. Admin akan memverifikasi dan mengaktifkan paket Anda.
-              </p>
-
-              <form onSubmit={handleSubmitPayment} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label style={formStyles.label}>Unggah Bukti Transfer (Maks 500 KB) *</label>
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleReceiptUpload} 
-                    style={{ fontSize: 12, marginBottom: 8, cursor: 'pointer' }} 
-                    required={!paymentReceiptUrl} 
-                  />
-                  
-                  <div style={{ height: 150, border: '1px dashed #cbd5e1', borderRadius: 8, background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                    {paymentReceiptUrl ? (
-                      <img src={paymentReceiptUrl} alt="Pratinjau Bukti" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                    ) : (
-                      <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>Belum ada foto yang dipilih</span>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
-                  <button type="button" onClick={() => setShowPaymentModal(false)} style={modalStyles.btnClose}>
-                    Batal
-                  </button>
-                  <button type="submit" disabled={submittingPayment} style={{ ...modalStyles.btnClose, background: '#16a34a', color: 'white', fontWeight: 700 }}>
-                    {submittingPayment ? 'Mengunggah...' : 'Kirim Bukti Pembayaran →'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
       </main>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
-  )
-}
-
-export default function DashboardPage() {
-  return (
-    <Suspense fallback={
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 12, color: '#334155', background: '#f8fafc' }}>
-        <div style={{ width: 36, height: 36, border: '3px solid rgba(37,99,235,0.15)', borderTop: '3px solid #2563eb', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-        <div style={{ fontSize: 13, fontWeight: 600 }}>Memuat halaman dashboard...</div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    }>
-      <DashboardContent />
-    </Suspense>
   )
 }
 
@@ -2058,189 +1624,6 @@ const topBarStyles: Record<string, CSSProperties> = {
     fontSize: 11,
     color: '#065f46',
     fontWeight: 600,
-  },
-}
-
-const sidebarStyles: Record<string, CSSProperties> = {
-  aside: {
-    background: '#0f172a',
-    color: '#f8fafc',
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: '100vh',
-    borderRight: '1px solid #1e293b',
-    flexShrink: 0,
-    boxSizing: 'border-box',
-    position: 'sticky',
-    top: 0,
-    height: '100vh',
-  },
-  brandContainer: {
-    padding: '20px 16px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottom: '1px solid #1e293b',
-    minHeight: 70,
-    boxSizing: 'border-box',
-  },
-  brandLogo: {
-    width: 36,
-    height: 36,
-    background: 'linear-gradient(135deg, #2563eb, #38bdf8)',
-    borderRadius: 8,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 900,
-    fontSize: 13,
-    color: 'white',
-    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)',
-    flexShrink: 0,
-  },
-  brandTitle: {
-    fontSize: 15,
-    fontWeight: 800,
-    color: '#ffffff',
-    letterSpacing: '0.02em',
-    whiteSpace: 'nowrap',
-  },
-  brandSubtitle: {
-    fontSize: 10,
-    color: '#94a3b8',
-    whiteSpace: 'nowrap',
-  },
-  collapseBtn: {
-    background: '#1e293b',
-    border: '1px solid #334155',
-    color: '#94a3b8',
-    borderRadius: 6,
-    width: 28,
-    height: 28,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    flexShrink: 0,
-    transition: 'all 0.2s ease',
-  },
-  userCard: {
-    margin: '12px 10px',
-    background: '#1e293b',
-    borderRadius: 10,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    border: '1px solid #334155',
-    overflow: 'hidden',
-  },
-  userAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: '50%',
-    background: '#2563eb',
-    color: 'white',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 700,
-    fontSize: 13,
-    overflow: 'hidden',
-    flexShrink: 0,
-  },
-  userAvatarImg: {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  userInfo: {
-    overflow: 'hidden',
-  },
-  userName: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: '#f8fafc',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  userEmail: {
-    fontSize: 10,
-    color: '#94a3b8',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  nav: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-    padding: '0 8px',
-    flexGrow: 1,
-    overflowY: 'auto',
-  },
-  navButton: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    background: 'transparent',
-    color: '#cbd5e1',
-    border: 'none',
-    borderRadius: 8,
-    fontSize: 12.5,
-    fontWeight: 600,
-    cursor: 'pointer',
-    textAlign: 'left',
-    transition: 'all 0.15s ease',
-    width: '100%',
-    boxSizing: 'border-box',
-    position: 'relative',
-  },
-  navButtonActive: {
-    background: '#2563eb',
-    color: '#ffffff',
-    fontWeight: 700,
-    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
-  },
-  navIcon: {
-    fontSize: 15,
-    flexShrink: 0,
-  },
-  navLabel: {
-    flexGrow: 1,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  badgeWarn: {
-    color: 'white',
-    minWidth: 16,
-    height: 16,
-    borderRadius: 999,
-    fontSize: 9.5,
-    fontWeight: 800,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '0 4px',
-    boxSizing: 'border-box',
-  },
-  footer: {
-    borderTop: '1px solid #1e293b',
-  },
-  btnLogout: {
-    width: '100%',
-    padding: '8px 10px',
-    background: '#1e293b',
-    color: '#f87171',
-    border: '1px solid #334155',
-    borderRadius: 8,
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: 'pointer',
-    textAlign: 'center',
-    overflow: 'hidden',
-    whiteSpace: 'nowrap',
   },
 }
 
@@ -2409,6 +1792,18 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: 6,
   },
+  badgeWarn: {
+    background: '#ef4444',
+    color: 'white',
+    borderRadius: '50%',
+    width: 16,
+    height: 16,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 10,
+    fontWeight: 800,
+  },
   heroCard: {
     display: 'grid',
     gridTemplateColumns: '1.5fr 1fr',
@@ -2482,7 +1877,7 @@ const styles: Record<string, CSSProperties> = {
   },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
     gap: 12,
     marginBottom: 20,
   },
@@ -2692,7 +2087,7 @@ const styles: Record<string, CSSProperties> = {
   btnGhost: {
     padding: '8px 12px',
     background: 'rgba(255, 255, 255, 0.9)',
-    color: '#1e293b',
+    color: '#1e3a8a',
     border: '1px solid #cbd5e1',
     borderRadius: '8px',
     cursor: 'pointer',
