@@ -24,8 +24,8 @@ interface ExpertDirectoryItem {
   foto_url?: string;
   portofolio_url?: string;
   status?: string;
-  average_rating?: number;
-  total_reviews?: number;
+  average_rating?: number | string;
+  total_reviews?: number | string;
   is_public?: string | boolean;
   [key: string]: any;
 }
@@ -84,18 +84,27 @@ function getDurasiPengalaman(item: ExpertDirectoryItem): string {
     const val = item[k];
     if (val !== undefined && val !== null && String(val).trim() !== '') {
       const strVal = String(val).trim();
+      if (strVal.toLowerCase() === 'tidak disetel' || strVal === '-' || strVal === '0') {
+        return 'Tidak disetel';
+      }
       if (strVal.toLowerCase().includes('tahun')) return strVal;
-      const num = Number(strVal);
+      
+      const cleanStr = strVal.replace(/,00$/, '').replace(/\.00$/, '');
+      const num = Number(cleanStr);
       if (!isNaN(num) && num > 0) return `${num} Tahun`;
-      return `${strVal} Tahun`;
+      return `${cleanStr} Tahun`;
     }
   }
   return 'Tidak disetel';
 }
 
-function renderStarRating(rating?: number, totalReviews?: number) {
-  const safeRating = Number.isFinite(rating) ? Number(rating) : 0;
-  const safeReviews = Number.isFinite(totalReviews) ? Number(totalReviews) : 0;
+function renderStarRating(rating?: number | string, totalReviews?: number | string) {
+  const numRating = Number(rating);
+  const safeRating = !isNaN(numRating) && isFinite(numRating) ? numRating : 0;
+  
+  const numReviews = Number(totalReviews);
+  const safeReviews = !isNaN(numReviews) && isFinite(numReviews) ? numReviews : 0;
+
   const fullStars = Math.floor(safeRating);
   let stars = '';
   for (let i = 0; i < fullStars; i++) stars += '★';
@@ -394,7 +403,6 @@ export default function ExpertDirectoryPage() {
         foto_url: fotoBase64,
       };
 
-      // 🟢 JALUR YANG DIPERBAIKI (MENGARAH KE FOLDER YANG BENAR: /api/expert)
       const res = await fetch('/api/expert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -572,7 +580,15 @@ export default function ExpertDirectoryPage() {
                 const gDepan = getVal(exp, ['gelar_depan']);
                 const nameCore = getVal(exp, ['expert_name', 'expertname', 'nama']) || 'Pakar Tanpa Nama';
                 const gBelakang = getVal(exp, ['gelar_belakang']);
-                const formattedName = `${gDepan ? gDepan + ' ' : ''}${nameCore}${gBelakang ? ', ' + gBelakang : ''}`;
+                
+                let formattedName = nameCore;
+                if (gDepan && !formattedName.toLowerCase().startsWith(gDepan.toLowerCase())) {
+                  formattedName = `${gDepan} ${formattedName}`;
+                }
+                if (gBelakang && !formattedName.toLowerCase().endsWith(gBelakang.toLowerCase())) {
+                  formattedName = `${formattedName}, ${gBelakang}`;
+                }
+
                 const bidang = getVal(exp, ['bidang_keahlian']) || 'Umum';
                 const instansi = getVal(exp, ['asal_instansi', 'asalinstansi']) || '-';
                 const pendidikan = getVal(exp, ['pendidikan_terakhir']) || '-';

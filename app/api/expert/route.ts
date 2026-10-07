@@ -44,33 +44,65 @@ export async function GET(request: Request) {
       const projectId = String(pe.project_id || '').trim();
       const expertId = String(pe.expert_id || '').trim();
 
-      const projectRows: any[] = await prisma.$queryRawUnsafe('SELECT * FROM `AHP - projects` WHERE `project_id` = ? LIMIT 1', projectId).catch(() => []);
+      const projectRows: any[] = await prisma.$queryRawUnsafe(
+        'SELECT * FROM `AHP - projects` WHERE `project_id` = ? LIMIT 1',
+        projectId
+      ).catch(() => []);
       const project = projectRows && projectRows.length > 0 ? projectRows[0] : null;
 
-      const expertRows: any[] = await prisma.$queryRawUnsafe('SELECT * FROM `AHP - experts` WHERE `expert_id` = ? LIMIT 1', expertId).catch(() => []);
+      const expertRows: any[] = await prisma.$queryRawUnsafe(
+        'SELECT * FROM `AHP - experts` WHERE `expert_id` = ? LIMIT 1',
+        expertId
+      ).catch(() => []);
       let expert = expertRows && expertRows.length > 0 ? expertRows[0] : null;
 
       if (!expert) {
         expert = { id: expertId, expert_id: expertId, expert_name: 'Pakar Simulasi', status: 'Aktif', is_public: false };
       }
 
+      // Query responses diperbaiki menggunakan submitted_at/response_id (bukan kolom `id` yang tidak ada)
       const [criteriaRows, subcriteriaRows, alternativeRows, responseRows] = await Promise.all([
         prisma.$queryRawUnsafe<any[]>('SELECT * FROM `AHP - criteria` WHERE `project_id` = ? ORDER BY `urutan` ASC', projectId).catch(() => []),
         prisma.$queryRawUnsafe<any[]>('SELECT * FROM `AHP - subcriteria` WHERE `project_id` = ? ORDER BY `urutan` ASC', projectId).catch(() => []),
         prisma.$queryRawUnsafe<any[]>('SELECT * FROM `AHP - alternatives` WHERE `project_id` = ? ORDER BY `urutan` ASC', projectId).catch(() => []),
-        prisma.$queryRawUnsafe<any[]>('SELECT * FROM `AHP - responses` WHERE `project_id` = ? AND `expert_id` = ? ORDER BY `id` ASC', projectId, expertId).catch(() => []),
+        prisma.$queryRawUnsafe<any[]>('SELECT * FROM `AHP - responses` WHERE `project_id` = ? AND `expert_id` = ? ORDER BY `submitted_at` ASC, `response_id` ASC', projectId, expertId).catch(() => []),
       ]);
 
       await prisma.$executeRawUnsafe('UPDATE `AHP - project_experts` SET `opened_at` = NOW() WHERE `token` = ? AND `opened_at` IS NULL', token).catch(() => {});
 
+      // Kalkulasi status penguncian dari tabel responses maupun project_experts
+      const isLocked = Boolean(
+        (Array.isArray(responseRows) && responseRows.some((r: any) => Number(r.is_confirmed) === 1 || r.is_confirmed === true || String(r.is_confirmed) === '1')) ||
+        Number(pe.is_confirmed) === 1 ||
+        pe.is_confirmed === true ||
+        String(pe.response_status || '').toLowerCase() === 'confirmed' ||
+        String(pe.status || '').toLowerCase() === 'selesai'
+      );
+
+      const mergedExpert = {
+        ...expert,
+        id: expertId,
+        expert_id: expertId,
+        token,
+        project_id: projectId,
+        projectid: projectId,
+        status: pe.status || expert.status || 'Aktif',
+        response_status: pe.response_status || (isLocked ? 'Confirmed' : 'Draft'),
+        confirmed_at: pe.confirmed_at || null,
+        is_confirmed: isLocked,
+        isconfirmed: isLocked,
+      };
+
       const bundlePayload = {
         token,
-        expert,
+        expert: mergedExpert,
         project: project || { id: projectId, project_id: projectId },
         criteria: criteriaRows,
         subcriteria: subcriteriaRows,
         alternatif: alternativeRows,
         responses: responseRows,
+        is_confirmed: isLocked,
+        isconfirmed: isLocked,
       };
 
       return NextResponse.json({ success: true, data: bundlePayload, ...bundlePayload });
@@ -99,13 +131,10 @@ export async function POST(request: Request) {
     // CABANG A: PENDAFTARAN PAKAR BARU DARI HALAMAN DIREKTORI
     // =========================================================================
     if (body.expert_email && body.expert_name && body.bidang_keahlian) {
-      
-      // 🔮 PERSIAPAN OTOMATISASI DIDIT.ME (KYC / Verifikasi KTP)
       let isDiditActive = false;
       let diditApiKey = '';
 
       try {
-        // Mengambil pengaturan dari database (menggunakan backtick untuk kata kunci 'Key' di MySQL)
         const diditSettings: any[] = await prisma.$queryRawUnsafe(`
           SELECT \`Key\`, \`Value\`
           FROM \`AHP - didit_settings\`
@@ -122,29 +151,6 @@ export async function POST(request: Request) {
         });
       } catch (dbErr) {
         console.warn('Gagal mengambil pengaturan Didit.me dari database:', dbErr);
-      }
-
-      // Eksekusi validasi Didit jika status aktif dan API Key tersedia
-      if (isDiditActive && diditApiKey && body.ktp_url) {
-        try {
-          // Contoh pemanggilan API Didit.me
-          /*
-          const diditRes = await fetch('https://api.didit.me/v1/verification/kyc', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${diditApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ document_image: body.ktp_url, expected_name: body.expert_name }),
-          });
-          const diditJson = await diditRes.json();
-          if (!diditJson.success) {
-            return NextResponse.json({ success: false, message: 'Verifikasi KTP via Didit.me gagal. KTP tidak valid.' }, { status: 400 });
-          }
-          */
-        } catch (diditErr) {
-          console.warn('Peringatan: Gagal menghubungi server Didit.me, dilanjutkan secara manual:', diditErr);
-        }
       }
 
       const newExpertId = `EXP-${Date.now()}`;

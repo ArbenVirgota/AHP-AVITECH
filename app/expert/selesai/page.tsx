@@ -27,12 +27,13 @@ interface ExpertItem {
   asalinstansi: string;
   pendidikanterakhir: string;
   bidangkeahlian: string;
-  durasi_pengalaman?: number;
+  durasi_pengalaman?: string | number;
   ktp_url?: string;
   ktpUrl?: string;
   foto_url?: string;
   fotoUrl?: string;
   ispublic?: boolean;
+  isconfirmed?: boolean;
 }
 
 interface SavedResponse {
@@ -135,6 +136,10 @@ function ExpertSelesaiContent() {
   const [expert, setExpert] = useState<ExpertItem | null>(null);
   const [waError, setWaError] = useState('');
 
+  // State Konfirmasi Penguncian
+  const [isConfirmed, setIsConfirmed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [isProfileSaved, setIsProfileSaved] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
@@ -144,7 +149,6 @@ function ExpertSelesaiContent() {
   const [officialCertId, setOfficialCertId] = useState<string>('');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  // Aset Resmi Platform dari tabel AHP - system_assets
   const [systemAssets, setSystemAssets] = useState<{
     platform_logo?: string;
     admin_signature?: string;
@@ -168,7 +172,7 @@ function ExpertSelesaiContent() {
     asalinstansi: '',
     pendidikanterakhir: 'S2 / Magister',
     bidangkeahlian: '',
-    durasi_pengalaman: 0,
+    durasi_pengalaman: '',
     ktpUrl: '',
     fotoUrl: '',
     isPublic: true,
@@ -225,7 +229,6 @@ function ExpertSelesaiContent() {
 
         const ts = Date.now();
 
-        // Ambil data token expert & data master dari AHP - system_assets
         const [tokenRes, assetsRes] = await Promise.all([
           fetch(`/api/expert?token=${encodeURIComponent(token)}&_t=${ts}`, { cache: 'no-store' }),
           fetch(`/api/system-assets?_t=${ts}`, { cache: 'no-store' }).catch(() => null),
@@ -243,7 +246,6 @@ function ExpertSelesaiContent() {
           throw new Error(json?.message || 'Data expert tidak ditemukan atau token tidak valid.');
         }
 
-        // Pemetaan presisi dari tabel AHP - system_assets
         if (assetsRes && assetsRes.ok) {
           const assetsRawText = await assetsRes.text();
           try {
@@ -294,6 +296,21 @@ function ExpertSelesaiContent() {
         const isExpPublic =
           rawExp.is_public === 'PUBLIK' || rawExp.is_public === true || rawExp.is_public === 'YA' || rawExp.ispublic;
 
+        const isExpConfirmed = Boolean(
+          rawExp.is_confirmed === 1 ||
+          rawExp.is_confirmed === true ||
+          rawExp.isconfirmed === true ||
+          String(rawExp.status || '').toLowerCase() === 'selesai' ||
+          String(rawExp.response_status || '').toLowerCase() === 'confirmed'
+        );
+        setIsConfirmed(isExpConfirmed);
+
+        // Ambil nilai asli durasi pengalaman dari database (mendukung teks dan angka)
+        let cleanPengalaman = (rawExp.durasi_pengalaman ?? rawExp.durasipengalaman ?? '').toString().trim();
+        if (cleanPengalaman.endsWith(',00')) {
+          cleanPengalaman = cleanPengalaman.replace(/,00$/, '').trim();
+        }
+
         const exp: ExpertItem = {
           id: expId,
           gelardepan: gD,
@@ -304,13 +321,13 @@ function ExpertSelesaiContent() {
           asalinstansi: String(rawExp.asalinstansi || rawExp.asal_instansi || rawExp.instansi || '').trim(),
           pendidikanterakhir: matchPendidikanValue(rawExp.pendidikanterakhir || rawExp.pendidikan_terakhir || ''),
           bidangkeahlian: String(rawExp.bidangkeahlian || rawExp.bidang_keahlian || '').trim(),
-          durasi_pengalaman: Number(rawExp.durasi_pengalaman || 3),
+          durasi_pengalaman: cleanPengalaman,
           ktp_url: String(rawExp.ktp_url || rawExp.ktpUrl || '').trim(),
           foto_url: String(rawExp.foto_url || rawExp.fotoUrl || '').trim(),
           ispublic: isExpPublic,
+          isconfirmed: isExpConfirmed,
         };
 
-        // 1. Cek tanda tangan fasilitator dari proyek
         let fasilitatorSig = sanitizeSignatureUrl(
           rawProj.fasilitatorsignature ||
           rawProj.fasilitator_signature ||
@@ -327,7 +344,6 @@ function ExpertSelesaiContent() {
           rawProj.fasilitator_email || rawProj.fasilitatoremail || rawProj.user_email || rawProj.useremail || ''
         ).trim().toLowerCase();
 
-        // 2. Ambil tanda tangan langsung dari tabel AHP - users jika di proyek belum terbawa
         if (!fasilitatorSig && fasEmail) {
           try {
             const userCheckRes = await fetch(`/api/dashboard/summary?email=${encodeURIComponent(fasEmail)}&_t=${ts}`, { cache: 'no-store' });
@@ -380,7 +396,7 @@ function ExpertSelesaiContent() {
             asalinstansi: exp.asalinstansi || '',
             pendidikanterakhir: exp.pendidikanterakhir || 'S2 / Magister',
             bidangkeahlian: exp.bidangkeahlian || '',
-            durasi_pengalaman: exp.durasi_pengalaman || 0,
+            durasi_pengalaman: String(exp.durasi_pengalaman || ''),
             ktpUrl: exp.ktp_url || '',
             fotoUrl: exp.foto_url || '',
             isPublic: isExpPublic,
@@ -399,7 +415,6 @@ function ExpertSelesaiContent() {
     void loadData();
   }, [loadData]);
 
-  // Fungsi sinkronisasi audit penerbitan sertifikat ke tabel `AHP - certificates`
   const recordCertificateIssuance = useCallback(async () => {
     if (!officialCertId || !expert || !project) return;
     try {
@@ -424,6 +439,38 @@ function ExpertSelesaiContent() {
   const handleOpenCertificate = () => {
     setShowCertModal(true);
     void recordCertificateIssuance();
+  };
+
+  const handleConfirmToUser = async () => {
+    if (!token) return;
+    if (
+      !window.confirm(
+        'Apakah Anda yakin ingin mengonfirmasi hasil evaluasi kepada peneliti? Setelah dikonfirmasi, seluruh matriks perbandingan akan dikunci secara permanen dan tidak dapat diubah lagi.'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setConfirming(true);
+      const res = await fetch('/api/expert/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+
+      const resJson = await res.json().catch(() => ({}));
+      if (res.ok && resJson.success !== false) {
+        setIsConfirmed(true);
+        alert('✅ Penilaian berhasil dikonfirmasi ke peneliti dan tautan kuesioner telah resmi dikunci!');
+      } else {
+        alert(resJson.message || 'Gagal mengonfirmasi penilaian.');
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan jaringan: ' + err.message);
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -451,7 +498,7 @@ function ExpertSelesaiContent() {
         asal_instansi: formData.asalinstansi.trim(),
         pendidikan_terakhir: formData.pendidikanterakhir,
         bidang_keahlian: formData.bidangkeahlian.trim(),
-        durasi_pengalaman: Number(formData.durasi_pengalaman || 0),
+        durasi_pengalaman: String(formData.durasi_pengalaman ?? '').trim(),
         foto_url: formData.fotoUrl.trim(),
         ktp_url: formData.ktpUrl.trim(),
         is_public: formData.isPublic ? 'PUBLIK' : 'PRIVAT',
@@ -533,7 +580,6 @@ function ExpertSelesaiContent() {
   const formattedFullName = [formData.gelarDepan, formData.expertname, formData.gelarBelakang].filter(Boolean).join(' ').trim();
   const certQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&margin=0&data=${encodeURIComponent(`https://ahp.avitech.cloud/verify-cert?id=${officialCertId}`)}`;
 
-  // TAMPILAN KHUSUS STUDENT EDITION
   if (isStudent) {
     return (
       <div
@@ -656,7 +702,6 @@ function ExpertSelesaiContent() {
     );
   }
 
-  // TAMPILAN AKUN UMUM
   return (
     <div
       style={{
@@ -675,12 +720,82 @@ function ExpertSelesaiContent() {
       <style jsx global>{GLOBAL_HIDE_CSS}</style>
 
       <div style={{ maxWidth: 840, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Banner Terima Kasih */}
         <div style={{ background: 'white', padding: '18px 24px', borderRadius: 14, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
           <h1 style={{ margin: 0, fontSize: 20, color: '#0f172a', fontWeight: 800 }}>Terima Kasih! Evaluasi Matriks Selesai</h1>
           <p style={{ color: '#475569', margin: '4px 0 0', fontSize: 13 }}>
-            Seluruh penilaian matriks untuk proyek <strong>"{project.namaproyek}"</strong> telah berhasil tervalidasi[cite: 10].
+            Seluruh penilaian matriks untuk proyek <strong>"{project.namaproyek}"</strong> telah berhasil tervalidasi.
           </p>
+        </div>
+
+        {/* Banner Konfirmasi ke Peneliti & Penguncian Matriks */}
+        <div
+          style={{
+            background: isConfirmed ? '#f0fdf4' : '#fffbeb',
+            padding: '18px 24px',
+            borderRadius: 14,
+            border: isConfirmed ? '1.5px solid #86efac' : '1.5px solid #fde047',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 12,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+          }}
+        >
+          <div style={{ flex: '1 1 320px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 18 }}>{isConfirmed ? '🔒' : '⚠️'}</span>
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  color: isConfirmed ? '#166534' : '#854d0e',
+                }}
+              >
+                {isConfirmed
+                  ? 'Penilaian Telah Dikonfirmasi & Dikunci'
+                  : 'Konfirmasi Penilaian Akhir ke Peneliti'}
+              </h3>
+            </div>
+            <p
+              style={{
+                margin: '4px 0 0',
+                fontSize: 12.5,
+                color: isConfirmed ? '#15803d' : '#713f12',
+                lineHeight: 1.5,
+              }}
+            >
+              {isConfirmed
+                ? 'Seluruh data perbandingan berpasangan Anda telah terekam secara permanen dan kuesioner telah dikunci.'
+                : 'Klik tombol di samping untuk mengonfirmasi bahwa seluruh penilaian Anda sudah final dan siap dianalisis oleh peneliti.'}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleConfirmToUser}
+            disabled={isConfirmed || confirming}
+            style={{
+              padding: '10px 20px',
+              background: isConfirmed ? '#15803d' : '#d97706',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: isConfirmed ? 'default' : 'pointer',
+              opacity: confirming ? 0.7 : 1,
+              boxShadow: isConfirmed ? 'none' : '0 4px 10px rgba(217, 119, 6, 0.25)',
+              transition: '0.2s',
+            }}
+          >
+            {confirming
+              ? '⏳ Memproses...'
+              : isConfirmed
+              ? '✓ Telah Dikonfirmasi'
+              : '🔒 Konfirmasi ke Peneliti'}
+          </button>
         </div>
 
         {/* Form Lengkap Data Profil Pakar */}
@@ -688,12 +803,11 @@ function ExpertSelesaiContent() {
           <div style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 10, marginBottom: 18 }}>
             <h2 style={{ margin: 0, fontSize: 16, color: '#0f172a', fontWeight: 800 }}>Langkah 1: Lengkapi &amp; Perbarui Profil Pakar</h2>
             <p style={{ margin: '3px 0 0', fontSize: 12.5, color: '#64748b' }}>
-              Data ini akan disematkan pada sertifikat apresiasi resmi dan tercatat dalam direktori kepakaran platform[cite: 10].
+              Data ini akan disematkan pada sertifikat apresiasi resmi dan tercatat dalam direktori kepakaran platform.
             </p>
           </div>
 
           <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Gelar & Nama */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 2.5fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>Gelar Depan</label>
@@ -732,7 +846,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* Kontak Email & WhatsApp */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
@@ -763,7 +876,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* Instansi & Pendidikan */}
             <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
@@ -795,7 +907,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* Bidang Keahlian & Durasi Pengalaman */}
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
@@ -815,17 +926,17 @@ function ExpertSelesaiContent() {
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
                   Pengalaman (Tahun)
                 </label>
+                {/* Input bertipe text agar dapat menampung teks pengalaman asli dari database */}
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  placeholder="Contoh: 10 atau Lebih dari 10 Tahun"
                   value={formData.durasi_pengalaman}
-                  onChange={(e) => setFormData({ ...formData, durasi_pengalaman: Number(e.target.value) })}
+                  onChange={(e) => setFormData({ ...formData, durasi_pengalaman: e.target.value })}
                   style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 13 }}
                 />
               </div>
             </div>
 
-            {/* Foto & KTP */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
@@ -854,7 +965,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* 🟢 Narasi Persetujuan Gabung Pakar pada Direktori Pakar */}
             <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: 10, border: '1px solid #e2e8f0', marginTop: 4 }}>
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 12, cursor: 'pointer', fontSize: 13, lineHeight: 1.5, color: '#1e293b' }}>
                 <input
@@ -864,7 +974,7 @@ function ExpertSelesaiContent() {
                   style={{ width: 18, height: 18, marginTop: 2, accentColor: '#2563eb', cursor: 'pointer' }}
                 />
                 <div>
-                  <span>Tampilkan profil saya di <strong>Direktori Pakar Publik</strong> agar dapat diundang pada riset akademis lainnya[cite: 10]. </span>
+                  <span>Tampilkan profil saya di <strong>Direktori Pakar Publik</strong> agar dapat diundang pada riset akademis lainnya. </span>
                   <span style={{ display: 'inline', color: '#475569' }}>
                     Dengan mencentang opsi ini, Saya telah membaca, memahami, dan menyetujui{' '}
                     <button
@@ -927,7 +1037,7 @@ function ExpertSelesaiContent() {
           <div>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: '#1e3a8a' }}>Langkah 2: E-Sertifikat Apresiasi Resmi</h3>
             <p style={{ margin: '3px 0 0', fontSize: 12.5, color: '#475569' }}>
-              Unduh sertifikat penghargaan atas kontribusi keahlian Anda dalam proyek riset ini[cite: 10].
+              Unduh sertifikat penghargaan atas kontribusi keahlian Anda dalam proyek riset ini.
             </p>
           </div>
           <button
@@ -950,7 +1060,7 @@ function ExpertSelesaiContent() {
         </div>
       </div>
 
-      {/* Modal Syarat & Ketentuan Kolaborasi Pakar (Narasi Gabung Direktori Pakar) */}
+      {/* Modal Syarat & Ketentuan Kolaborasi Pakar */}
       {showTermsModal && (
         <div
           style={{
@@ -979,7 +1089,6 @@ function ExpertSelesaiContent() {
               overflow: 'hidden',
             }}
           >
-            {/* Header Modal */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 20 }}>📜</span>
@@ -996,10 +1105,9 @@ function ExpertSelesaiContent() {
               </button>
             </div>
 
-            {/* Isi Narasi Klausul Direktori Pakar */}
             <div style={{ padding: '20px 24px', overflowY: 'auto', fontSize: 13, lineHeight: 1.65, color: '#334155' }}>
               <p style={{ margin: '0 0 12px' }}>
-                Selamat bergabung dalam ekosistem riset <strong>Direktori Pakar Analytic Hierarchy Process (AHP)</strong>[cite: 10]. Dengan mengonfirmasi ketersediaan profil Anda sebagai pakar penilai, Anda memahami dan menyetujui prinsip kolaborasi berikut:
+                Selamat bergabung dalam ekosistem riset <strong>Direktori Pakar Analytic Hierarchy Process (AHP)</strong>. Dengan mengonfirmasi ketersediaan profil Anda sebagai pakar penilai, Anda memahami dan menyetujui prinsip kolaborasi berikut:
               </p>
 
               <ol style={{ paddingLeft: 20, margin: '0 0 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1021,7 +1129,6 @@ function ExpertSelesaiContent() {
               </ol>
             </div>
 
-            {/* Footer Modal */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
               <button
                 type="button"
@@ -1048,7 +1155,7 @@ function ExpertSelesaiContent() {
         </div>
       )}
 
-      {/* Modal E-Sertifikat Elegan & Lengkap */}
+      {/* Modal E-Sertifikat */}
       {showCertModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.78)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, padding: 16 }}>
           <div style={{ background: '#fff', padding: 20, borderRadius: 14, maxWidth: 980, width: '100%', maxHeight: '96vh', overflowY: 'auto' }}>
@@ -1057,7 +1164,6 @@ function ExpertSelesaiContent() {
               <button onClick={() => setShowCertModal(false)} style={{ border: 'none', background: 'none', fontSize: 20, cursor: 'pointer', color: '#64748b' }}>✕</button>
             </div>
 
-            {/* Area Cetak Sertifikat Berbingkai Ornamen Ganda */}
             <div
               id="certificate-download-area"
               style={{
@@ -1071,7 +1177,6 @@ function ExpertSelesaiContent() {
                 overflow: 'hidden',
               }}
             >
-              {/* Header / Logo Platform Di Pojok Kiri Atas */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #1e3a8a', paddingBottom: 14, marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                   <img
@@ -1099,7 +1204,6 @@ function ExpertSelesaiContent() {
                 </div>
               </div>
 
-              {/* Judul Sertifikat (Line-Height 1.2) */}
               <div style={{ textAlign: 'center', marginTop: 10, marginBottom: 16 }}>
                 <h1
                   style={{
@@ -1130,7 +1234,6 @@ function ExpertSelesaiContent() {
                 <div style={{ width: 160, height: 2, background: '#d97706', margin: '10px auto 0' }} />
               </div>
 
-              {/* Penerima Sertifikat (Underline Dihapus) */}
               <div style={{ textAlign: 'center', marginBottom: 18 }}>
                 <p
                   style={{
@@ -1168,7 +1271,6 @@ function ExpertSelesaiContent() {
                 </div>
               </div>
 
-              {/* Narasi Apresiasi */}
               <div
                 style={{
                   textAlign: 'center',
@@ -1192,10 +1294,9 @@ function ExpertSelesaiContent() {
                 >
                   "{project.namaproyek}"
                 </div>
-                Hasil penilaian telah divalidasi dengan nilai rasio konsistensi ilmiah dan tersimpan permanen pada basis data audit sistem[cite: 10].
+                Hasil penilaian telah divalidasi dengan nilai rasio konsistensi ilmiah dan tersimpan permanen pada basis data audit sistem.
               </div>
 
-              {/* Area Tanda Tangan & QR Code dengan Kesejajaran Presisi */}
               <div
                 style={{
                   display: 'grid',
@@ -1209,7 +1310,6 @@ function ExpertSelesaiContent() {
                   position: 'relative',
                 }}
               >
-                {/* 1. Blok Peneliti / Fasilitator Utama */}
                 <div style={{ textAlign: 'center', position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, minHeight: 28, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     Peneliti / Fasilitator Utama,
@@ -1256,7 +1356,6 @@ function ExpertSelesaiContent() {
                   </div>
                 </div>
 
-                {/* 2. QR Code Verifikasi Tengah */}
                 <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2 }}>
                   <div style={{ minHeight: 28 }} />
                   <img
@@ -1267,7 +1366,6 @@ function ExpertSelesaiContent() {
                   <span style={{ fontSize: 8.5, color: '#64748b', marginTop: 4 }}>Pindai untuk Validasi</span>
                 </div>
 
-                {/* 3. Blok Administrator Platform */}
                 <div style={{ textAlign: 'center', position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ fontSize: 11, color: '#475569', fontWeight: 700, minHeight: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 20 }}>
                     Administrator Platform,
@@ -1318,7 +1416,6 @@ function ExpertSelesaiContent() {
               </div>
             </div>
 
-            {/* Tombol Aksi Modal */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
               <button
                 type="button"

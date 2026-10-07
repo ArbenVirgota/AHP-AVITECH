@@ -16,6 +16,11 @@ interface ExpertItem {
   expertemail: string;
   expertwhatsapp: string;
   token: string;
+  status?: string;
+  response_status?: string;
+  is_confirmed?: boolean | number;
+  isconfirmed?: boolean;
+  [key: string]: any;
 }
 
 interface ProjectDetail {
@@ -143,6 +148,7 @@ function ExpertMainContent() {
   const [error, setError] = useState('');
   
   const [step, setStep] = useState<'welcome' | 'matrix'>('welcome');
+  const [isLocked, setIsLocked] = useState(false);
 
   const [expert, setExpert] = useState<ExpertItem | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
@@ -200,6 +206,7 @@ function ExpertMainContent() {
         const bd = json.data;
         const rawExp = bd.expert;
         const rawProj = bd.project;
+        const rawResponses = bd.responses || [];
 
         const validProjectId = String(rawProj.id || rawProj.project_id || rawProj.projectid || '').trim();
         const validExpertId = String(rawExp.id || rawExp.expert_id || rawExp.expertid || '').trim();
@@ -215,6 +222,23 @@ function ExpertMainContent() {
         const ps = rawProj.punya_subkriteria ?? rawProj.punyasubkriteria;
         const hasSub = ps === true || ps === 1 || ps === '1' || ps === 'true';
 
+        // Deteksi status konfirmasi penguncian dari tabel pakar maupun tabel respons
+        const isExpConfirmed = Boolean(
+          rawExp.is_confirmed === 1 ||
+          rawExp.is_confirmed === true ||
+          rawExp.isconfirmed === true ||
+          String(rawExp.status || '').toLowerCase() === 'selesai' ||
+          String(rawExp.response_status || '').toLowerCase() === 'confirmed'
+        );
+
+        const areResponsesConfirmed = Array.isArray(rawResponses) && rawResponses.length > 0 && rawResponses.some(
+          (r: any) => r.is_confirmed === 1 || r.is_confirmed === true || r.isconfirmed === true
+        );
+
+        if (isExpConfirmed || areResponsesConfirmed) {
+          setIsLocked(true);
+        }
+
         const exp: ExpertItem = {
           ...rawExp,
           id: validExpertId,
@@ -223,6 +247,7 @@ function ExpertMainContent() {
           gelarbelakang: String(rawExp.gelar_belakang || rawExp.gelarbelakang || '').trim(),
           asalinstansi: String(rawExp.asal_instansi || rawExp.asalinstansi || rawExp.instansi || '').trim(),
           projectid: validProjectId,
+          is_confirmed: isExpConfirmed || areResponsesConfirmed,
         };
 
         const proj: ProjectDetail = {
@@ -240,7 +265,6 @@ function ExpertMainContent() {
         const rawCrit = bd.criteria || [];
         const rawSub = bd.subcriteria || [];
         const rawAlt = bd.alternatif || [];
-        const rawResponses = bd.responses || [];
 
         const mappedCriteria = rawCrit.map((c: any) => ({
           id: String(c.id || c.criteria_id || c.criteriaid || ''),
@@ -566,6 +590,47 @@ function ExpertMainContent() {
     );
   }
 
+  // 🟢 LAYAR TERKUNCI JIKA KUESIONER SUDAH DIKONFIRMASI
+  if (isLocked) {
+    const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
+    const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
+    const expertFullName = `${gD}${expert.expertname || 'Pakar Responden'}${gB}`.trim();
+
+    return (
+      <div style={STYLES.page}>
+        <style jsx global>{GLOBAL_HIDE_CSS}</style>
+        <div style={STYLES.container}>
+          <div style={{ ...STYLES.card, textAlign: 'center', padding: '36px 30px' }}>
+            <div style={{ fontSize: 50, marginBottom: 12 }}>🔒</div>
+            <span style={{ ...STYLES.badge, background: '#dcfce7', color: '#166534', borderColor: '#bbf7d0', marginBottom: 12 }}>
+              Status: Penilaian Telah Dikonfirmasi &amp; Selesai
+            </span>
+            <h1 style={{ ...STYLES.title, fontSize: 22, marginTop: 10 }}>
+              Kuesioner Telah Dikonfirmasi &amp; Dikunci
+            </h1>
+            <p style={{ ...STYLES.desc, maxWidth: 540, margin: '0 auto 24px', lineHeight: 1.6 }}>
+              Yth. Bapak/Ibu <strong>{expertFullName}</strong>, seluruh penilaian matriks perbandingan berpasangan (Pairwise Comparison) untuk proyek <strong>"{project.namaproyek}"</strong> telah berhasil dikonfirmasi ke peneliti dan terekam secara permanen di database. Sesi pengisian kuesioner ini telah ditutup.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 420, margin: '0 auto' }}>
+              <button
+                type="button"
+                onClick={() => router.push(`/expert/selesai?token=${encodeURIComponent(token || '')}`)}
+                style={{
+                  ...STYLES.btnPrimary,
+                  background: '#1d4ed8',
+                  boxShadow: '0 4px 12px rgba(29, 78, 216, 0.25)',
+                }}
+              >
+                📜 Buka Halaman Selesai &amp; E-Sertifikat Apresiasi →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (step === 'welcome') {
     const gD = expert.gelardepan ? `${expert.gelardepan} ` : '';
     const gB = expert.gelarbelakang ? `, ${expert.gelarbelakang}` : '';
@@ -817,7 +882,7 @@ const STYLES: Record<string, React.CSSProperties> = {
   btnPrimary: { padding: '12px 20px', background: '#0f766e', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, transition: 'all 0.2s', cursor: 'pointer' },
   btnSecondary: { padding: '12px 20px', background: '#e2e8f0', color: '#0f172a', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: 'pointer' },
   badge: { fontSize: 11.5, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '4px 10px', borderRadius: 999, fontWeight: 700, display: 'inline-block' },
-  crSuccess: { fontSize: 12.5, fontWeight: 700, color: '#16a34a', background: '#dcfce7', padding: '4px 10px', borderRadius: 999, border: '1px solid #bbf7d0' },
+  crSuccess: { fontSize: 12.5, fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '4px 10px', borderRadius: 999, border: '1px solid #bbf7d0' },
   crError: { fontSize: 12.5, fontWeight: 700, color: '#dc2626', background: '#fee2e2', padding: '4px 10px', borderRadius: 999, border: '1px solid #fecaca' },
   scrollableArea: { flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', paddingRight: '8px', paddingBottom: '16px' },
   sliderCard: { border: '1px solid #e2e8f0', borderRadius: 12, padding: 14, background: '#f8fafc' },
