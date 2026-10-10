@@ -24,6 +24,12 @@
     "react-dom": "^18",
     "react-joyride": "^3.2.0"
   },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.0"
+    }
+  },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
