@@ -13,6 +13,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "chart.js": "^4.5.1",
+    "deepmerge-ts": "^8.0.0",
     "dotenv": "^18.0.4",
     "html2pdf.js": "^0.14.0",
     "mysql2": "^3.24.4",
@@ -22,6 +23,12 @@
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^18",
     "react-joyride": "^3.2.0"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.0"
+    }
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
