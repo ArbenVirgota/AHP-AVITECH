@@ -31,6 +31,7 @@
     }
   },
   "devDependencies": {
+    "@eslint/plugin-kit": "^0.3.4",
     "@types/bcrypt": "^6.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
@@ -38,7 +39,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@types/react-joyride": "^2.0.2",
-    "eslint": "^9.20.0",
+    "eslint": "^9.26.0",
     "eslint-config-next": "^16.4.0",
     "prisma": "^6.12.0",
     "typescript": "^5"
