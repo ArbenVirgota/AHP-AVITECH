@@ -13,14 +13,22 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const token = String(body.token || '').trim();
     const pagePath = String(body.page || body.path || '/').trim();
-    const email = String(body.email || body.user_email || 'Visitor Umum').trim();
-    const name = String(body.name || body.user_name || 'Visitor Umum').trim();
-    const ip =
-      request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
-      request.headers.get('x-real-ip') ||
-      '127.0.0.1';
+    
+    // Normalisasi identitas pengunjung
+    const rawEmail = String(body.email || body.user_email || '').trim();
+    const rawName = String(body.name || body.user_name || '').trim();
 
-    // 1. Jika ada token pakar, perbarui status pengisian kuesioner
+    const isRegistered = rawEmail && rawEmail !== 'Visitor Umum' && rawEmail.includes('@');
+    const finalEmail = isRegistered ? rawEmail.toLowerCase() : 'Visitor Umum';
+    const finalName = isRegistered 
+      ? (rawName && rawName !== 'Visitor Umum' ? rawName : rawEmail.split('@')[0]) 
+      : 'Visitor Umum';
+
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const realIp = request.headers.get('x-real-ip');
+    const ip = (forwardedFor ? forwardedFor.split(',')[0] : realIp || '127.0.0.1').trim();
+
+    // 1. Jika ada token pakar, perbarui status pengisian kuesioner (Fungsi Asli Tetap Berjalan)
     if (token) {
       await prisma.$executeRawUnsafe(`
         UPDATE \`AHP - project_experts\`
@@ -46,7 +54,7 @@ export async function POST(request: Request) {
         ?,
         ?
       )
-    `, email, name, pagePath, ip);
+    `, finalEmail, finalName, pagePath, ip);
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

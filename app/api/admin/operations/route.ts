@@ -28,7 +28,57 @@ export async function GET() {
       prisma.$queryRawUnsafe<any[]>(`SELECT \`ticket_id\`, \`expert_id\`, \`expert_email\`, \`user_name\`, \`user_email\`, \`asal_institusi\`, \`pertanyaan\`, \`status\`, \`jawaban_expert\`, \`lampiran\`, COALESCE(NULLIF(DATE_FORMAT(\`created_at\`, '%Y-%m-%d %H:%i:%s'), '0000-00-00 00:00:00'), DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')) AS \`created_at\` FROM \`AHP - ConsultationRequests\` ORDER BY \`created_at\` DESC`).catch(() => []),
       prisma.$queryRawUnsafe<any[]>(`SELECT \`ID Tiket\` AS \`ID_Tiket\`, \`Nama User\` AS \`Nama_User\`, \`Kontak User\` AS \`Kontak_User\`, \`Expert Tujuan\` AS \`Expert_Tujuan\`, \`Topik Pesan\` AS \`Topik_Pesan\`, \`Status\`, \`Isi_Email\`, COALESCE(NULLIF(DATE_FORMAT(\`Tanggal Dibuat\`, '%Y-%m-%d %H:%i:%s'), '0000-00-00 00:00:00'), DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')) AS \`Tanggal_Dibuat\` FROM \`AHP - consultations\` ORDER BY \`Tanggal Dibuat\` DESC`).catch(() => []),
       (async () => { try { const rawFb: any[] = await prisma.$queryRawUnsafe(`SELECT \`id\`, \`Nama\`, \`Email\`, \`Kategori\`, \`Pesan\`, COALESCE(\`Sentimen\`, 'NETRAL') AS \`Sentimen\`, COALESCE(NULLIF(DATE_FORMAT(\`Timestamp\`, '%Y-%m-%d %H:%i:%s'), '0000-00-00 00:00:00'), DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')) AS \`safe_timestamp\` FROM \`AHP - Feedback\` ORDER BY \`Timestamp\` DESC`); return (rawFb || []).map((f) => ({ id: f.id, nama: f.Nama, email: f.Email, kategori: f.Kategori, pesan: f.Pesan, sentiment: f.Sentimen, timestamp: f.safe_timestamp })); } catch { return []; } })(),
-      (async () => { try { const logs: any[] = await prisma.$queryRawUnsafe(`SELECT \`id\`, COALESCE(NULLIF(DATE_FORMAT(\`timestamp\`, '%Y-%m-%d %H:%i:%s'), '0000-00-00 00:00:00'), DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')) AS \`safe_timestamp\`, \`user_email\` AS \`email\`, COALESCE(\`visitor_name\`, 'Visitor Umum') AS \`visitor_name\`, \`page_path\` AS \`page\`, \`ip_address\` FROM \`AHP - visitor_logs\` ORDER BY \`id\` DESC LIMIT 500`); return (logs || []).map((row) => { const email = String(row.email || 'Visitor Umum').trim(); const page = String(row.page || '/').trim(); return { id: Number(row.id), timestamp: row.safe_timestamp, email: email, name: String(row.visitor_name || 'Visitor Umum').trim(), page: page, ip_address: row.ip_address || '127.0.0.1', role: email.toLowerCase().includes('admin') || page.startsWith('/admin') ? 'admin' : (email !== 'Visitor Umum' && email !== '' ? 'user' : 'guest') }; }); } catch { return []; } })(),
+      (async () => {
+        try {
+          const logs: any[] = await prisma.$queryRawUnsafe(`
+            SELECT 
+              \`id\`,
+              COALESCE(NULLIF(DATE_FORMAT(\`timestamp\`, '%Y-%m-%d %H:%i:%s'), '0000-00-00 00:00:00'), DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')) AS \`safe_timestamp\`,
+              \`user_email\` AS \`email\`,
+              COALESCE(\`visitor_name\`, 'Visitor Umum') AS \`visitor_name\`,
+              \`page_path\` AS \`page\`,
+              \`ip_address\`
+            FROM \`AHP - visitor_logs\`
+            ORDER BY \`id\` DESC
+            LIMIT 500
+          `);
+
+          return (logs || []).map((row) => {
+            const email = String(row.email || 'Visitor Umum').trim();
+            const page = String(row.page || '/').trim();
+            const lowerEmail = email.toLowerCase();
+            const lowerPage = page.toLowerCase();
+
+            // Klasifikasi role yang presisi tanpa merusak fungsi yang sudah berjalan
+            let role = 'guest';
+
+            if (lowerEmail.includes('admin') || lowerPage.startsWith('/admin')) {
+              role = 'admin';
+            } else if (
+              (email !== 'Visitor Umum' && email !== '' && email.includes('@')) ||
+              lowerPage.startsWith('/user/') ||
+              lowerPage.startsWith('/proyek/') ||
+              lowerPage.startsWith('/dashboard') ||
+              lowerPage.startsWith('/buat-proyek')
+            ) {
+              // Jika memiliki email valid atau sedang berada di workspace aplikasi, catat sebagai user terdaftar
+              role = 'user';
+            }
+
+            return {
+              id: Number(row.id),
+              timestamp: row.safe_timestamp,
+              email: email,
+              name: String(row.visitor_name || 'Visitor Umum').trim(),
+              page: page,
+              ip_address: row.ip_address || '127.0.0.1',
+              role: role,
+            };
+          });
+        } catch {
+          return [];
+        }
+      })(),
     ]);
 
     return NextResponse.json({
@@ -59,7 +109,7 @@ export async function POST(request: Request) {
 
     if (action === 'updateconsultationstatus') {
       const { ticket_id, new_status } = body;
-      await prisma.$executeRawUnsafe('UPDATE `AHP - ConsultationRequests` SET `status` = ? WHERE `ticket`_id = ?', new_status, ticket_id).catch(() => {});
+      await prisma.$executeRawUnsafe('UPDATE `AHP - ConsultationRequests` SET `status` = ? WHERE `ticket_id` = ?', new_status, ticket_id).catch(() => {});
       await prisma.$executeRawUnsafe('UPDATE `AHP - consultations` SET `Status` = ? WHERE `ID Tiket` = ?', new_status, ticket_id).catch(() => {});
       return NextResponse.json({ success: true, message: 'Status tiket berhasil diperbarui.' });
     }

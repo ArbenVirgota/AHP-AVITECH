@@ -3,6 +3,7 @@
 
 import { Suspense, useEffect, useRef } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { getSession } from '@/lib/auth';
 
 function VisitorTrackerCore() {
   const pathname = usePathname();
@@ -21,22 +22,52 @@ function VisitorTrackerCore() {
     if (prevTrackedUrl.current === currentFullUrl) return;
     prevTrackedUrl.current = currentFullUrl;
 
-    // Ambil identitas pengguna/admin yang tersimpan di localStorage
     let email = 'Visitor Umum';
     let name = 'Visitor Umum';
+    let role = 'guest';
 
     try {
-      const adminEmail = localStorage.getItem('admin_email');
-      const adminName = localStorage.getItem('admin_name');
-      const userEmail = localStorage.getItem('user_email');
-      const userName = localStorage.getItem('user_name');
+      // 1. Cek sesi utama via auth helper (SSOT)
+      const session = typeof getSession === 'function' ? getSession() : null;
+      if (session && session.email) {
+        email = String(session.email).trim();
+        name = String(session.nama || session.name || email.split('@')[0]).trim();
+        role = String(session.status_user || session.role || 'user').trim();
+      } else if (typeof window !== 'undefined') {
+        // 2. Cek penyimpanan sesi admin
+        const adminEmail = localStorage.getItem('admin_email');
+        const adminName = localStorage.getItem('admin_name');
 
-      if (adminEmail) {
-        email = adminEmail;
-        name = adminName || 'Admin Operator';
-      } else if (userEmail) {
-        email = userEmail;
-        name = userName || 'User Terdaftar';
+        // 3. Cek penyimpanan sesi user (berbagai variasi key lokal)
+        const userEmail = 
+          localStorage.getItem('user_email') || 
+          localStorage.getItem('email');
+        const userName = 
+          localStorage.getItem('user_name') || 
+          localStorage.getItem('nama');
+
+        if (adminEmail && adminEmail !== 'Visitor Umum') {
+          email = adminEmail;
+          name = adminName || 'Admin Operator';
+          role = 'admin';
+        } else if (userEmail && userEmail !== 'Visitor Umum') {
+          email = userEmail;
+          name = userName || userEmail.split('@')[0];
+          role = 'user';
+        } else {
+          // 4. Cadangan ekstra: periksa session object di localStorage
+          const savedSessionRaw = localStorage.getItem('user_session') || localStorage.getItem('ahp_user_data');
+          if (savedSessionRaw) {
+            try {
+              const parsed = JSON.parse(savedSessionRaw);
+              if (parsed?.email && parsed.email !== 'Visitor Umum') {
+                email = parsed.email;
+                name = parsed.nama || parsed.name || parsed.email.split('@')[0];
+                role = parsed.status_user || parsed.role || 'user';
+              }
+            } catch {}
+          }
+        }
       }
     } catch {}
 
@@ -48,8 +79,10 @@ function VisitorTrackerCore() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         page: pathname,
+        path: pathname,
         email,
         name,
+        role,
         token,
       }),
       keepalive: true,
